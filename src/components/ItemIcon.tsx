@@ -1,6 +1,7 @@
 import { type GameItem } from "@/data/items";
 import { motion, AnimatePresence } from "framer-motion";
 import { useState } from "react";
+import { useLanguage } from "@/i18n/context";
 
 interface ItemIconProps {
   item: GameItem;
@@ -37,13 +38,15 @@ export const ItemIcon = ({ item, size = "md", showTooltip = true, className = ""
 };
 
 const ItemTooltip = ({ item }: { item: GameItem }) => {
+  const { lang, t } = useLanguage();
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 6, scale: 0.96 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
       exit={{ opacity: 0, y: 6, scale: 0.96 }}
       transition={{ duration: 0.15 }}
-      className="absolute z-50 bottom-full left-1/2 -translate-x-1/2 mb-3 w-72 pointer-events-none"
+      className="absolute z-50 bottom-full left-1/2 -translate-x-1/2 mb-3 w-80 pointer-events-none"
     >
       <div className="glass-surface rounded-lg p-4 shadow-2xl shadow-black/50">
         {/* Header */}
@@ -54,14 +57,17 @@ const ItemTooltip = ({ item }: { item: GameItem }) => {
           <div className="flex-1 min-w-0">
             <h4 className="font-heading text-sm font-bold text-primary leading-tight">{item.name}</h4>
             <div className="flex items-center gap-2 mt-0.5">
-              <span className="text-xs text-primary/80 font-semibold">{item.cost} gold</span>
-              <div className="flex gap-1">
-                {item.tags.slice(0, 3).map((tag) => (
-                  <span key={tag} className="text-[10px] px-1.5 py-0.5 rounded bg-secondary text-muted-foreground">
-                    {tag}
-                  </span>
-                ))}
-              </div>
+              <span className="text-xs text-primary/80 font-semibold">{item.cost} {t("items.gold")}</span>
+              {item.combineCost && (
+                <span className="text-[10px] text-muted-foreground">({t("items.recipe")}: {item.combineCost})</span>
+              )}
+            </div>
+            <div className="flex gap-1 mt-1">
+              {item.tags.slice(0, 4).map((tag) => (
+                <span key={tag} className="text-[9px] px-1.5 py-0.5 rounded bg-secondary text-muted-foreground">
+                  {tag}
+                </span>
+              ))}
             </div>
           </div>
         </div>
@@ -84,10 +90,27 @@ const ItemTooltip = ({ item }: { item: GameItem }) => {
           <>
             <div className="h-px bg-gradient-to-r from-transparent via-border to-transparent mb-2" />
             <div className="mb-3">
-              {item.passiveName && (
-                <span className="text-[11px] font-semibold text-primary">Passive: {item.passiveName}</span>
-              )}
-              <p className="text-[11px] text-muted-foreground leading-relaxed mt-0.5">{item.passive}</p>
+              <span className="text-[11px] font-semibold text-primary">
+                {t("items.passive")}{item.passiveName ? `: ${item.passiveName}` : ""}
+              </span>
+              <p className="text-[11px] text-muted-foreground leading-relaxed mt-0.5">
+                {item.passive[lang]}
+              </p>
+            </div>
+          </>
+        )}
+
+        {/* Active */}
+        {item.active && (
+          <>
+            <div className="h-px bg-gradient-to-r from-transparent via-border to-transparent mb-2" />
+            <div className="mb-3">
+              <span className="text-[11px] font-semibold text-accent">
+                {t("items.active")}{item.activeName ? `: ${item.activeName}` : ""}
+              </span>
+              <p className="text-[11px] text-muted-foreground leading-relaxed mt-0.5">
+                {item.active[lang]}
+              </p>
             </div>
           </>
         )}
@@ -97,8 +120,8 @@ const ItemTooltip = ({ item }: { item: GameItem }) => {
           <>
             <div className="h-px bg-gradient-to-r from-transparent via-border to-transparent mb-2" />
             <div>
-              <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Composants</span>
-              <div className="flex items-center gap-2 mt-1.5">
+              <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">{t("items.components")}</span>
+              <div className="flex items-center gap-2 mt-1.5 flex-wrap">
                 {item.components.map((comp, i) => (
                   <div key={i} className="flex items-center gap-1">
                     <div className="w-6 h-6 rounded border border-border/50 overflow-hidden">
@@ -107,7 +130,9 @@ const ItemTooltip = ({ item }: { item: GameItem }) => {
                     <span className="text-[10px] text-muted-foreground">{comp.cost}g</span>
                   </div>
                 ))}
-                <span className="text-[10px] text-muted-foreground ml-1">+ recette</span>
+                {item.combineCost && (
+                  <span className="text-[10px] text-muted-foreground ml-1">+ {t("items.recipe")}</span>
+                )}
               </div>
             </div>
           </>

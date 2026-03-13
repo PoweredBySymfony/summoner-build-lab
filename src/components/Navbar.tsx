@@ -1,15 +1,17 @@
 import { Link, useLocation } from "react-router-dom";
-import { Swords, LayoutDashboard, BookOpen, User, Trophy, Zap } from "lucide-react";
-
-const navItems = [
-  { path: "/", label: "Accueil", icon: Zap },
-  { path: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { path: "/modules", label: "Modules", icon: BookOpen },
-  { path: "/profile", label: "Profil", icon: User },
-];
+import { Swords, LayoutDashboard, BookOpen, User, Trophy, Zap, Globe } from "lucide-react";
+import { useLanguage } from "@/i18n/context";
 
 const Navbar = () => {
   const location = useLocation();
+  const { lang, setLang, t } = useLanguage();
+
+  const navItems = [
+    { path: "/", label: t("nav.home"), icon: Zap },
+    { path: "/dashboard", label: t("nav.dashboard"), icon: LayoutDashboard },
+    { path: "/modules", label: t("nav.modules"), icon: BookOpen },
+    { path: "/profile", label: t("nav.profile"), icon: User },
+  ];
 
   return (
     <nav className="fixed top-0 left-0 right-0 z-50 glass-surface border-b border-border/40">
@@ -48,14 +50,25 @@ const Navbar = () => {
           })}
         </div>
 
-        {/* CTA */}
-        <Link
-          to="/training"
-          className="flex items-center gap-2 h-10 px-5 rounded-lg bg-gradient-to-r from-primary to-yellow-600 text-primary-foreground font-semibold text-sm shadow-lg shadow-primary/25 hover:shadow-primary/40 transition-all hover:scale-[1.02] active:scale-[0.98]"
-        >
-          <Trophy className="w-4 h-4" />
-          <span className="hidden sm:inline">S'entraîner</span>
-        </Link>
+        <div className="flex items-center gap-3">
+          {/* Language toggle */}
+          <button
+            onClick={() => setLang(lang === "fr" ? "en" : "fr")}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-secondary transition-all border border-transparent hover:border-border/40"
+          >
+            <Globe className="w-3.5 h-3.5" />
+            <span className="uppercase">{lang}</span>
+          </button>
+
+          {/* CTA */}
+          <Link
+            to="/training"
+            className="flex items-center gap-2 h-10 px-5 rounded-lg bg-gradient-to-r from-primary to-yellow-600 text-primary-foreground font-semibold text-sm shadow-lg shadow-primary/25 hover:shadow-primary/40 transition-all hover:scale-[1.02] active:scale-[0.98]"
+          >
+            <Trophy className="w-4 h-4" />
+            <span className="hidden sm:inline">{t("nav.train")}</span>
+          </Link>
+        </div>
       </div>
     </nav>
   );
