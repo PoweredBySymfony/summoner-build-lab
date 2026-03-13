@@ -551,5 +551,3 @@ export const ITEMS: Record<string, GameItem> = {
 
 export const getItem = (id: string): GameItem | undefined => ITEMS[id];
 export const getAllItems = (): GameItem[] => Object.values(ITEMS);
-
-export type { GameItem, ItemStat, ItemComponent };
