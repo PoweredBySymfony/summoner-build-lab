@@ -3,7 +3,7 @@ import { fr } from "./translations/fr";
 import { en } from "./translations/en";
 
 type Language = "fr" | "en";
-type Translations = typeof fr;
+type Translations = Record<string, any>;
 
 const translations: Record<Language, Translations> = { fr, en };
 
