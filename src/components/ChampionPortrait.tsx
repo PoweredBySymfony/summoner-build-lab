@@ -1,4 +1,5 @@
-import { Champion } from "@/data/items";
+import { Champion } from "@/data/champions";
+import { useLanguage } from "@/i18n/context";
 
 interface ChampionPortraitProps {
   champion: Champion;
@@ -13,6 +14,8 @@ const sizeMap = {
 };
 
 const ChampionPortrait = ({ champion, size = "md", showInfo = false }: ChampionPortraitProps) => {
+  const { lang } = useLanguage();
+
   return (
     <div className="flex flex-col items-center gap-1">
       <div
@@ -25,7 +28,7 @@ const ChampionPortrait = ({ champion, size = "md", showInfo = false }: ChampionP
       {showInfo && (
         <div className="text-center">
           <p className="text-[10px] font-medium text-foreground leading-none">{champion.name}</p>
-          <p className="text-[9px] text-muted-foreground">{champion.role}</p>
+          <p className="text-[9px] text-muted-foreground">{champion.roles[0]}</p>
         </div>
       )}
     </div>
