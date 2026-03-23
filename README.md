@@ -1,73 +1,155 @@
-# Welcome to your Lovable project
+# Summoner Build Lab
 
-## Project info
+Application Vite/React + API Node/Express pour apprendre l'itemisation sur League of Legends via des puzzles pedagogiques. Le projet tourne maintenant avec PostgreSQL, Prisma, un seed metier LoL, et une couche Riot centralisee et securisee.
 
-**URL**: https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID
+## Stack
 
-## How can I edit this code?
+- Frontend: Vite, React, TypeScript, React Query, shadcn/ui
+- Backend: Node.js, Express, TypeScript
+- ORM: Prisma
+- Base de donnees: PostgreSQL
+- Infra locale: Docker Compose
 
-There are several ways of editing your application.
+## Variables d'environnement
 
-**Use Lovable**
+Copier `.env.example` vers `.env`, puis renseigner les valeurs.
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and start prompting.
+Variables attendues:
 
-Changes made via Lovable will be committed automatically to this repo.
+- `POSTGRES_DB`
+- `POSTGRES_USER`
+- `POSTGRES_PASSWORD`
+- `DATABASE_URL`
+- `RIOT_API_KEY`
+- `RIOT_REGION`
+- `RIOT_PLATFORM`
+- `PORT`
+- `CLIENT_URL`
+- `DEMO_USER_USERNAME`
 
-**Use your preferred IDE**
+Important:
 
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
+- ne jamais hardcoder la cle Riot
+- toute lecture se fait via `RIOT_API_KEY`
+- la cle n'est pas loggee
 
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
+## Demarrage rapide
 
-Follow these steps:
+1. Installer les dependances:
 
-```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
+```bash
+npm install
+```
 
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
+2. Lancer PostgreSQL:
 
-# Step 3: Install the necessary dependencies.
-npm i
+```bash
+docker compose up -d
+```
 
-# Step 4: Start the development server with auto-reloading and an instant preview.
+3. Generer Prisma, migrer et seeder:
+
+```bash
+npm run prisma:generate
+npm run prisma:migrate -- --name init
+npm run prisma:seed
+```
+
+4. Lancer le projet en dev:
+
+```bash
 npm run dev
 ```
 
-**Edit a file directly in GitHub**
+Frontend:
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+- `http://localhost:8080`
 
-**Use GitHub Codespaces**
+API:
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
+- `http://localhost:3001/api`
 
-## What technologies are used for this project?
+PostgreSQL local:
 
-This project is built with:
+- host `localhost`
+- port `5433`
 
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
+## Scripts utiles
 
-## How can I deploy this project?
+```bash
+npm run dev
+npm run dev:client
+npm run dev:server
+npm run build
+npm run prisma:generate
+npm run prisma:migrate
+npm run prisma:studio
+npm run prisma:seed
+npm run db:up
+npm run db:down
+```
 
-Simply open [Lovable](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and click on Share -> Publish.
+## Ce qui fonctionne deja
 
-## Can I connect a custom domain to my Lovable project?
+- base PostgreSQL dockerisee avec volume persistant et healthcheck
+- schema Prisma metier pour users, champions, items, puzzles, tags, attempts et relations d'items
+- migration initiale Prisma
+- seed metier avec 19 champions, 37 items, 11 puzzles realistes
+- API Express pour `bootstrap`, `modules`, `puzzles`, `dashboard`, `profile`
+- persistance d'une tentative via `POST /api/puzzles/:slug/attempts`
+- frontend branche sur les vraies donnees Prisma via l'API
+- liste de puzzles, detail puzzle, validation de reponse et feedback pedagogique
+- client Riot centralise dans `server/src/lib/riot/riotApiClient.ts`
 
-Yes, you can!
+## Riot API
 
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
+Toute integration Riot passe par:
 
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
+- `server/src/lib/riot/riotApiClient.ts`
+- `server/src/services/riotSyncService.ts`
+
+Gestion prevue:
+
+- header `X-Riot-Token`
+- timeouts
+- erreurs `401`, `403`, `404`, `429`
+- base pour sync account/matches plus tard
+
+Tant que `RIOT_API_KEY` est vide, les endpoints Riot renverront une erreur propre au lieu de casser l'application.
+
+## Structure
+
+```text
+prisma/
+  schema.prisma
+  seed.ts
+server/
+  src/
+    config/
+    lib/
+    repositories/
+    routes/
+    services/
+src/
+  api/
+  components/
+  pages/
+  types/
+```
+
+## Verification effectuee
+
+- `npx prisma validate`
+- `npm run prisma:migrate -- --name init`
+- `npm run prisma:seed`
+- `npm run build`
+- smoke tests API sur:
+  - `GET /api/bootstrap`
+  - `GET /api/puzzles`
+  - `GET /api/puzzles/:slug`
+  - `POST /api/puzzles/:slug/attempts`
+
+## Notes
+
+- le port PostgreSQL expose est `5433` car `5432` etait deja occupe sur la machine
+- le frontend build actuellement avec un warning de chunk Vite > 500 kB, sans bloquer le projet

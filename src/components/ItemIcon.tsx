@@ -1,4 +1,4 @@
-import { type GameItem } from "@/data/items";
+import type { GameItem } from "@/types/domain";
 import { motion, AnimatePresence } from "framer-motion";
 import { useState } from "react";
 import { useLanguage } from "@/i18n/context";

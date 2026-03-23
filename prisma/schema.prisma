@@ -1,0 +1,234 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum LanguageCode {
+  fr
+  en
+}
+
+enum Role {
+  TOP
+  JUNGLE
+  MID
+  ADC
+  SUPPORT
+  FLEX
+}
+
+enum PuzzleDifficulty {
+  BEGINNER
+  INTERMEDIATE
+  ADVANCED
+}
+
+enum PuzzleChoiceType {
+  ITEM
+  COMPONENT
+  BUILD_PATH
+  SITUATIONAL_CHOICE
+}
+
+enum ItemCategory {
+  BOOTS
+  CRIT
+  TANK
+  MAGE
+  LETHALITY
+  SUPPORT
+  BRUISER
+  MARKSMAN
+  ASSASSIN
+  FIGHTER
+  UTILITY
+  DEFENSIVE
+}
+
+enum ItemRelationType {
+  SYNERGY
+  COUNTER
+  CORE_BUILD
+  ALTERNATIVE
+}
+
+model User {
+  id             String          @id @default(cuid())
+  email          String?         @unique
+  username       String          @unique
+  preferredRoles Role[]
+  targetSkills   String[]
+  language       LanguageCode    @default(fr)
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  attempts       PuzzleAttempt[]
+
+  @@index([username])
+}
+
+model Champion {
+  id          String    @id @default(cuid())
+  riotId      Int?      @unique
+  riotKey     String?   @unique
+  name        String
+  slug        String    @unique
+  title       String?
+  primaryRole Role?
+  roles       Role[]
+  damageType  String?
+  image       String
+  tags        String[]
+  threatJson  Json?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  puzzles     Puzzle[]
+
+  @@index([name])
+  @@index([slug])
+  @@index([primaryRole])
+}
+
+model Item {
+  id              String         @id @default(cuid())
+  riotItemId      Int            @unique
+  name            String
+  slug            String         @unique
+  shortDescription Json?
+  fullDescription Json?
+  goldTotal       Int
+  goldBase        Int?
+  goldSell        Int?
+  combineCost     Int?
+  category        ItemCategory
+  statsJson       Json?
+  image           String
+  isMythic        Boolean        @default(false)
+  isLegendary     Boolean        @default(true)
+  isBoots         Boolean        @default(false)
+  activeEffect    Json?
+  passiveEffect   Json?
+  activeName      String?
+  passiveName     String?
+  componentsJson  Json?
+  tags            String[]
+  patch           String
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  puzzleChoices   PuzzleChoice[]
+  outgoingRelations ItemRelation[] @relation("ItemRelationSource")
+  incomingRelations ItemRelation[] @relation("ItemRelationTarget")
+
+  @@index([slug])
+  @@index([name])
+  @@index([category])
+  @@index([isBoots])
+  @@index([patch])
+}
+
+model Puzzle {
+  id               String            @id @default(cuid())
+  title            Json
+  slug             String            @unique
+  difficulty       PuzzleDifficulty
+  patch            String
+  description      Json
+  situation        Json
+  question         Json
+  explanation      Json
+  role             Role
+  moduleKey        String
+  championId       String?
+  enemyTeamJson    Json?
+  allyTeamJson     Json?
+  gameContextJson  Json
+  isPublished      Boolean           @default(false)
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  champion         Champion?         @relation(fields: [championId], references: [id])
+  choices          PuzzleChoice[]
+  tags             PuzzleTagOnPuzzle[]
+  attempts         PuzzleAttempt[]
+
+  @@index([slug])
+  @@index([championId])
+  @@index([isPublished])
+  @@index([difficulty])
+  @@index([patch])
+  @@index([moduleKey])
+  @@index([role])
+}
+
+model PuzzleChoice {
+  id           String           @id @default(cuid())
+  puzzleId      String
+  label         Json
+  choiceType    PuzzleChoiceType
+  itemId        String?
+  textFallback  Json?
+  explanation   Json
+  isCorrect     Boolean         @default(false)
+  displayOrder  Int
+  puzzle        Puzzle          @relation(fields: [puzzleId], references: [id], onDelete: Cascade)
+  item          Item?           @relation(fields: [itemId], references: [id])
+  attempts      PuzzleAttempt[]
+
+  @@index([puzzleId])
+  @@index([itemId])
+  @@index([displayOrder])
+}
+
+model PuzzleTag {
+  id        String            @id @default(cuid())
+  name      String
+  slug      String            @unique
+  puzzles   PuzzleTagOnPuzzle[]
+  createdAt DateTime          @default(now())
+
+  @@index([slug])
+  @@index([name])
+}
+
+model PuzzleTagOnPuzzle {
+  puzzleId    String
+  puzzleTagId String
+  puzzle      Puzzle    @relation(fields: [puzzleId], references: [id], onDelete: Cascade)
+  puzzleTag   PuzzleTag @relation(fields: [puzzleTagId], references: [id], onDelete: Cascade)
+
+  @@id([puzzleId, puzzleTagId])
+  @@index([puzzleId])
+  @@index([puzzleTagId])
+}
+
+model PuzzleAttempt {
+  id               String   @id @default(cuid())
+  userId           String
+  puzzleId         String
+  selectedChoiceId String
+  isCorrect        Boolean
+  answeredAt       DateTime @default(now())
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  puzzle           Puzzle   @relation(fields: [puzzleId], references: [id], onDelete: Cascade)
+  selectedChoice   PuzzleChoice @relation(fields: [selectedChoiceId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([puzzleId])
+  @@index([selectedChoiceId])
+  @@index([answeredAt])
+}
+
+model ItemRelation {
+  id            String           @id @default(cuid())
+  sourceItemId   String
+  targetItemId   String
+  relationType   ItemRelationType
+  note           String?
+  sourceItem     Item             @relation("ItemRelationSource", fields: [sourceItemId], references: [id], onDelete: Cascade)
+  targetItem     Item             @relation("ItemRelationTarget", fields: [targetItemId], references: [id], onDelete: Cascade)
+
+  @@index([sourceItemId])
+  @@index([targetItemId])
+  @@index([relationType])
+}

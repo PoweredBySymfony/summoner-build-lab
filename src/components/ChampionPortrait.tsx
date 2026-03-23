@@ -1,8 +1,8 @@
-import { Champion } from "@/data/champions";
+import type { ChampionView } from "@/types/domain";
 import { useLanguage } from "@/i18n/context";
 
 interface ChampionPortraitProps {
-  champion: Champion;
+  champion: ChampionView;
   size?: "sm" | "md" | "lg";
   showInfo?: boolean;
 }
