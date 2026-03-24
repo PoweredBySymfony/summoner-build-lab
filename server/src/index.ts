@@ -1,3 +1,4 @@
+import cookieParser from "cookie-parser";
 import cors from "cors";
 import express from "express";
 import { env } from "./config/env.js";
@@ -6,12 +7,22 @@ import { HttpError } from "./utils/http.js";
 
 const app = express();
 
+if (process.env.NODE_ENV !== "production" && !process.env.AUTH_SECRET) {
+  console.warn("[auth] AUTH_SECRET is missing in .env, using development fallback secret.");
+}
+
 app.use(
   cors({
     origin: env.CLIENT_URL,
+    credentials: true,
   }),
 );
-app.use(express.json());
+app.use(cookieParser());
+app.use(express.json({ limit: "1mb" }));
+app.use((request, _response, next) => {
+  console.log(`[api] ${request.method} ${request.originalUrl}`);
+  next();
+});
 app.use("/api", appRoutes);
 
 app.use((error: unknown, _request: express.Request, response: express.Response, _next: express.NextFunction) => {

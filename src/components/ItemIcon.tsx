@@ -1,7 +1,6 @@
 import type { GameItem } from "@/types/domain";
 import { motion, AnimatePresence } from "framer-motion";
 import { useState } from "react";
-import { useLanguage } from "@/i18n/context";
 
 interface ItemIconProps {
   item: GameItem;
@@ -18,6 +17,7 @@ const sizeMap = {
 
 export const ItemIcon = ({ item, size = "md", showTooltip = true, className = "" }: ItemIconProps) => {
   const [hovered, setHovered] = useState(false);
+  const [failed, setFailed] = useState(false);
 
   return (
     <div className="relative" onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)}>
@@ -25,7 +25,13 @@ export const ItemIcon = ({ item, size = "md", showTooltip = true, className = ""
         className={`${sizeMap[size]} rounded-md border border-border/60 bg-muted/50 overflow-hidden cursor-pointer transition-all duration-200 hover:border-primary/50 hover:shadow-lg hover:shadow-primary/10 ${className}`}
         style={{ boxShadow: "inset 0 2px 4px hsl(222 47% 4% / 0.5)" }}
       >
-        <img src={item.icon} alt={item.name} className="w-full h-full object-cover" loading="lazy" />
+        {!failed ? (
+          <img src={item.icon} alt={item.name} className="w-full h-full object-cover" loading="lazy" onError={() => setFailed(true)} />
+        ) : (
+          <div className="w-full h-full flex items-center justify-center text-[9px] font-bold text-foreground bg-gradient-to-br from-primary/15 to-secondary px-1 text-center">
+            {item.name.slice(0, 3).toUpperCase()}
+          </div>
+        )}
       </div>
 
       {showTooltip && (
@@ -38,8 +44,6 @@ export const ItemIcon = ({ item, size = "md", showTooltip = true, className = ""
 };
 
 const ItemTooltip = ({ item }: { item: GameItem }) => {
-  const { lang, t } = useLanguage();
-
   return (
     <motion.div
       initial={{ opacity: 0, y: 6, scale: 0.96 }}
@@ -57,10 +61,7 @@ const ItemTooltip = ({ item }: { item: GameItem }) => {
           <div className="flex-1 min-w-0">
             <h4 className="font-heading text-sm font-bold text-primary leading-tight">{item.name}</h4>
             <div className="flex items-center gap-2 mt-0.5">
-              <span className="text-xs text-primary/80 font-semibold">{item.cost} {t("items.gold")}</span>
-              {item.combineCost && (
-                <span className="text-[10px] text-muted-foreground">({t("items.recipe")}: {item.combineCost})</span>
-              )}
+              <span className="text-xs text-primary/80 font-semibold">{item.cost} gold</span>
             </div>
             <div className="flex gap-1 mt-1">
               {item.tags.slice(0, 4).map((tag) => (
@@ -77,62 +78,52 @@ const ItemTooltip = ({ item }: { item: GameItem }) => {
 
         {/* Stats */}
         <div className="space-y-1 mb-3">
-          {item.stats.map((stat) => (
-            <div key={stat.label} className="flex justify-between text-xs">
-              <span className="text-muted-foreground">{stat.label}</span>
-              <span className="text-accent font-medium">{stat.value}</span>
+          {Object.entries(item.stats || {}).slice(0, 6).map(([label, value]) => (
+            <div key={label} className="flex justify-between text-xs">
+              <span className="text-muted-foreground">{label}</span>
+              <span className="text-accent font-medium">{String(value)}</span>
             </div>
           ))}
         </div>
 
         {/* Passive */}
-        {item.passive && (
+        {item.passiveEffect && (
           <>
             <div className="h-px bg-gradient-to-r from-transparent via-border to-transparent mb-2" />
             <div className="mb-3">
-              <span className="text-[11px] font-semibold text-primary">
-                {t("items.passive")}{item.passiveName ? `: ${item.passiveName}` : ""}
-              </span>
+              <span className="text-[11px] font-semibold text-primary">Passive</span>
               <p className="text-[11px] text-muted-foreground leading-relaxed mt-0.5">
-                {item.passive[lang]}
+                {item.passiveEffect}
               </p>
             </div>
           </>
         )}
 
         {/* Active */}
-        {item.active && (
+        {item.activeEffect && (
           <>
             <div className="h-px bg-gradient-to-r from-transparent via-border to-transparent mb-2" />
             <div className="mb-3">
-              <span className="text-[11px] font-semibold text-accent">
-                {t("items.active")}{item.activeName ? `: ${item.activeName}` : ""}
-              </span>
+              <span className="text-[11px] font-semibold text-accent">Active</span>
               <p className="text-[11px] text-muted-foreground leading-relaxed mt-0.5">
-                {item.active[lang]}
+                {item.activeEffect}
               </p>
             </div>
           </>
         )}
 
         {/* Build Path */}
-        {item.components.length > 0 && (
+        {item.buildsFrom.length > 0 && (
           <>
             <div className="h-px bg-gradient-to-r from-transparent via-border to-transparent mb-2" />
             <div>
-              <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">{t("items.components")}</span>
+              <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Build path</span>
               <div className="flex items-center gap-2 mt-1.5 flex-wrap">
-                {item.components.map((comp, i) => (
-                  <div key={i} className="flex items-center gap-1">
-                    <div className="w-6 h-6 rounded border border-border/50 overflow-hidden">
-                      <img src={comp.icon} alt={comp.name} className="w-full h-full object-cover" />
-                    </div>
-                    <span className="text-[10px] text-muted-foreground">{comp.cost}g</span>
+                {item.buildsFrom.slice(0, 4).map((comp, i) => (
+                  <div key={i} className="text-[10px] text-muted-foreground px-2 py-1 rounded bg-secondary/50">
+                    {comp}
                   </div>
                 ))}
-                {item.combineCost && (
-                  <span className="text-[10px] text-muted-foreground ml-1">+ {t("items.recipe")}</span>
-                )}
               </div>
             </div>
           </>

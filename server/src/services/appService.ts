@@ -1,54 +1,61 @@
-import { groupBy } from "./groupBy.js";
 import { catalogRepository } from "../repositories/catalogRepository.js";
 import { puzzleRepository } from "../repositories/puzzleRepository.js";
+import { dailyChallengeService } from "./dailyChallengeService.js";
+import { progressService } from "./progressService.js";
 import { mapChampionView, mapItemView, mapPuzzleDetailView, mapPuzzleListView } from "./viewMappers.js";
 
 export const appService = {
-  async getBootstrap() {
-    const [items, champions, puzzles] = await Promise.all([
-      catalogRepository.listItems(),
-      catalogRepository.listChampions(),
-      puzzleRepository.listPublished(),
+  async getBootstrap(userId?: string) {
+    const [items, champions, puzzles, dailyChallenge, progress] = await Promise.all([
+      catalogRepository.listItems({ take: 18 }),
+      catalogRepository.listChampions({ take: 24 }),
+      puzzleRepository.listPublished({ take: 12, orderBy: [{ createdAt: "desc" }] }),
+      dailyChallengeService.getOrCreateToday(),
+      userId ? progressService.getOverview(userId) : Promise.resolve(null),
     ]);
-
-    const championViews = champions.map(mapChampionView);
 
     return {
       stats: {
-        itemCount: items.length,
-        championCount: champions.length,
-        puzzleCount: puzzles.length,
-        moduleCount: new Set(puzzles.map((puzzle) => puzzle.moduleKey)).size,
-        latestPatch: puzzles[0]?.patch ?? "14.10",
+        itemCount: await catalogRepository.listItems({}).then((list) => list.length),
+        championCount: await catalogRepository.listChampions({}).then((list) => list.length),
+        puzzleCount: await puzzleRepository.listPublished({}).then((list) => list.length),
+        latestPatch: items[0]?.patch ?? champions[0]?.patch ?? "unknown",
       },
-      featuredItems: items.slice(0, 16).map(mapItemView),
-      featuredChampions: championViews.slice(0, 8),
-      featuredPuzzles: puzzles.slice(0, 3).map(mapPuzzleListView),
+      featuredItems: items.map(mapItemView),
+      featuredChampions: champions.map(mapChampionView),
+      featuredPuzzles: puzzles.map(mapPuzzleListView),
+      dailyChallenge: mapPuzzleListView(dailyChallenge.puzzle),
+      progress,
     };
   },
-  async getModules() {
-    const puzzles = await puzzleRepository.listPublished();
-    const grouped = groupBy(puzzles, (puzzle) => puzzle.moduleKey);
 
-    return Object.entries(grouped).map(([moduleKey, modulePuzzles]) => ({
-      id: moduleKey,
-      title: moduleKey,
-      difficulty: mapPuzzleListView(modulePuzzles[0]).difficulty,
-      patch: modulePuzzles[0].patch,
-      scenarios: modulePuzzles.length,
-      roles: Array.from(new Set(modulePuzzles.map((puzzle) => puzzle.role))),
-      progress: 0,
-      puzzles: modulePuzzles.map(mapPuzzleListView),
-    }));
+  async getCatalog() {
+    const [champions, items] = await Promise.all([catalogRepository.listChampions(), catalogRepository.listItems()]);
+    return {
+      champions: champions.map(mapChampionView),
+      items: items.map(mapItemView),
+      patches: Array.from(new Set([...champions.map((entry) => entry.patch), ...items.map((entry) => entry.patch)])).sort().reverse(),
+    };
   },
-  async getPuzzleList() {
-    const puzzles = await puzzleRepository.listPublished();
+
+  async getPuzzles(filters: { championSlug?: string; mode?: string; limit?: number }) {
+    const puzzles = await puzzleRepository.listPublished({
+      where: {
+        champion: filters.championSlug ? { slug: filters.championSlug } : undefined,
+        mode: filters.mode ? (filters.mode.toUpperCase() as never) : undefined,
+      },
+      take: filters.limit,
+      orderBy: [{ createdAt: "desc" }],
+    });
+
     return puzzles.map(mapPuzzleListView);
   },
+
   async getPuzzleDetail(slug: string) {
-    const [puzzle, champions] = await Promise.all([
+    const [puzzle, champions, items] = await Promise.all([
       puzzleRepository.findBySlug(slug),
       catalogRepository.listChampions(),
+      catalogRepository.listItems(),
     ]);
 
     if (!puzzle || !puzzle.isPublished) {
@@ -56,42 +63,62 @@ export const appService = {
     }
 
     const championIndex = new Map(champions.map((champion) => [champion.slug, mapChampionView(champion)]));
-
-    return mapPuzzleDetailView(puzzle, championIndex);
+    const itemIndex = new Map(items.map((item) => [item.slug, mapItemView(item)]));
+    return mapPuzzleDetailView(puzzle, championIndex, itemIndex);
   },
-  async getDashboard(username: string) {
-    const [user, items, puzzles] = await Promise.all([
-      catalogRepository.findDemoUser(username),
-      catalogRepository.listItems(),
-      puzzleRepository.listPublished(),
-    ]);
-    const attempts = user ? await puzzleRepository.listAttemptsByUser(user.id) : [];
 
-    const sessions = attempts.length;
-    const correct = attempts.filter((attempt) => attempt.isCorrect).length;
-    const accuracy = sessions ? Math.round((correct / sessions) * 100) : 0;
+  async getDashboard(userId: string) {
+    const [progress, dailyChallenge] = await Promise.all([progressService.getOverview(userId), dailyChallengeService.getOrCreateToday()]);
 
     return {
-      user: {
-        username: user?.username ?? username,
-        level: 12,
-        xp: 1240,
-        xpToNextLevel: 2000,
-        streak: 7,
-      },
-      stats: {
-        accuracy,
-        sessions,
-        totalPuzzles: puzzles.length,
-      },
-      featuredItems: items.slice(0, 6).map(mapItemView),
-      recentAttempts: attempts.slice(0, 5).map((attempt) => ({
-        id: attempt.id,
-        puzzleSlug: attempt.puzzle.slug,
-        puzzleTitle: mapPuzzleListView({ ...attempt.puzzle, champion: null, choices: [], tags: [] }).title,
-        isCorrect: attempt.isCorrect,
-        answeredAt: attempt.answeredAt,
-      })),
+      progress,
+      dailyChallenge: mapPuzzleListView(dailyChallenge.puzzle),
+    };
+  },
+
+  async getChampionLearning(championSlug: string, userId?: string) {
+    const [champion, puzzles, progress] = await Promise.all([
+      catalogRepository.findChampionBySlug(championSlug),
+      puzzleRepository.listPublished({
+        where: {
+          champion: {
+            slug: championSlug,
+          },
+        },
+        take: 20,
+        orderBy: [{ createdAt: "desc" }],
+      }),
+      userId ? progressService.getOverview(userId) : Promise.resolve(null),
+    ]);
+
+    if (!champion) {
+      return null;
+    }
+
+    const championProgress = progress?.championProgress.find((entry) => entry.champion.slug === championSlug) ?? null;
+
+    return {
+      champion: mapChampionView(champion),
+      puzzles: puzzles.map(mapPuzzleListView),
+      progress: championProgress,
+    };
+  },
+
+  async getDailyChallengeDetail() {
+    const [challenge, champions, items] = await Promise.all([
+      dailyChallengeService.getOrCreateToday(),
+      catalogRepository.listChampions(),
+      catalogRepository.listItems(),
+    ]);
+
+    const championIndex = new Map(champions.map((champion) => [champion.slug, mapChampionView(champion)]));
+    const itemIndex = new Map(items.map((item) => [item.slug, mapItemView(item)]));
+
+    return {
+      id: challenge.id,
+      challengeDate: challenge.challengeDate,
+      completions: challenge.completions,
+      puzzle: mapPuzzleDetailView(challenge.puzzle, championIndex, itemIndex),
     };
   },
 };

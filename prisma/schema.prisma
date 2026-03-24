@@ -30,65 +30,96 @@ enum PuzzleChoiceType {
   ITEM
   COMPONENT
   BUILD_PATH
-  SITUATIONAL_CHOICE
-}
-
-enum ItemCategory {
   BOOTS
-  CRIT
-  TANK
-  MAGE
-  LETHALITY
-  SUPPORT
-  BRUISER
-  MARKSMAN
-  ASSASSIN
-  FIGHTER
-  UTILITY
-  DEFENSIVE
+  SITUATIONAL_DECISION
 }
 
-enum ItemRelationType {
-  SYNERGY
-  COUNTER
-  CORE_BUILD
-  ALTERNATIVE
+enum PuzzleMode {
+  GENERAL
+  CHAMPION_SPECIFIC
+  PERSONALIZED
+  DAILY
+}
+
+enum PuzzleSourceType {
+  MANUAL
+  GENERATED
+  IMPORTED_MATCH
+  AI_GENERATED
+}
+
+enum UserAuthProvider {
+  EMAIL
+  GOOGLE
+  BOTH
+}
+
+enum GeneratedPuzzleRequestType {
+  CHAMPION
+  MATCH_BASED
+  CUSTOM
+}
+
+enum GeneratedPuzzleRequestStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
 }
 
 model User {
-  id             String          @id @default(cuid())
-  email          String?         @unique
-  username       String          @unique
-  preferredRoles Role[]
-  targetSkills   String[]
-  language       LanguageCode    @default(fr)
-  createdAt      DateTime        @default(now())
-  updatedAt      DateTime        @updatedAt
-  attempts       PuzzleAttempt[]
+  id               String                    @id @default(cuid())
+  email            String                    @unique
+  username         String                    @unique
+  authProvider     UserAuthProvider          @default(EMAIL)
+  passwordHash     String?
+  googleId         String?                   @unique
+  avatarUrl        String?
+  language         LanguageCode              @default(fr)
+  createdAt        DateTime                  @default(now())
+  updatedAt        DateTime                  @updatedAt
+  attempts         PuzzleAttempt[]
+  championProgress UserChampionProgress[]
+  globalProgress   UserGlobalProgress?
+  dailyCompletions DailyChallengeCompletion[]
+  playerProfile    PlayerProfile?
+  importedMatches  ImportedMatch[]
+  generatedPuzzles GeneratedPuzzleRequest[]
+  emailPreference  EmailReminderPreference?
 
   @@index([username])
+  @@index([email])
+  @@index([googleId])
 }
 
 model Champion {
-  id          String    @id @default(cuid())
-  riotId      Int?      @unique
-  riotKey     String?   @unique
-  name        String
-  slug        String    @unique
-  title       String?
-  primaryRole Role?
-  roles       Role[]
-  damageType  String?
-  image       String
-  tags        String[]
-  threatJson  Json?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-  puzzles     Puzzle[]
+  id             String                 @id @default(cuid())
+  riotChampionId Int?                   @unique
+  championKey    String?                @unique
+  name           String
+  slug           String                 @unique
+  title          String?
+  rolePrimary    Role?
+  roleSecondary  Role?
+  image          String
+  splashImage    String?
+  iconImage      String?
+  tags           Json
+  stats          Json
+  isActive       Boolean                @default(true)
+  patch          String
+  createdAt      DateTime               @default(now())
+  updatedAt      DateTime               @updatedAt
+  puzzles        Puzzle[]
+  scenarioPlayer PuzzleScenario[]       @relation("PuzzleScenarioPlayerChampion")
+  userProgress   UserChampionProgress[]
+  generatedRequests GeneratedPuzzleRequest[]
 
-  @@index([name])
   @@index([slug])
-  @@index([primaryRole])
+  @@index([name])
+  @@index([riotChampionId])
+  @@index([rolePrimary])
+  @@index([patch])
 }
 
 model Item {
@@ -96,79 +127,81 @@ model Item {
   riotItemId      Int            @unique
   name            String
   slug            String         @unique
-  shortDescription Json?
-  fullDescription Json?
+  shortDescription String?
+  fullDescription String?
+  image           String
   goldTotal       Int
   goldBase        Int?
   goldSell        Int?
-  combineCost     Int?
-  category        ItemCategory
-  statsJson       Json?
-  image           String
-  isMythic        Boolean        @default(false)
-  isLegendary     Boolean        @default(true)
+  category        String?
+  tags            Json
+  stats           Json
+  activeEffect    String?
+  passiveEffect   String?
+  buildsFrom      Json
+  buildsInto      Json
+  mapAvailability Json?
   isBoots         Boolean        @default(false)
-  activeEffect    Json?
-  passiveEffect   Json?
-  activeName      String?
-  passiveName     String?
-  componentsJson  Json?
-  tags            String[]
+  isLegendary     Boolean        @default(false)
+  isConsumable    Boolean        @default(false)
+  isTrinket       Boolean        @default(false)
+  isStarter       Boolean        @default(false)
+  isActive        Boolean        @default(true)
   patch           String
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
   puzzleChoices   PuzzleChoice[]
-  outgoingRelations ItemRelation[] @relation("ItemRelationSource")
-  incomingRelations ItemRelation[] @relation("ItemRelationTarget")
 
   @@index([slug])
   @@index([name])
-  @@index([category])
-  @@index([isBoots])
+  @@index([riotItemId])
   @@index([patch])
+  @@index([isBoots])
 }
 
 model Puzzle {
-  id               String            @id @default(cuid())
-  title            Json
-  slug             String            @unique
-  difficulty       PuzzleDifficulty
-  patch            String
-  description      Json
-  situation        Json
-  question         Json
-  explanation      Json
-  role             Role
-  moduleKey        String
-  championId       String?
-  enemyTeamJson    Json?
-  allyTeamJson     Json?
-  gameContextJson  Json
-  isPublished      Boolean           @default(false)
-  createdAt        DateTime          @default(now())
-  updatedAt        DateTime          @updatedAt
-  champion         Champion?         @relation(fields: [championId], references: [id])
-  choices          PuzzleChoice[]
-  tags             PuzzleTagOnPuzzle[]
-  attempts         PuzzleAttempt[]
+  id              String                 @id @default(cuid())
+  title           String
+  slug            String                 @unique
+  mode            PuzzleMode
+  sourceType      PuzzleSourceType
+  difficulty      PuzzleDifficulty
+  patch           String
+  description     String
+  shortPrompt     String
+  situation       String
+  question        String
+  explanation     String
+  role            Role?
+  championId      String?
+  isPublished     Boolean                @default(false)
+  isDailyEligible Boolean                @default(true)
+  createdAt       DateTime               @default(now())
+  updatedAt       DateTime               @updatedAt
+  champion        Champion?              @relation(fields: [championId], references: [id])
+  choices         PuzzleChoice[]
+  scenario        PuzzleScenario?
+  tags            PuzzleTagOnPuzzle[]
+  attempts        PuzzleAttempt[]
+  dailyChallenges DailyChallenge[]
+  generatedFrom   GeneratedPuzzleRequest[]
 
   @@index([slug])
   @@index([championId])
   @@index([isPublished])
+  @@index([mode])
   @@index([difficulty])
   @@index([patch])
-  @@index([moduleKey])
-  @@index([role])
 }
 
 model PuzzleChoice {
   id           String           @id @default(cuid())
   puzzleId      String
-  label         Json
+  label         String
   choiceType    PuzzleChoiceType
   itemId        String?
-  textFallback  Json?
-  explanation   Json
+  textFallback  String?
+  explanation   String
   isCorrect     Boolean         @default(false)
   displayOrder  Int
   puzzle        Puzzle          @relation(fields: [puzzleId], references: [id], onDelete: Cascade)
@@ -180,37 +213,67 @@ model PuzzleChoice {
   @@index([displayOrder])
 }
 
+model PuzzleScenario {
+  id              String    @id @default(cuid())
+  puzzleId         String    @unique
+  playerChampionId String
+  playerRole       Role
+  gameMinute       Int
+  playerGold       Int
+  playerLevel      Int?
+  kills            Int?
+  deaths           Int?
+  assists          Int?
+  cs               Int?
+  currentBuild     Json
+  allyTeam         Json
+  enemyTeam        Json
+  allyItems        Json?
+  enemyItems       Json?
+  notableThreats   Json?
+  objectiveState   Json?
+  damageProfile    Json?
+  mapState         Json?
+  notes            String?
+  puzzle           Puzzle    @relation(fields: [puzzleId], references: [id], onDelete: Cascade)
+  playerChampion   Champion  @relation("PuzzleScenarioPlayerChampion", fields: [playerChampionId], references: [id])
+
+  @@index([playerChampionId])
+  @@index([playerRole])
+}
+
 model PuzzleTag {
   id        String            @id @default(cuid())
   name      String
   slug      String            @unique
-  puzzles   PuzzleTagOnPuzzle[]
   createdAt DateTime          @default(now())
+  puzzles   PuzzleTagOnPuzzle[]
 
   @@index([slug])
   @@index([name])
 }
 
 model PuzzleTagOnPuzzle {
-  puzzleId    String
-  puzzleTagId String
-  puzzle      Puzzle    @relation(fields: [puzzleId], references: [id], onDelete: Cascade)
-  puzzleTag   PuzzleTag @relation(fields: [puzzleTagId], references: [id], onDelete: Cascade)
+  puzzleId String
+  tagId    String
+  puzzle   Puzzle    @relation(fields: [puzzleId], references: [id], onDelete: Cascade)
+  tag      PuzzleTag @relation(fields: [tagId], references: [id], onDelete: Cascade)
 
-  @@id([puzzleId, puzzleTagId])
+  @@id([puzzleId, tagId])
   @@index([puzzleId])
-  @@index([puzzleTagId])
+  @@index([tagId])
 }
 
 model PuzzleAttempt {
-  id               String   @id @default(cuid())
+  id               String       @id @default(cuid())
   userId           String
   puzzleId         String
   selectedChoiceId String
   isCorrect        Boolean
-  answeredAt       DateTime @default(now())
-  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  puzzle           Puzzle   @relation(fields: [puzzleId], references: [id], onDelete: Cascade)
+  answeredAt       DateTime     @default(now())
+  responseTimeMs   Int?
+  user             User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  puzzle           Puzzle       @relation(fields: [puzzleId], references: [id], onDelete: Cascade)
   selectedChoice   PuzzleChoice @relation(fields: [selectedChoiceId], references: [id], onDelete: Cascade)
 
   @@index([userId])
@@ -219,16 +282,115 @@ model PuzzleAttempt {
   @@index([answeredAt])
 }
 
-model ItemRelation {
-  id            String           @id @default(cuid())
-  sourceItemId   String
-  targetItemId   String
-  relationType   ItemRelationType
-  note           String?
-  sourceItem     Item             @relation("ItemRelationSource", fields: [sourceItemId], references: [id], onDelete: Cascade)
-  targetItem     Item             @relation("ItemRelationTarget", fields: [targetItemId], references: [id], onDelete: Cascade)
+model UserChampionProgress {
+  id             String    @id @default(cuid())
+  userId         String
+  championId     String
+  totalAttempts  Int       @default(0)
+  correctAttempts Int      @default(0)
+  masteryScore   Int?
+  updatedAt      DateTime  @updatedAt
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  champion       Champion  @relation(fields: [championId], references: [id], onDelete: Cascade)
 
-  @@index([sourceItemId])
-  @@index([targetItemId])
-  @@index([relationType])
+  @@unique([userId, championId])
+  @@index([userId])
+  @@index([championId])
+}
+
+model UserGlobalProgress {
+  id                   String    @id @default(cuid())
+  userId               String    @unique
+  totalAttempts        Int       @default(0)
+  totalCorrect         Int       @default(0)
+  dailyStreak          Int       @default(0)
+  bestStreak           Int       @default(0)
+  lastDailyCompletedAt DateTime?
+  updatedAt            DateTime  @updatedAt
+  user                 User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model DailyChallenge {
+  id            String                   @id @default(cuid())
+  puzzleId       String
+  challengeDate  DateTime                @unique
+  createdAt      DateTime                @default(now())
+  puzzle         Puzzle                  @relation(fields: [puzzleId], references: [id], onDelete: Cascade)
+  completions    DailyChallengeCompletion[]
+
+  @@index([challengeDate])
+}
+
+model DailyChallengeCompletion {
+  id               String         @id @default(cuid())
+  dailyChallengeId String
+  userId           String
+  completedAt      DateTime       @default(now())
+  isCorrect        Boolean
+  dailyChallenge   DailyChallenge @relation(fields: [dailyChallengeId], references: [id], onDelete: Cascade)
+  user             User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([dailyChallengeId, userId])
+  @@index([dailyChallengeId])
+  @@index([userId])
+}
+
+model PlayerProfile {
+  id            String    @id @default(cuid())
+  userId        String    @unique
+  riotPuuid     String?
+  riotGameName  String?
+  riotTagLine   String?
+  region        String?
+  lastSyncAt    DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model ImportedMatch {
+  id           String    @id @default(cuid())
+  userId       String
+  riotMatchId  String    @unique
+  patch        String?
+  matchData    Json
+  createdAt    DateTime  @default(now())
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  requests     GeneratedPuzzleRequest[]
+
+  @@index([userId])
+  @@index([riotMatchId])
+}
+
+model GeneratedPuzzleRequest {
+  id              String                       @id @default(cuid())
+  userId          String
+  type            GeneratedPuzzleRequestType
+  championId      String?
+  importedMatchId String?
+  parameters      Json
+  status          GeneratedPuzzleRequestStatus @default(PENDING)
+  resultPuzzleId  String?
+  createdAt       DateTime                     @default(now())
+  updatedAt       DateTime                     @updatedAt
+  user            User                         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  champion        Champion?                    @relation(fields: [championId], references: [id])
+  importedMatch   ImportedMatch?               @relation(fields: [importedMatchId], references: [id])
+  resultPuzzle    Puzzle?                      @relation(fields: [resultPuzzleId], references: [id])
+
+  @@index([userId])
+  @@index([championId])
+  @@index([importedMatchId])
+  @@index([status])
+}
+
+model EmailReminderPreference {
+  id                   String    @id @default(cuid())
+  userId               String    @unique
+  dailyReminderEnabled Boolean   @default(true)
+  preferredHour        Int?
+  timezone             String?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+  user                 User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 }

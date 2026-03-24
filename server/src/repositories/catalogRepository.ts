@@ -1,16 +1,23 @@
+import { Prisma } from "@prisma/client";
 import { prisma } from "../lib/prisma.js";
 
 export const catalogRepository = {
-  listItems: () =>
+  listChampions: (args?: Prisma.ChampionFindManyArgs) =>
+    prisma.champion.findMany({
+      orderBy: [{ rolePrimary: "asc" }, { name: "asc" }],
+      ...args,
+    }),
+  listItems: (args?: Prisma.ItemFindManyArgs) =>
     prisma.item.findMany({
       orderBy: [{ category: "asc" }, { name: "asc" }],
+      ...args,
     }),
-  listChampions: () =>
-    prisma.champion.findMany({
-      orderBy: [{ primaryRole: "asc" }, { name: "asc" }],
+  findChampionBySlug: (slug: string) =>
+    prisma.champion.findUnique({
+      where: { slug },
     }),
-  findDemoUser: (username: string) =>
-    prisma.user.findUnique({
-      where: { username },
+  findItemBySlug: (slug: string) =>
+    prisma.item.findUnique({
+      where: { slug },
     }),
 };

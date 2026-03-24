@@ -1,5 +1,5 @@
 import type { ChampionView } from "@/types/domain";
-import { useLanguage } from "@/i18n/context";
+import { useState } from "react";
 
 interface ChampionPortraitProps {
   champion: ChampionView;
@@ -14,7 +14,7 @@ const sizeMap = {
 };
 
 const ChampionPortrait = ({ champion, size = "md", showInfo = false }: ChampionPortraitProps) => {
-  const { lang } = useLanguage();
+  const [failed, setFailed] = useState(false);
 
   return (
     <div className="flex flex-col items-center gap-1">
@@ -22,7 +22,13 @@ const ChampionPortrait = ({ champion, size = "md", showInfo = false }: ChampionP
         className={`${sizeMap[size]} rounded-lg border border-border/60 overflow-hidden bg-muted/50 relative`}
         title={champion.name}
       >
-        <img src={champion.icon} alt={champion.name} className="w-full h-full object-cover" loading="lazy" />
+        {!failed ? (
+          <img src={champion.icon} alt={champion.name} className="w-full h-full object-cover" loading="lazy" onError={() => setFailed(true)} />
+        ) : (
+          <div className="w-full h-full flex items-center justify-center text-[10px] font-bold text-foreground bg-gradient-to-br from-primary/15 to-secondary">
+            {champion.name.slice(0, 2).toUpperCase()}
+          </div>
+        )}
         <div className="absolute inset-0 ring-1 ring-inset ring-white/10 rounded-lg" />
       </div>
       {showInfo && (

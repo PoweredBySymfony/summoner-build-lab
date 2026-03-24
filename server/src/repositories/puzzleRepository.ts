@@ -1,7 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "../lib/prisma.js";
 
-const puzzleInclude = {
+export const puzzleInclude = {
   champion: true,
   choices: {
     include: {
@@ -11,35 +11,83 @@ const puzzleInclude = {
       displayOrder: "asc" as const,
     },
   },
+  scenario: {
+    include: {
+      playerChampion: true,
+    },
+  },
   tags: {
     include: {
-      puzzleTag: true,
+      tag: true,
     },
   },
 } satisfies Prisma.PuzzleInclude;
 
 export const puzzleRepository = {
-  listPublished: () =>
+  listPublished: (args?: Omit<Prisma.PuzzleFindManyArgs, "include">) =>
     prisma.puzzle.findMany({
-      where: { isPublished: true },
+      where: { isPublished: true, ...(args?.where ?? {}) },
       include: puzzleInclude,
-      orderBy: [{ difficulty: "asc" }, { createdAt: "asc" }],
+      orderBy: args?.orderBy ?? [{ createdAt: "desc" }],
+      take: args?.take,
+      skip: args?.skip,
     }),
   findBySlug: (slug: string) =>
     prisma.puzzle.findUnique({
       where: { slug },
       include: puzzleInclude,
     }),
-  createAttempt: (data: { userId: string; puzzleId: string; selectedChoiceId: string; isCorrect: boolean }) =>
-    prisma.puzzleAttempt.create({ data }),
-  listAttemptsByUser: (userId: string) =>
+  createAttempt: (data: Prisma.PuzzleAttemptUncheckedCreateInput) =>
+    prisma.puzzleAttempt.create({
+      data,
+      include: {
+        puzzle: {
+          include: {
+            champion: true,
+          },
+        },
+      },
+    }),
+  listAttemptsByUser: (userId: string, take = 10) =>
     prisma.puzzleAttempt.findMany({
       where: { userId },
       include: {
-        puzzle: true,
+        puzzle: {
+          include: {
+            champion: true,
+          },
+        },
+        selectedChoice: {
+          include: {
+            item: true,
+          },
+        },
       },
       orderBy: {
         answeredAt: "desc",
+      },
+      take,
+    }),
+  upsertDailyChallenge: (challengeDate: Date, puzzleId: string) =>
+    prisma.dailyChallenge.upsert({
+      where: { challengeDate },
+      update: { puzzleId },
+      create: { challengeDate, puzzleId },
+      include: {
+        puzzle: {
+          include: puzzleInclude,
+        },
+        completions: true,
+      },
+    }),
+  getDailyChallenge: (challengeDate: Date) =>
+    prisma.dailyChallenge.findUnique({
+      where: { challengeDate },
+      include: {
+        puzzle: {
+          include: puzzleInclude,
+        },
+        completions: true,
       },
     }),
 };
