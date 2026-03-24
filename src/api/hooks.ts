@@ -7,6 +7,7 @@ import type {
   CurrentUser,
   DailyChallengePayload,
   DashboardPayload,
+  GeneratedPuzzleSeriesPayload,
   PlayerSearchPayload,
   ProgressOverview,
   PuzzleDetail,
@@ -125,7 +126,29 @@ export const useLogout = () => {
 export const useGenerateChampionPuzzle = () => {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (payload: { championId: string }) => apiFetch<{ slug: string }>("/generated-puzzles/champion", {
+    mutationFn: (payload: { championId: string }) => apiFetch<GeneratedPuzzleSeriesPayload>("/generated-puzzles/champion", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["puzzles"] });
+      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+    },
+  });
+};
+
+export const useImportRecentMatches = () =>
+  useMutation({
+    mutationFn: (payload: { puuid: string; count?: number }) => apiFetch<Array<{ id: string; riotMatchId: string }>>("/riot/import-matches", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  });
+
+export const useGenerateMatchPuzzleSeries = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: { importedMatchId: string }) => apiFetch<GeneratedPuzzleSeriesPayload>("/generated-puzzles/match", {
       method: "POST",
       body: JSON.stringify(payload),
     }),

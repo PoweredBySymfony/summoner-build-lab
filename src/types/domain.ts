@@ -86,8 +86,28 @@ export interface PuzzleDetail extends PuzzleListItem {
     assists?: number | null;
     cs?: number | null;
     currentBuild: Array<GameItem | { id: string; name: string }>;
-    allyTeam: Array<ChampionView | { id: string; name: string }>;
-    enemyTeam: Array<ChampionView | { id: string; name: string }>;
+    allyTeam: Array<
+      | ChampionView
+      | {
+          id: string;
+          name: string;
+          champion?: ChampionView | { id: string; name: string };
+          role?: string;
+          items?: Array<GameItem | { id: string; name: string }>;
+          note?: string;
+        }
+    >;
+    enemyTeam: Array<
+      | ChampionView
+      | {
+          id: string;
+          name: string;
+          champion?: ChampionView | { id: string; name: string };
+          role?: string;
+          items?: Array<GameItem | { id: string; name: string }>;
+          note?: string;
+        }
+    >;
     allyItems?: unknown;
     enemyItems?: Array<GameItem | { id: string; name: string }> | unknown;
     notableThreats?: unknown;
@@ -97,6 +117,11 @@ export interface PuzzleDetail extends PuzzleListItem {
     notes?: string | null;
   } | null;
   choices: PuzzleChoiceView[];
+}
+
+export interface GeneratedPuzzleSeriesPayload {
+  slug: string;
+  slugs: string[];
 }
 
 export interface CurrentUser {
@@ -196,8 +221,11 @@ export interface PlayerSearchPayload {
     winRate: number;
     averageKda: number;
     averageCs: number;
+    averageCsPerMinute: number;
     averageKillParticipation: number;
     averageDamageToChampions: number;
+    averageGoldEarned: number;
+    averageVisionScore: number;
     mostPlayedChampions: Array<{
       championName: string;
       games: number;
@@ -217,7 +245,15 @@ export interface PlayerSearchPayload {
     damageToChampions: number;
     killParticipation: number;
     queueId: number | null;
+    queueLabel?: string | null;
     gameCreation: string | null;
     gameDurationSeconds: number | null;
+    goldEarned: number;
+    visionScore: number;
+    items: Array<{
+      riotItemId: number;
+      name: string;
+      icon: string;
+    }>;
   }>;
 }

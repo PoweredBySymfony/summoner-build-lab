@@ -245,7 +245,7 @@ router.get("/champions/:slug", async (request, response, next) => {
 router.post("/generated-puzzles/champion", requireAuth, async (request, response, next) => {
   try {
     const payload = z.object({ championId: z.string().min(1) }).parse(request.body);
-    response.status(201).json(await puzzleGenerationService.generateChampionPuzzle(payload.championId, request.user!.id));
+    response.status(201).json(await puzzleGenerationService.generateChampionPuzzleSeries(payload.championId, request.user!.id));
   } catch (error) {
     next(error);
   }

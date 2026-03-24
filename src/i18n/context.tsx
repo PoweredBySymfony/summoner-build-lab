@@ -16,14 +16,11 @@ interface LanguageContextType {
 const LanguageContext = createContext<LanguageContextType | null>(null);
 
 export const LanguageProvider = ({ children }: { children: ReactNode }) => {
-  const [lang, setLangState] = useState<Language>(() => {
-    const stored = localStorage.getItem("itemforge-lang");
-    return (stored === "en" || stored === "fr") ? stored : "fr";
-  });
+  const [lang, setLangState] = useState<Language>("fr");
 
   const setLang = useCallback((newLang: Language) => {
-    setLangState(newLang);
-    localStorage.setItem("itemforge-lang", newLang);
+    setLangState(newLang === "en" ? "fr" : newLang);
+    localStorage.setItem("itemforge-lang", "fr");
   }, []);
 
   const t = useCallback((key: string): string => {

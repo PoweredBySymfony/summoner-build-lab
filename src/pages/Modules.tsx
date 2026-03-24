@@ -18,21 +18,21 @@ const Modules = () => {
       <div className="container mx-auto px-6 space-y-6">
         <div className="grid lg:grid-cols-[1.15fr_0.85fr] gap-6">
           <div className="glass-surface rounded-2xl p-8">
-            <p className="text-xs uppercase tracking-[0.25em] text-primary font-semibold mb-3">General itemization mode</p>
-            <h1 className="font-heading text-4xl font-bold text-foreground">Train on broad itemization principles.</h1>
+            <p className="text-xs uppercase tracking-[0.25em] text-primary font-semibold mb-3">Mode général</p>
+            <h1 className="font-heading text-4xl font-bold text-foreground">Travaille les grands principes d'itemisation.</h1>
             <p className="text-muted-foreground mt-4 max-w-2xl">
-              These puzzles stay role- and situation-focused without locking you to a single champion. Use them to build global reasoning before drilling down into OTP mode.
+              Ces puzzles restent focalisés sur le rôle et le contexte sans t'enfermer sur un seul champion. Utilise-les pour construire un raisonnement global avant de creuser ton OTP.
             </p>
           </div>
 
           <div className="glass-surface rounded-2xl p-8">
-            <p className="text-xs uppercase tracking-[0.25em] text-primary font-semibold mb-3">OTP mode</p>
-            <h2 className="font-heading text-2xl font-bold text-foreground">Learn one champion deeply.</h2>
-            <p className="text-muted-foreground mt-4">Search a champion, open the OTP workspace, then generate a personalized puzzle focused on that champion's itemization.</p>
+            <p className="text-xs uppercase tracking-[0.25em] text-primary font-semibold mb-3">Mode OTP</p>
+            <h2 className="font-heading text-2xl font-bold text-foreground">Approfondis un champion à fond.</h2>
+            <p className="text-muted-foreground mt-4">Cherche un champion, ouvre l'espace OTP puis génère une série de questions centrées sur son itemisation.</p>
             <input
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search your main champion"
+              placeholder="Recherche ton champion principal"
               className="mt-5 w-full rounded-xl bg-secondary border border-border/60 px-4 py-3 text-sm"
             />
             <div className="flex flex-wrap gap-2 mt-4">

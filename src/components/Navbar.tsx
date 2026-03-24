@@ -8,10 +8,10 @@ const Navbar = () => {
   const logout = useLogout();
 
   const navItems = [
-    { path: "/", label: "Home", icon: Shield },
-    { path: "/dashboard", label: "Progress", icon: LayoutDashboard },
-    { path: "/modules", label: "General", icon: BrainCircuit },
-    { path: "/daily", label: "Daily", icon: Flame },
+    { path: "/", label: "Accueil", icon: Shield },
+    { path: "/dashboard", label: "Progression", icon: LayoutDashboard },
+    { path: "/modules", label: "Général", icon: BrainCircuit },
+    { path: "/daily", label: "Quotidien", icon: Flame },
   ];
 
   return (
@@ -23,7 +23,7 @@ const Navbar = () => {
           </div>
           <div>
             <p className="font-heading text-lg font-bold leading-none text-foreground">Summoner Build Lab</p>
-            <p className="text-[10px] tracking-[0.25em] uppercase text-muted-foreground">Itemization puzzle platform</p>
+            <p className="text-[10px] tracking-[0.25em] uppercase text-muted-foreground">Plateforme de puzzles d'itemisation</p>
           </div>
         </Link>
 
@@ -48,7 +48,7 @@ const Navbar = () => {
         <div className="flex items-center gap-2">
           <Link to="/training" className="hidden sm:flex items-center gap-2 h-10 px-4 rounded-lg bg-secondary text-foreground text-sm">
             <Trophy className="w-4 h-4" />
-            Train
+            S'entraîner
           </Link>
 
           {user ? (
@@ -57,11 +57,11 @@ const Navbar = () => {
                 <User className="w-4 h-4" />
                 {user.username}
               </Link>
-              <button onClick={() => logout.mutate()} className="h-10 px-4 rounded-lg bg-secondary text-sm text-foreground">Logout</button>
+              <button onClick={() => logout.mutate()} className="h-10 px-4 rounded-lg bg-secondary text-sm text-foreground">Déconnexion</button>
             </>
           ) : (
             <Link to="/auth" className="h-10 px-4 rounded-lg bg-gradient-to-r from-primary to-yellow-600 text-primary-foreground font-semibold text-sm flex items-center">
-              Login
+              Connexion
             </Link>
           )}
         </div>

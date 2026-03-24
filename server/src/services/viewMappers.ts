@@ -137,6 +137,7 @@ export const mapPuzzleDetailView = (
   explanation: puzzle.explanation,
   scenario: puzzle.scenario
     ? {
+        // Supports both legacy slug arrays and richer generated team snapshots.
         playerChampion: mapChampionView(puzzle.scenario.playerChampion),
         playerRole: roleLabel[puzzle.scenario.playerRole],
         gameMinute: puzzle.scenario.gameMinute,
@@ -147,13 +148,64 @@ export const mapPuzzleDetailView = (
         assists: puzzle.scenario.assists,
         cs: puzzle.scenario.cs,
         currentBuild: Array.isArray(puzzle.scenario.currentBuild)
-          ? puzzle.scenario.currentBuild.map((slug) => itemIndex.get(String(slug)) ?? { id: slug, name: slug })
+          ? puzzle.scenario.currentBuild.map((entry) => {
+              if (typeof entry === "string") {
+                return itemIndex.get(entry) ?? { id: entry, name: entry };
+              }
+
+              if (entry && typeof entry === "object" && "itemSlug" in entry) {
+                const itemSlug = String(entry.itemSlug);
+                return itemIndex.get(itemSlug) ?? { id: itemSlug, name: itemSlug };
+              }
+
+              return { id: String(entry), name: String(entry) };
+            })
           : [],
         allyTeam: Array.isArray(puzzle.scenario.allyTeam)
-          ? puzzle.scenario.allyTeam.map((slug) => championIndex.get(String(slug)) ?? { id: slug, name: slug })
+          ? puzzle.scenario.allyTeam.map((entry) => {
+              if (typeof entry === "string") {
+                return championIndex.get(entry) ?? { id: entry, name: entry };
+              }
+
+              if (entry && typeof entry === "object" && "championSlug" in entry) {
+                const championSlug = String(entry.championSlug);
+                return {
+                  id: championSlug,
+                  name: championSlug,
+                  champion: championIndex.get(championSlug) ?? { id: championSlug, name: championSlug },
+                  role: "role" in entry ? String(entry.role) : null,
+                  items: Array.isArray(entry.items)
+                    ? entry.items.map((itemSlug) => itemIndex.get(String(itemSlug)) ?? { id: itemSlug, name: itemSlug })
+                    : [],
+                  note: "note" in entry ? String(entry.note) : undefined,
+                };
+              }
+
+              return { id: String(entry), name: String(entry) };
+            })
           : [],
         enemyTeam: Array.isArray(puzzle.scenario.enemyTeam)
-          ? puzzle.scenario.enemyTeam.map((slug) => championIndex.get(String(slug)) ?? { id: slug, name: slug })
+          ? puzzle.scenario.enemyTeam.map((entry) => {
+              if (typeof entry === "string") {
+                return championIndex.get(entry) ?? { id: entry, name: entry };
+              }
+
+              if (entry && typeof entry === "object" && "championSlug" in entry) {
+                const championSlug = String(entry.championSlug);
+                return {
+                  id: championSlug,
+                  name: championSlug,
+                  champion: championIndex.get(championSlug) ?? { id: championSlug, name: championSlug },
+                  role: "role" in entry ? String(entry.role) : null,
+                  items: Array.isArray(entry.items)
+                    ? entry.items.map((itemSlug) => itemIndex.get(String(itemSlug)) ?? { id: itemSlug, name: itemSlug })
+                    : [],
+                  note: "note" in entry ? String(entry.note) : undefined,
+                };
+              }
+
+              return { id: String(entry), name: String(entry) };
+            })
           : [],
         allyItems: puzzle.scenario.allyItems,
         enemyItems: Array.isArray(puzzle.scenario.enemyItems)
