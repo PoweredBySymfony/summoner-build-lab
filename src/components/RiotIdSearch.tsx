@@ -16,6 +16,17 @@ import {
   type RecentRiotSearch,
 } from "@/lib/riotSearch";
 
+const useDebouncedValue = <T,>(value: T, delayMs: number) => {
+  const [debouncedValue, setDebouncedValue] = useState(value);
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => setDebouncedValue(value), delayMs);
+    return () => window.clearTimeout(timeout);
+  }, [value, delayMs]);
+
+  return debouncedValue;
+};
+
 type RiotIdSearchProps = {
   defaultValue?: string;
   compact?: boolean;
@@ -63,7 +74,8 @@ export const RiotIdSearch = ({ defaultValue = "", compact = false }: RiotIdSearc
   const [panelMaxHeight, setPanelMaxHeight] = useState(360);
   const deferredRiotId = useDeferredValue(riotId);
   const trimmedDeferredRiotId = deferredRiotId.trim();
-  const remoteSuggestions = usePlayerSuggestions(trimmedDeferredRiotId || undefined, 8);
+  const debouncedQuery = useDebouncedValue(trimmedDeferredRiotId, 180);
+  const remoteSuggestions = usePlayerSuggestions(debouncedQuery || undefined, 8);
 
   useEffect(() => {
     setRiotId(normalizeRiotIdInput(defaultValue));
@@ -255,7 +267,7 @@ export const RiotIdSearch = ({ defaultValue = "", compact = false }: RiotIdSearc
     ? createPortal(
       <div
         ref={panelRef}
-        className="fixed z-[2147483647] overflow-hidden rounded-[28px] border border-border/60 bg-[#11161f] shadow-2xl shadow-black/50"
+        className="fixed z-[2147483647] overflow-hidden rounded-[28px] border border-border/60 bg-card/95 shadow-2xl shadow-black/50 backdrop-blur"
         style={{
           left: panelStyle.left,
           top: panelStyle.top,
@@ -281,7 +293,7 @@ export const RiotIdSearch = ({ defaultValue = "", compact = false }: RiotIdSearc
                   <button
                     key={suggestion.riotId}
                     type="button"
-                    className={`flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-left transition ${isActive ? "bg-white/8" : "hover:bg-white/5"}`}
+                    className={`flex min-h-14 w-full items-center gap-3 rounded-2xl px-3 py-3 text-left transition ${isActive ? "bg-white/8" : "hover:bg-white/5"}`}
                     onMouseEnter={() => setActiveIndex(index)}
                     onClick={() => goToProfile(suggestion.riotId)}
                   >
@@ -306,7 +318,7 @@ export const RiotIdSearch = ({ defaultValue = "", compact = false }: RiotIdSearc
               return (
                 <div
                   key={`${suggestion.type}-${suggestion.riotId}`}
-                  className={`flex items-center gap-3 rounded-2xl px-3 py-3 transition ${isActive ? "bg-white/8" : "hover:bg-white/5"}`}
+                  className={`flex min-h-14 items-center gap-3 rounded-2xl px-3 py-3 transition ${isActive ? "bg-white/8" : "hover:bg-white/5"}`}
                   onMouseEnter={() => setActiveIndex(index)}
                 >
                   <button
@@ -326,7 +338,7 @@ export const RiotIdSearch = ({ defaultValue = "", compact = false }: RiotIdSearc
                   {suggestion.type === "recent" ? (
                     <button
                       type="button"
-                      className="rounded-full p-2 text-muted-foreground transition hover:bg-white/8 hover:text-foreground"
+                      className="rounded-full p-2.5 text-muted-foreground transition hover:bg-white/8 hover:text-foreground"
                       aria-label={`Remove ${suggestion.riotId} from recent searches`}
                       onClick={() => removeRecentRiotSearch(suggestion.riotId)}
                     >
@@ -349,7 +361,7 @@ export const RiotIdSearch = ({ defaultValue = "", compact = false }: RiotIdSearc
     : null;
 
   return (
-    <div ref={containerRef} className="relative z-[70]">
+    <div ref={containerRef} className="relative z-[70] min-w-0">
       <form onSubmit={submit} className={`rounded-[28px] border border-border/60 bg-background/80 shadow-sm ${compact ? "p-4" : "p-6"}`}>
         <div className={`flex ${compact ? "flex-col gap-3" : "flex-col gap-4 lg:flex-row lg:items-center"}`}>
           <div className="flex-1 space-y-2">
@@ -359,7 +371,7 @@ export const RiotIdSearch = ({ defaultValue = "", compact = false }: RiotIdSearc
               <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
                 id="riot-id-search"
-                className={`rounded-2xl pl-11 ${compact ? "h-11" : "h-14 text-base"}`}
+                className={`min-w-0 rounded-2xl pl-11 ${compact ? "h-11" : "h-14 text-base"}`}
                 placeholder="Rechercher un Riot ID, ex : Hide on bush#KR1"
                 value={riotId}
                 autoComplete="off"

@@ -36,7 +36,7 @@ const Auth = () => {
 
   return (
     <div className="min-h-screen bg-background pt-24 pb-12">
-      <div className="container mx-auto grid max-w-6xl gap-8 px-6 lg:grid-cols-[1.1fr_0.9fr]">
+      <div className="container mx-auto grid max-w-6xl gap-8 px-4 sm:px-6 lg:grid-cols-[1.1fr_0.9fr]">
         <section className="glass-surface relative overflow-hidden rounded-[32px] p-8 lg:p-10">
           <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(247,201,80,0.18),transparent_35%),radial-gradient(circle_at_bottom_right,rgba(97,174,255,0.14),transparent_38%)]" />
           <div className="relative space-y-8">
@@ -169,7 +169,7 @@ const Auth = () => {
 
             <p className="text-sm text-muted-foreground">
               {t("auth.footerPrefix")}{" "}
-              <Link to="/" className="text-primary underline-offset-4 hover:underline">{t("auth.backToLanding")}</Link>
+              <Link to="/" className="inline-flex min-h-11 items-center text-primary underline-offset-4 hover:underline">{t("auth.backToLanding")}</Link>
             </p>
           </div>
         </section>

@@ -39,7 +39,12 @@ Lire ce fichier au debut de chaque nouvelle conversation sur ce repo, puis le me
 - Google OAuth:
   - `prompt=consent` a ete retire pour eviter de re-forcer le consentement/choix de compte.
   - le comportement Google reste depend de la session navigateur, donc un selecteur de compte peut toujours apparaitre.
+  - le `state` OAuth Google n'est plus garde en memoire process ; il est maintenant porte par cookie `httpOnly` court terme
 - Routes backend auth principales dans `server/src/routes/appRoutes.ts`.
+- Hardening backend en cours:
+  - `helmet` est actif
+  - du rate limiting est pose sur auth, recherche joueur et sync
+  - les erreurs 500 generiques sont masquees en production
 
 ## Recherche Riot
 
@@ -115,18 +120,20 @@ Lire ce fichier au debut de chaque nouvelle conversation sur ce repo, puis le me
 - `ui-ux-pro-max`
 - `playwright-skill`
 - `anthropic-frontend-design`
+- pack `wshobson/agents` installe dans `.agents/skills`
 
 ## Audit en cours - constats structurants (2026-03-25)
 
 - Securite:
-  - les routes `POST /api/sync/champions`, `POST /api/sync/items` et `POST /api/sync/assets` sont publiques actuellement
-  - `.env.example` contient encore des credentials Riot/Google reels ou realistes a retirer/rotater
-  - le serveur Express n'a pas encore de `helmet`, ni de rate limiting, et renvoie encore certains messages d'erreur bruts
+  - les routes `POST /api/sync/champions`, `POST /api/sync/items` et `POST /api/sync/assets` sont maintenant protegees par `requireSyncAccess`
+  - en dev local, le sync reste autorise depuis localhost
+  - en production, il faut fournir `SYNC_ADMIN_TOKEN`
+  - `.env.example` ne doit contenir que des placeholders, jamais des secrets reels
 - Responsive / UX:
-  - overflow horizontal confirme sur mobile pour la landing et la page profil joueur
-  - plusieurs cibles tactiles critiques restent sous 44x44, surtout dans la navbar et les portraits de champions
+  - overflow horizontal corrige sur mobile pour la landing, l'auth et la page profil joueur
+  - cibles tactiles critiques remontees a 44x44 min sur les ecrans audites
 - Produit / SEO:
-  - `index.html` garde encore les metadonnees par defaut `Lovable App`
+  - `index.html` et les titres de page ne doivent plus garder de metadonnees template
 
 ## Regles de maintenance pour ce fichier
 
@@ -137,4 +144,5 @@ Lire ce fichier au debut de chaque nouvelle conversation sur ce repo, puis le me
   - changement de logique Riot/search/autocomplete
   - ajout de migration importante
   - ajout de workflow ou commande recurrente
+- Avant tout autocompact / compactage Codex, mettre a jour `codex.md` avec les informations produit ou techniques qui ne doivent pas etre oubliees.
 - Garder le fichier court, pratique, et oriente execution.

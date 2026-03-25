@@ -8,7 +8,7 @@ interface ChampionPortraitProps {
 }
 
 const sizeMap = {
-  sm: "w-8 h-8",
+  sm: "w-9 h-9",
   md: "w-10 h-10",
   lg: "w-14 h-14",
 };

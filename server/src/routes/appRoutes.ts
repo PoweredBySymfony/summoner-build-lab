@@ -1,12 +1,13 @@
 import { Router } from "express";
+import rateLimit from "express-rate-limit";
 import { z } from "zod";
 import { puzzleRepository } from "../repositories/puzzleRepository.js";
 import { env } from "../config/env.js";
-import { attachUser, requireAuth } from "../middleware/authMiddleware.js";
+import { attachUser, requireAuth, requireSyncAccess } from "../middleware/authMiddleware.js";
 import { appService } from "../services/appService.js";
 import { authService } from "../services/authService.js";
 import { dailyChallengeService } from "../services/dailyChallengeService.js";
-import { oauthService } from "../services/oauthService.js";
+import { GOOGLE_OAUTH_STATE_COOKIE, GOOGLE_OAUTH_STATE_TTL_MS, oauthService } from "../services/oauthService.js";
 import { progressService } from "../services/progressService.js";
 import { puzzleGenerationService } from "../services/puzzleGenerationService.js";
 import { riotSyncService } from "../services/riotSyncService.js";
@@ -14,6 +15,24 @@ import { clearSessionCookie, setSessionCookie } from "../lib/session.js";
 import { HttpError } from "../utils/http.js";
 
 const router = Router();
+const authLimiter = rateLimit({
+  windowMs: 10 * 60 * 1000,
+  limit: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+const playerSearchLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+const syncLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+});
 
 router.use(attachUser);
 
@@ -45,7 +64,7 @@ router.get("/auth/me", async (request, response, next) => {
   }
 });
 
-router.post("/auth/register", async (request, response, next) => {
+router.post("/auth/register", authLimiter, async (request, response, next) => {
   try {
     const payload = z.object({
       email: z.string().email(),
@@ -61,7 +80,7 @@ router.post("/auth/register", async (request, response, next) => {
   }
 });
 
-router.post("/auth/login", async (request, response, next) => {
+router.post("/auth/login", authLimiter, async (request, response, next) => {
   try {
     const payload = z.object({
       email: z.string().email(),
@@ -81,22 +100,38 @@ router.post("/auth/logout", (request, response) => {
   response.status(204).send();
 });
 
-router.get("/auth/google/url", (_request, response, next) => {
+router.get("/auth/google/url", authLimiter, (_request, response, next) => {
   try {
-    response.json({ url: oauthService.getGoogleAuthorizationUrl() });
+    const payload = oauthService.createGoogleAuthorizationRequest();
+    response.cookie(GOOGLE_OAUTH_STATE_COOKIE, payload.state, {
+      httpOnly: true,
+      sameSite: "lax",
+      secure: process.env.NODE_ENV === "production",
+      maxAge: GOOGLE_OAUTH_STATE_TTL_MS,
+      path: "/",
+    });
+    response.json({ url: payload.url });
   } catch (error) {
     next(error);
   }
 });
 
-router.get("/auth/google/callback", async (request, response, next) => {
+router.get("/auth/google/callback", authLimiter, async (request, response, next) => {
   try {
     const payload = z.object({
       code: z.string().min(1),
       state: z.string().min(1),
     }).parse(request.query) as { code: string; state: string };
 
-    const user = await oauthService.handleGoogleCallback(payload.code, payload.state);
+    oauthService.validateGoogleState(payload.state, request.cookies?.[GOOGLE_OAUTH_STATE_COOKIE]);
+    response.clearCookie(GOOGLE_OAUTH_STATE_COOKIE, {
+      httpOnly: true,
+      sameSite: "lax",
+      secure: process.env.NODE_ENV === "production",
+      path: "/",
+    });
+
+    const user = await oauthService.handleGoogleCallback(payload.code);
     setSessionCookie(response, user);
     response.redirect(`${env.APP_URL}/dashboard`);
   } catch (error) {
@@ -268,7 +303,7 @@ router.get("/riot/account/:gameName/:tagLine", requireAuth, async (request, resp
   }
 });
 
-router.get("/players/search", async (request, response, next) => {
+router.get("/players/search", playerSearchLimiter, async (request, response, next) => {
   try {
     const payload = z.object({
       riotId: z
@@ -285,7 +320,7 @@ router.get("/players/search", async (request, response, next) => {
   }
 });
 
-router.get("/players/suggestions", async (request, response, next) => {
+router.get("/players/suggestions", playerSearchLimiter, async (request, response, next) => {
   try {
     const payload = z.object({
       q: z.string().trim().min(1),
@@ -298,7 +333,7 @@ router.get("/players/suggestions", async (request, response, next) => {
   }
 });
 
-router.post("/riot/import-matches", requireAuth, async (request, response, next) => {
+router.post("/riot/import-matches", requireAuth, playerSearchLimiter, async (request, response, next) => {
   try {
     const payload = z.object({
       puuid: z.string().min(1),
@@ -310,7 +345,7 @@ router.post("/riot/import-matches", requireAuth, async (request, response, next)
   }
 });
 
-router.post("/sync/champions", async (_request, response, next) => {
+router.post("/sync/champions", syncLimiter, requireSyncAccess, async (_request, response, next) => {
   try {
     response.json(await riotSyncService.syncChampions());
   } catch (error) {
@@ -318,7 +353,7 @@ router.post("/sync/champions", async (_request, response, next) => {
   }
 });
 
-router.post("/sync/items", async (_request, response, next) => {
+router.post("/sync/items", syncLimiter, requireSyncAccess, async (_request, response, next) => {
   try {
     response.json(await riotSyncService.syncItems());
   } catch (error) {
@@ -326,7 +361,7 @@ router.post("/sync/items", async (_request, response, next) => {
   }
 });
 
-router.post("/sync/assets", async (_request, response, next) => {
+router.post("/sync/assets", syncLimiter, requireSyncAccess, async (_request, response, next) => {
   try {
     response.json(await riotSyncService.syncAssets());
   } catch (error) {

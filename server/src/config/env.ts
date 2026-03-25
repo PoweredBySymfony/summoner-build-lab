@@ -13,6 +13,7 @@ const envSchema = z.object({
   APP_URL: z.string().default("http://localhost:8080"),
   AUTH_SECRET: z.string().min(16),
   SESSION_COOKIE_NAME: z.string().default("summoner_build_lab_session"),
+  SYNC_ADMIN_TOKEN: z.string().optional(),
   RIOT_API_KEY: z.string().optional(),
   RIOT_REGION: z.string().default("europe"),
   RIOT_PLATFORM: z.string().default("euw1"),

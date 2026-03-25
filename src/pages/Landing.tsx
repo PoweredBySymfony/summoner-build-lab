@@ -11,13 +11,13 @@ const Landing = () => {
 
   return (
     <div className="min-h-screen bg-background pt-24 pb-16">
-      <div className="container mx-auto px-6 space-y-10">
+      <div className="container mx-auto space-y-10 px-4 sm:px-6">
         <section className="grid lg:grid-cols-[1.15fr_0.85fr] gap-8 items-stretch">
-          <div className="glass-surface relative rounded-[28px] p-8 lg:p-10">
+          <div className="glass-surface relative min-w-0 rounded-[28px] p-6 sm:p-8 lg:p-10">
             <div className="absolute inset-0 rounded-[28px] bg-[radial-gradient(circle_at_top_right,rgba(255,201,71,0.18),transparent_35%),radial-gradient(circle_at_bottom_left,rgba(71,173,255,0.14),transparent_35%)]" />
             <div className="relative z-10">
               <p className="text-xs uppercase tracking-[0.3em] text-primary font-semibold mb-4">Entraînement à l'itemisation League of Legends</p>
-              <h1 className="font-heading text-5xl leading-tight font-bold text-foreground max-w-3xl">
+              <h1 className="max-w-3xl text-balance font-heading text-4xl font-bold leading-tight text-foreground sm:text-5xl">
                 Apprends l'itemisation globalement, puis spécialise-toi sur ton OTP avec de vrais scénarios de game.
               </h1>
               <p className="text-muted-foreground text-lg mt-5 max-w-2xl leading-relaxed">
@@ -33,8 +33,8 @@ const Landing = () => {
             </div>
           </div>
 
-          <div className="grid gap-4">
-            <div className="glass-surface rounded-2xl p-6">
+          <div className="grid min-w-0 gap-4">
+            <div className="glass-surface rounded-2xl p-5 sm:p-6">
               <div className="flex items-center gap-2 text-primary mb-3"><Swords className="w-4 h-4" /> Catalogue synchronisé</div>
               <div className="grid grid-cols-3 gap-3 text-sm">
                 <div><p className="text-3xl font-bold text-foreground">{data?.stats.championCount ?? 0}</p><p className="text-muted-foreground">Champions</p></div>
@@ -42,17 +42,17 @@ const Landing = () => {
                 <div><p className="text-3xl font-bold text-foreground">{data?.stats.puzzleCount ?? 0}</p><p className="text-muted-foreground">Puzzles</p></div>
               </div>
             </div>
-            <div className="glass-surface rounded-2xl p-6">
+            <div className="glass-surface rounded-2xl p-5 sm:p-6">
               <div className="flex items-center gap-2 text-primary mb-3"><BrainCircuit className="w-4 h-4" /> Espace OTP</div>
               <div className="flex flex-wrap gap-2">
                 {(data?.featuredChampions ?? []).slice(0, 8).map((champion) => (
-                  <Link key={champion.id} to={`/champions/${champion.slug}`}>
+                  <Link key={champion.id} to={`/champions/${champion.slug}`} className="inline-flex h-11 w-11 items-center justify-center rounded-xl">
                     <ChampionPortrait champion={champion} size="sm" />
                   </Link>
                 ))}
               </div>
             </div>
-            <div className="glass-surface rounded-2xl p-6">
+            <div className="glass-surface rounded-2xl p-5 sm:p-6">
               <div className="flex items-center gap-2 text-primary mb-3"><Flame className="w-4 h-4" /> Focus quotidien</div>
               <p className="font-semibold text-foreground">{data?.dailyChallenge.title}</p>
               <p className="text-sm text-muted-foreground mt-2">{data?.dailyChallenge.shortPrompt}</p>
@@ -65,7 +65,7 @@ const Landing = () => {
           </div>
         </section>
 
-        <section className="grid md:grid-cols-3 gap-5">
+        <section className="grid gap-5 md:grid-cols-3">
           {[
             { title: "Mode général", description: "Principes transverses d'itemisation avec scénarios plus riches et mauvaises réponses crédibles.", icon: BrainCircuit },
             { title: "Mode OTP", description: "Stats par champion, puzzles filtrés et scénarios générés à la demande autour de ton main.", icon: Sparkles },

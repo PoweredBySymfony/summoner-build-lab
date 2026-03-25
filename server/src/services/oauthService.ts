@@ -1,25 +1,19 @@
-import { randomUUID } from "crypto";
+import { randomUUID, timingSafeEqual } from "crypto";
 import { env } from "../config/env.js";
 import { HttpError } from "../utils/http.js";
 import { authService } from "./authService.js";
 
-const stateStore = new Map<string, { createdAt: number }>();
-const STATE_TTL_MS = 10 * 60 * 1000;
+export const GOOGLE_OAUTH_STATE_COOKIE = "google_oauth_state";
+export const GOOGLE_OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
 
-function createState() {
-  const state = randomUUID();
-  stateStore.set(state, { createdAt: Date.now() });
-  return state;
-}
+const createState = () => randomUUID();
 
-function consumeState(state: string) {
-  const entry = stateStore.get(state);
-  stateStore.delete(state);
+const hasMatchingState = (expected: string, received: string) => {
+  const expectedBuffer = Buffer.from(expected);
+  const receivedBuffer = Buffer.from(received);
 
-  if (!entry || Date.now() - entry.createdAt > STATE_TTL_MS) {
-    throw new HttpError(400, "OAuth state is invalid or expired.");
-  }
-}
+  return expectedBuffer.length === receivedBuffer.length && timingSafeEqual(expectedBuffer, receivedBuffer);
+};
 
 async function postForm<T>(url: string, body: URLSearchParams): Promise<T> {
   const response = await fetch(url, {
@@ -38,7 +32,7 @@ async function postForm<T>(url: string, body: URLSearchParams): Promise<T> {
 }
 
 export const oauthService = {
-  getGoogleAuthorizationUrl() {
+  createGoogleAuthorizationRequest() {
     if (!env.GOOGLE_CLIENT_ID || !env.GOOGLE_CLIENT_SECRET || !env.GOOGLE_REDIRECT_URI) {
       throw new HttpError(503, "Google OAuth is not configured.");
     }
@@ -50,15 +44,20 @@ export const oauthService = {
     url.searchParams.set("response_type", "code");
     url.searchParams.set("scope", "openid email profile");
     url.searchParams.set("state", state);
-    return url.toString();
+
+    return { state, url: url.toString() };
   },
 
-  async handleGoogleCallback(code: string, state: string) {
+  validateGoogleState(returnedState: string, cookieState: string | undefined) {
+    if (!cookieState || !hasMatchingState(cookieState, returnedState)) {
+      throw new HttpError(400, "OAuth state is invalid or expired.");
+    }
+  },
+
+  async handleGoogleCallback(code: string) {
     if (!env.GOOGLE_CLIENT_ID || !env.GOOGLE_CLIENT_SECRET || !env.GOOGLE_REDIRECT_URI) {
       throw new HttpError(503, "Google OAuth is not configured.");
     }
-
-    consumeState(state);
 
     const token = await postForm<{
       access_token: string;
