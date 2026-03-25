@@ -53,7 +53,7 @@ function normalizeRiotId(gameName: string, tagLine: string) {
   return `${gameName.trim().toLowerCase()}#${tagLine.trim().toUpperCase()}`;
 }
 
-function isStandardSummonersRiftItem(
+function isPurchasableCatalogItem(
   riotItemId: number,
   item: {
     maps?: Record<string, boolean> | null;
@@ -70,14 +70,32 @@ function isStandardSummonersRiftItem(
   );
 }
 
+function isStandardSummonersRiftItem(
+  riotItemId: number,
+  item: {
+    maps?: Record<string, boolean> | null;
+    gold?: { total?: number | null; purchasable?: boolean | null } | null;
+    inStore?: boolean | null;
+  },
+) {
+  return isPurchasableCatalogItem(riotItemId, item) && Boolean(item.maps?.["11"]);
+}
+
 function countEnabledMaps(maps?: Record<string, boolean> | null) {
   return Object.values(maps ?? {}).filter(Boolean).length;
 }
 
 function compareCanonicalItemCandidates(
-  left: [string, { maps?: Record<string, boolean> | null }],
-  right: [string, { maps?: Record<string, boolean> | null }],
+  left: [string, { maps?: Record<string, boolean> | null; gold?: { total?: number | null; purchasable?: boolean | null } | null; inStore?: boolean | null }],
+  right: [string, { maps?: Record<string, boolean> | null; gold?: { total?: number | null; purchasable?: boolean | null } | null; inStore?: boolean | null }],
 ) {
+  const leftIsStandard = isStandardSummonersRiftItem(Number(left[0]), left[1]);
+  const rightIsStandard = isStandardSummonersRiftItem(Number(right[0]), right[1]);
+
+  if (leftIsStandard !== rightIsStandard) {
+    return leftIsStandard ? -1 : 1;
+  }
+
   const mapDelta = countEnabledMaps(left[1].maps) - countEnabledMaps(right[1].maps);
   if (mapDelta !== 0) {
     return mapDelta;
@@ -281,10 +299,10 @@ export const riotSyncService = {
     const resolvedVersion = version ?? (await dataDragonClient.getLatestVersion());
     const summary = await dataDragonClient.getItemSummary(resolvedVersion);
     const items = Object.entries(summary.data);
-    const standardItems = items.filter(([itemId, item]) => isStandardSummonersRiftItem(Number(itemId), item));
-    const canonicalItems = new Map<string, (typeof standardItems)[number]>();
+    const purchasableItems = items.filter(([itemId, item]) => isPurchasableCatalogItem(Number(itemId), item));
+    const canonicalItems = new Map<string, (typeof purchasableItems)[number]>();
 
-    for (const entry of standardItems) {
+    for (const entry of purchasableItems) {
       const existing = canonicalItems.get(entry[1].name);
       if (!existing || compareCanonicalItemCandidates(entry, existing) < 0) {
         canonicalItems.set(entry[1].name, entry);
@@ -549,6 +567,7 @@ export const riotSyncService = {
     const { account, summoner, region, platform } = await resolveLeagueIdentity(gameName, tagLine);
     const matchIds = await riotApiClient.getMatchIdsByPuuidOnRegion(account.puuid, region, count);
     const matches = await Promise.all(matchIds.map((matchId) => riotApiClient.getMatchByIdOnRegion(matchId, region)));
+    const latestVersion = await dataDragonClient.getLatestVersion();
 
     const allItemIds = unique(
       matches.flatMap((match) => {
@@ -627,7 +646,7 @@ export const riotSyncService = {
             return {
               riotItemId,
               name: item?.name ?? `Item ${riotItemId}`,
-              icon: item?.image ?? "",
+              icon: item?.image ?? dataDragonClient.getItemIconUrl(latestVersion, riotItemId),
             };
           }),
         };

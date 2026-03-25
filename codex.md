@@ -156,19 +156,24 @@ Lire ce fichier au debut de chaque nouvelle conversation sur ce repo, puis le me
     - `3006` = `Berserker's Greaves` classique, dispo map `11/12/21/35`, cout `1100`
     - `223006` = variante homonyme, map `30`, cout `500`
 - Il y a actuellement beaucoup de noms dupliques parce qu'on importe tout le catalogue brut, y compris des variantes de modes/cartes.
-- Le catalogue produit/backoffice a maintenant ete recentre sur un sous-ensemble canonique "vraies games SR":
+- La base item conserve maintenant un seul item par `name` parmi les items reellement achetables (`goldTotal > 0`, `purchasable`, `inStore`), y compris hors SR si l'item a un vrai nom d'achat.
+- Le catalogue produit/backoffice reste recentre sur un sous-ensemble canonique "vraies games SR":
   - `mapAvailability["11"] = true`
   - `riotItemId < 100000`
   - `isActive = true`
   - `goldTotal > 0`
-  - un seul item conserve par `name`, avec preference pour la variante disponible sur le moins de maps, puis le plus petit `riotItemId`
-- `syncItems()` ne reimporte plus les variantes de modes/cartes hors scope.
-- `syncItems()` supprime aussi les items non canoniques non references par des puzzles.
+  - un seul item conserve par `name`
+  - lors de la dedup, une variante SR achetable est prioritaire si elle existe ; sinon on garde la meilleure variante achetable restante
+- `syncItems()` ne garde plus les doublons par nom en base.
+- `syncItems()` supprime aussi les items hors jeu reel / non canoniques non references par des puzzles.
 - Etat constate apres resync locale:
+  - `211` items en base
+  - `0` doublon de nom dans toute la table `Item`
   - `207` items canoniques visibles pour le produit et le backoffice
-  - `0` doublon de nom dans le catalogue canonique apres nettoyage
   - `4` items legacy encore gardes en base uniquement parce qu'ils sont references par d'anciens puzzles: `Quest: Support`, `Ani-Mines`, `Iceblast Armor`, `Anima Echo`
 - Si un item canonique a ete supprime manuellement dans le backoffice, une nouvelle sync item le recree.
+- Le profil joueur ne doit pas dependre exclusivement de la table `Item` pour afficher les icones d'historique:
+  - si un `riotItemId` n'est pas resolu localement, `getPublicPlayerProfile()` tombe maintenant sur l'URL Data Dragon directe pour afficher quand meme l'icone.
 
 ## Fichiers sensibles a relire avant modifs
 
