@@ -134,6 +134,14 @@ Lire ce fichier au debut de chaque nouvelle conversation sur ce repo, puis le me
   - cibles tactiles critiques remontees a 44x44 min sur les ecrans audites
 - Produit / SEO:
   - `index.html` et les titres de page ne doivent plus garder de metadonnees template
+- Copywriting / i18n:
+  - la dette de localisation reste importante
+  - `src/pages/Results.tsx`, `src/pages/PlayerProfile.tsx`, `src/pages/Dashboard.tsx`, `src/pages/Training.tsx` et `src/components/ItemIcon.tsx` ont ete refrancises sur les labels les plus visibles
+  - les messages d'erreur backend publics principaux ont ete traduits dans `server/src/routes/appRoutes.ts`, `server/src/services/authService.ts`, `server/src/services/oauthService.ts` et `server/src/services/progressService.ts`
+  - `src/i18n/translations/fr.ts` a ete nettoye partiellement, mais la dette i18n reste structurelle
+  - `server/src/services/viewMappers.ts` normalise maintenant en francais les puzzles generes/deja stockes en base pour eviter que d'anciens contenus anglais remontent encore sur `daily` et `training`
+  - plusieurs pages critiques contournent encore l'i18n et gardent du texte hardcode
+  - il reste du vocabulaire produit semi-anglais a harmoniser (`dashboard`, `OTP`, `build`, etc.) selon une vraie charte lexicale
 
 ## Regles de maintenance pour ce fichier
 

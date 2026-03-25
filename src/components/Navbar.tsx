@@ -10,7 +10,7 @@ const Navbar = () => {
   const navItems = [
     { path: "/", label: "Accueil", icon: Shield },
     { path: "/dashboard", label: "Progression", icon: LayoutDashboard },
-    { path: "/modules", label: "General", icon: BrainCircuit },
+    { path: "/modules", label: "Entrainement", icon: BrainCircuit },
     { path: "/daily", label: "Quotidien", icon: Flame },
   ];
 

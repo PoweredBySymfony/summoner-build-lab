@@ -61,7 +61,7 @@ const ItemTooltip = ({ item }: { item: GameItem }) => {
           <div className="flex-1 min-w-0">
             <h4 className="font-heading text-sm font-bold text-primary leading-tight">{item.name}</h4>
             <div className="flex items-center gap-2 mt-0.5">
-              <span className="text-xs text-primary/80 font-semibold">{item.cost} gold</span>
+              <span className="text-xs text-primary/80 font-semibold">{item.cost} or</span>
             </div>
             <div className="flex gap-1 mt-1">
               {item.tags.slice(0, 4).map((tag) => (
@@ -91,7 +91,7 @@ const ItemTooltip = ({ item }: { item: GameItem }) => {
           <>
             <div className="h-px bg-gradient-to-r from-transparent via-border to-transparent mb-2" />
             <div className="mb-3">
-              <span className="text-[11px] font-semibold text-primary">Passive</span>
+              <span className="text-[11px] font-semibold text-primary">Passif</span>
               <p className="text-[11px] text-muted-foreground leading-relaxed mt-0.5">
                 {item.passiveEffect}
               </p>
@@ -104,7 +104,7 @@ const ItemTooltip = ({ item }: { item: GameItem }) => {
           <>
             <div className="h-px bg-gradient-to-r from-transparent via-border to-transparent mb-2" />
             <div className="mb-3">
-              <span className="text-[11px] font-semibold text-accent">Active</span>
+              <span className="text-[11px] font-semibold text-accent">Actif</span>
               <p className="text-[11px] text-muted-foreground leading-relaxed mt-0.5">
                 {item.activeEffect}
               </p>
@@ -117,7 +117,7 @@ const ItemTooltip = ({ item }: { item: GameItem }) => {
           <>
             <div className="h-px bg-gradient-to-r from-transparent via-border to-transparent mb-2" />
             <div>
-              <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Build path</span>
+              <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Chemin de build</span>
               <div className="flex items-center gap-2 mt-1.5 flex-wrap">
                 {item.buildsFrom.slice(0, 4).map((comp, i) => (
                   <div key={i} className="text-[10px] text-muted-foreground px-2 py-1 rounded bg-secondary/50">

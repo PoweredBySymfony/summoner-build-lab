@@ -53,8 +53,8 @@ const PlayerProfile = () => {
                   {data?.profile.riotId ?? riotId ?? "Recherche de Riot ID"}
                 </h1>
                 <p className="mt-3 max-w-3xl text-sm leading-relaxed text-muted-foreground sm:text-base">
-                  Vue compacte inspiree de DPM.LOL : performance recente, champion pool, builds recents et lecture rapide des
-                  tendances sur les dernieres parties.
+                  Vue compacte inspiree de DPM.LOL : performances recentes, champion pool, builds recents et lecture rapide
+                  des tendances sur les dernieres parties.
                 </p>
 
                 {user && data ? (
@@ -75,7 +75,7 @@ const PlayerProfile = () => {
                       disabled={importRecentMatches.isPending || generateMatchSeries.isPending}
                     >
                       <Sparkles className="h-4 w-4" />
-                      Generer une serie depuis la derniere game
+                      Generer une serie depuis la derniere partie
                     </button>
                   </div>
                 ) : null}
@@ -111,7 +111,7 @@ const PlayerProfile = () => {
             <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
               <div className="glass-surface rounded-3xl p-5">
                 <Trophy className="mb-4 h-5 w-5 text-primary" />
-                <p className="text-sm text-muted-foreground">Winrate</p>
+                <p className="text-sm text-muted-foreground">Taux de victoire</p>
                 <p className="mt-2 text-3xl font-bold text-foreground">{data.summary.winRate}%</p>
                 <p className="mt-1 text-sm text-muted-foreground">{data.summary.wins}V / {data.summary.losses}D</p>
               </div>
@@ -129,7 +129,7 @@ const PlayerProfile = () => {
               </div>
               <div className="glass-surface rounded-3xl p-5">
                 <BarChart3 className="mb-4 h-5 w-5 text-primary" />
-                <p className="text-sm text-muted-foreground">Participation kills</p>
+                <p className="text-sm text-muted-foreground">Participation aux eliminations</p>
                 <p className="mt-2 text-3xl font-bold text-foreground">{data.summary.averageKillParticipation}%</p>
                 <p className="mt-1 text-sm text-muted-foreground">moyenne recente</p>
               </div>
@@ -143,14 +143,14 @@ const PlayerProfile = () => {
                 <Eye className="mb-4 h-5 w-5 text-primary" />
                 <p className="text-sm text-muted-foreground">Vision / or</p>
                 <p className="mt-2 text-3xl font-bold text-foreground">{data.summary.averageVisionScore}</p>
-                <p className="mt-1 text-sm text-muted-foreground">{data.summary.averageGoldEarned.toLocaleString()} gold moyens</p>
+                <p className="mt-1 text-sm text-muted-foreground">{data.summary.averageGoldEarned.toLocaleString()} or moyens</p>
               </div>
             </section>
 
             <section className="grid gap-5 xl:grid-cols-[0.33fr_0.67fr]">
               <div className="space-y-5">
                 <div className="glass-surface rounded-[32px] p-6">
-                  <p className="text-xs font-semibold uppercase tracking-[0.24em] text-primary">Snapshot compte</p>
+                  <p className="text-xs font-semibold uppercase tracking-[0.24em] text-primary">Apercu du compte</p>
                   <div className="mt-5 space-y-4 text-sm">
                     <div className="flex items-start justify-between gap-3 border-b border-border/50 pb-3">
                       <span className="text-muted-foreground">Riot ID</span>
@@ -190,7 +190,7 @@ const PlayerProfile = () => {
               <div className="glass-surface rounded-[32px] p-6">
                 <div className="flex items-center justify-between gap-3">
                   <p className="text-xs font-semibold uppercase tracking-[0.24em] text-primary">Parties recentes</p>
-                  <p className="text-sm text-muted-foreground">{data.summary.matchesAnalyzed} dernieres games</p>
+                  <p className="text-sm text-muted-foreground">{data.summary.matchesAnalyzed} dernieres parties</p>
                 </div>
                 <div className="mt-5 space-y-3">
                   {data.recentMatches.map((match) => (
@@ -200,7 +200,7 @@ const PlayerProfile = () => {
                           <p className="font-semibold text-foreground">{match.championName}</p>
                           <p className="mt-1 text-sm text-muted-foreground">{match.queueLabel}</p>
                           <p className="mt-1 text-sm text-muted-foreground">
-                            {match.gameCreation ? new Date(match.gameCreation).toLocaleString("fr-FR") : "Game recente"}
+                            {match.gameCreation ? new Date(match.gameCreation).toLocaleString("fr-FR") : "Partie recente"}
                           </p>
                         </div>
                         <div>
@@ -210,7 +210,7 @@ const PlayerProfile = () => {
                           <p className="mt-1 text-sm text-muted-foreground">{match.kills}/{match.deaths}/{match.assists}</p>
                         </div>
                         <div>
-                          <p className="font-semibold text-foreground">{match.damageToChampions.toLocaleString()} dmg</p>
+                          <p className="font-semibold text-foreground">{match.damageToChampions.toLocaleString()} degats</p>
                           <p className="mt-1 text-sm text-muted-foreground">{match.killParticipation}% KP</p>
                         </div>
                         <div>
@@ -218,7 +218,7 @@ const PlayerProfile = () => {
                           <p className="mt-1 text-sm text-muted-foreground">KDA {match.kda}</p>
                         </div>
                         <div>
-                          <p className="font-semibold text-foreground">{match.goldEarned.toLocaleString()} gold</p>
+                          <p className="font-semibold text-foreground">{match.goldEarned.toLocaleString()} or</p>
                           <p className="mt-1 text-sm text-muted-foreground">Vision {match.visionScore}</p>
                         </div>
                         <div className="flex flex-wrap gap-2">

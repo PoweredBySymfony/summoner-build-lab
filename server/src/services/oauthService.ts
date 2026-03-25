@@ -25,7 +25,7 @@ async function postForm<T>(url: string, body: URLSearchParams): Promise<T> {
   });
 
   if (!response.ok) {
-    throw new HttpError(response.status, "Google OAuth token exchange failed.");
+    throw new HttpError(response.status, "L'echange du token Google OAuth a echoue.");
   }
 
   return (await response.json()) as T;
@@ -34,7 +34,7 @@ async function postForm<T>(url: string, body: URLSearchParams): Promise<T> {
 export const oauthService = {
   createGoogleAuthorizationRequest() {
     if (!env.GOOGLE_CLIENT_ID || !env.GOOGLE_CLIENT_SECRET || !env.GOOGLE_REDIRECT_URI) {
-      throw new HttpError(503, "Google OAuth is not configured.");
+      throw new HttpError(503, "Google OAuth n'est pas configure.");
     }
 
     const state = createState();
@@ -50,13 +50,13 @@ export const oauthService = {
 
   validateGoogleState(returnedState: string, cookieState: string | undefined) {
     if (!cookieState || !hasMatchingState(cookieState, returnedState)) {
-      throw new HttpError(400, "OAuth state is invalid or expired.");
+      throw new HttpError(400, "L'etat OAuth est invalide ou a expire.");
     }
   },
 
   async handleGoogleCallback(code: string) {
     if (!env.GOOGLE_CLIENT_ID || !env.GOOGLE_CLIENT_SECRET || !env.GOOGLE_REDIRECT_URI) {
-      throw new HttpError(503, "Google OAuth is not configured.");
+      throw new HttpError(503, "Google OAuth n'est pas configure.");
     }
 
     const token = await postForm<{
@@ -81,7 +81,7 @@ export const oauthService = {
     });
 
     if (!userInfoResponse.ok) {
-      throw new HttpError(userInfoResponse.status, "Unable to retrieve Google user profile.");
+      throw new HttpError(userInfoResponse.status, "Impossible de recuperer le profil Google.");
     }
 
     const userInfo = (await userInfoResponse.json()) as {
@@ -92,7 +92,7 @@ export const oauthService = {
     };
 
     if (!userInfo.email) {
-      throw new HttpError(400, "Google account did not return an email address.");
+      throw new HttpError(400, "Le compte Google n'a pas renvoye d'adresse email.");
     }
 
     return authService.upsertGoogleUser({

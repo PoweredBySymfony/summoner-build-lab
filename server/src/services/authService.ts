@@ -44,11 +44,11 @@ async function ensureAvailableIdentity(email: string, username: string, ignoreUs
   ]);
 
   if (emailUser && emailUser.id !== ignoreUserId) {
-    throw new HttpError(409, "An account already exists for this email.");
+    throw new HttpError(409, "Un compte existe deja pour cet email.");
   }
 
   if (usernameUser && usernameUser.id !== ignoreUserId) {
-    throw new HttpError(409, "This username is already taken.");
+    throw new HttpError(409, "Ce pseudo est deja utilise.");
   }
 }
 
@@ -96,12 +96,12 @@ export const authService = {
   async login(email: string, password: string) {
     const user = await userRepository.findByEmail(normalizeEmail(email));
     if (!user?.passwordHash) {
-      throw new HttpError(401, "Invalid email or password.");
+      throw new HttpError(401, "Email ou mot de passe invalide.");
     }
 
     const isValid = await verifyPassword(password, user.passwordHash);
     if (!isValid) {
-      throw new HttpError(401, "Invalid email or password.");
+      throw new HttpError(401, "Email ou mot de passe invalide.");
     }
 
     await userRepository.ensureUserScaffolding(user.id);
@@ -111,7 +111,7 @@ export const authService = {
   async getUser(userId: string) {
     const user = await userRepository.findById(userId);
     if (!user) {
-      throw new HttpError(401, "Session is no longer valid.");
+      throw new HttpError(401, "La session n'est plus valide.");
     }
 
     await userRepository.ensureUserScaffolding(user.id);

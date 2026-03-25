@@ -17,7 +17,7 @@ export const progressService = {
     });
 
     if (!puzzle) {
-      throw new Error("Puzzle not found while recording attempt.");
+      throw new Error("Puzzle introuvable pendant l'enregistrement de la tentative.");
     }
 
     const attempt = await prisma.puzzleAttempt.create({

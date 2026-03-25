@@ -24,7 +24,7 @@ const queryClient = new QueryClient();
 const routeTitles: Array<{ pattern: RegExp; title: string }> = [
   { pattern: /^\/$/, title: "Accueil" },
   { pattern: /^\/auth/, title: "Connexion" },
-  { pattern: /^\/dashboard/, title: "Progression" },
+  { pattern: /^\/dashboard/, title: "Tableau de bord" },
   { pattern: /^\/modules|^\/puzzles/, title: "Entrainement general" },
   { pattern: /^\/daily/, title: "Defi quotidien" },
   { pattern: /^\/training/, title: "Entrainement" },

@@ -61,7 +61,7 @@ export interface PuzzleListItem {
   title: string;
   description: string;
   shortPrompt: string;
-  difficulty: "beginner" | "intermediate" | "advanced";
+  difficulty: string;
   patch: string;
   role: string | null;
   mode: string;

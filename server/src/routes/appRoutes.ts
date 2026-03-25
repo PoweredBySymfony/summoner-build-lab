@@ -173,7 +173,7 @@ router.get("/puzzles/:slug", async (request, response, next) => {
   try {
     const puzzle = await appService.getPuzzleDetail(request.params.slug);
     if (!puzzle) {
-      throw new HttpError(404, "Puzzle not found.");
+      throw new HttpError(404, "Puzzle introuvable.");
     }
 
     response.json(puzzle);
@@ -191,12 +191,12 @@ router.post("/puzzles/:slug/attempts", async (request, response, next) => {
 
     const puzzle = await puzzleRepository.findBySlug(request.params.slug);
     if (!puzzle) {
-      throw new HttpError(404, "Puzzle not found.");
+      throw new HttpError(404, "Puzzle introuvable.");
     }
 
     const choice = puzzle.choices.find((entry) => entry.id === payload.selectedChoiceId);
     if (!choice) {
-      throw new HttpError(400, "Selected choice does not belong to this puzzle.");
+      throw new HttpError(400, "Le choix selectionne n'appartient pas a ce puzzle.");
     }
 
     if (request.user) {
@@ -309,7 +309,7 @@ router.get("/players/search", playerSearchLimiter, async (request, response, nex
       riotId: z
         .string()
         .trim()
-        .regex(/^[^#]+#[^#]+$/, "Riot ID must look like GameName#TAG"),
+        .regex(/^[^#]+#[^#]+$/, "Le Riot ID doit respecter le format GameName#TAG"),
       count: z.coerce.number().min(1).max(10).default(5),
     }).parse(request.query);
 

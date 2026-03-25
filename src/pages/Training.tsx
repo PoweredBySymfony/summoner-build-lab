@@ -39,13 +39,13 @@ const TeamRow = ({ entry }: { entry: TeamEntry }) => {
 
   return (
     <div className="grid grid-cols-[170px_1fr] items-center gap-3 rounded-2xl border border-border/60 bg-background/60 px-3 py-3">
-      <div className="flex items-center gap-3 min-w-0">
+      <div className="flex min-w-0 items-center gap-3">
         {champion && "slug" in champion ? <ChampionPortrait champion={champion} size="sm" /> : <div className="h-10 w-10 rounded-lg bg-secondary" />}
         <div className="min-w-0">
           <p className="truncate text-sm font-semibold text-foreground">
             {champion && "name" in champion ? champion.name : isChampionView(entry) ? entry.name : entry.name}
           </p>
-          <p className="text-xs text-muted-foreground">{role ?? "Rôle inconnu"}</p>
+          <p className="text-xs text-muted-foreground">{role ?? "Role inconnu"}</p>
         </div>
       </div>
       <div className="flex flex-wrap gap-2">
@@ -53,6 +53,19 @@ const TeamRow = ({ entry }: { entry: TeamEntry }) => {
       </div>
     </div>
   );
+};
+
+const getChoiceSummary = (choice: { item?: GameItem | null; textFallback?: string | null }) => {
+  const text = choice.textFallback?.trim();
+  if (text && /[éèàùç]/i.test(text)) {
+    return text;
+  }
+
+  if (choice.item) {
+    return `Option d'achat a evaluer dans cette situation.`;
+  }
+
+  return "Decision d'achat situationnelle.";
 };
 
 const Training = () => {
@@ -94,12 +107,12 @@ const Training = () => {
 
     const nextSeriesSlug = getNextPuzzleSlug(puzzle.slug);
     if (nextSeriesSlug) {
-      return { slug: nextSeriesSlug, label: "Question suivante de la série OTP" };
+      return { slug: nextSeriesSlug, label: "Question suivante de la serie OTP" };
     }
 
     const sameChampion = allPuzzles.find((entry) => entry.slug !== puzzle.slug && entry.champion?.slug === puzzle.champion?.slug);
     if (sameChampion) {
-      return { slug: sameChampion.slug, label: "Autre puzzle du même champion" };
+      return { slug: sameChampion.slug, label: "Autre puzzle du meme champion" };
     }
 
     return null;
@@ -110,10 +123,10 @@ const Training = () => {
       <div className="min-h-screen bg-background pt-24">
         <div className="container mx-auto px-6">
           <div className="glass-surface rounded-3xl p-8">
-            <p className="text-sm text-muted-foreground">Aucun puzzle sélectionné.</p>
+            <p className="text-sm text-muted-foreground">Aucun puzzle selectionne.</p>
             <div className="mt-4 flex gap-3">
               <Link to="/modules"><Button variant="gold">Ouvrir les modules</Button></Link>
-              <Link to="/dashboard"><Button variant="outline">Ouvrir le dashboard</Button></Link>
+              <Link to="/dashboard"><Button variant="outline">Ouvrir le tableau de bord</Button></Link>
             </div>
           </div>
         </div>
@@ -129,7 +142,7 @@ const Training = () => {
   const enemies = (puzzle.scenario?.enemyTeam ?? []) as TeamEntry[];
 
   return (
-    <div className="min-h-screen bg-background pt-20 pb-8">
+    <div className="min-h-screen bg-background pb-8 pt-20">
       <div className="container mx-auto max-w-[1800px] px-4">
         <div className="grid gap-4 xl:grid-cols-[1.08fr_0.92fr]">
           <section className="space-y-4">
@@ -150,7 +163,7 @@ const Training = () => {
                   <div className="glass-surface rounded-3xl p-5">
                     <div className="flex items-center justify-between gap-4">
                       <div>
-                        <p className="text-xs font-semibold uppercase tracking-[0.24em] text-primary">État du joueur</p>
+                        <p className="text-xs font-semibold uppercase tracking-[0.24em] text-primary">Etat du joueur</p>
                         <h2 className="mt-2 font-heading text-3xl font-bold text-foreground">{puzzle.scenario.playerChampion.name}</h2>
                         <p className="text-sm text-muted-foreground">{puzzle.scenario.playerRole}</p>
                       </div>
@@ -165,7 +178,7 @@ const Training = () => {
                     <div className="mt-5">
                       <p className="mb-3 text-xs font-semibold uppercase tracking-[0.24em] text-primary">Build actuel</p>
                       <div className="flex flex-wrap gap-2">
-                        {puzzle.scenario.currentBuild.length > 0 ? puzzle.scenario.currentBuild.map((item) => renderItem(item)) : <span className="text-sm text-muted-foreground">Build non renseigné.</span>}
+                        {puzzle.scenario.currentBuild.length > 0 ? puzzle.scenario.currentBuild.map((item) => renderItem(item)) : <span className="text-sm text-muted-foreground">Build non renseigne.</span>}
                       </div>
                     </div>
                   </div>
@@ -180,13 +193,13 @@ const Training = () => {
                         ))}
                       </div>
                       <div className="rounded-2xl border border-border/60 bg-background/60 p-4">
-                        <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Profil de dégâts</p>
+                        <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Profil de degats</p>
                         {Object.entries((puzzle.scenario.damageProfile ?? {}) as Record<string, unknown>).map(([key, value]) => (
                           <p key={key} className="mt-2 text-sm text-foreground">{key}: <span className="text-muted-foreground">{String(value)}</span></p>
                         ))}
                       </div>
                       <div className="rounded-2xl border border-border/60 bg-background/60 p-4">
-                        <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">État de carte</p>
+                        <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Etat de carte</p>
                         {Object.entries((puzzle.scenario.mapState ?? {}) as Record<string, unknown>).map(([key, value]) => (
                           <p key={key} className="mt-2 text-sm text-foreground">{key}: <span className="text-muted-foreground">{String(value)}</span></p>
                         ))}
@@ -203,11 +216,11 @@ const Training = () => {
 
                 <div className="grid gap-4 lg:grid-cols-2">
                   <div className="glass-surface rounded-3xl p-5">
-                    <p className="mb-3 text-xs font-semibold uppercase tracking-[0.24em] text-primary">Équipe alliée</p>
+                    <p className="mb-3 text-xs font-semibold uppercase tracking-[0.24em] text-primary">Equipe alliee</p>
                     <div className="space-y-3">{allies.map((entry) => <TeamRow key={entry.id} entry={entry} />)}</div>
                   </div>
                   <div className="glass-surface rounded-3xl p-5">
-                    <p className="mb-3 text-xs font-semibold uppercase tracking-[0.24em] text-primary">Équipe ennemie et items visibles</p>
+                    <p className="mb-3 text-xs font-semibold uppercase tracking-[0.24em] text-primary">Equipe ennemie et items visibles</p>
                     <div className="space-y-3">{enemies.map((entry) => <TeamRow key={entry.id} entry={entry} />)}</div>
                   </div>
                 </div>
@@ -254,9 +267,9 @@ const Training = () => {
                       </div>
                       <div>
                         <h3 className="text-lg font-semibold text-foreground">{choice.item?.name ?? choice.label}</h3>
-                        <p className="mt-1 text-sm text-muted-foreground">{choice.textFallback ?? choice.item?.shortDescription ?? "Décision d'achat situationnelle."}</p>
+                        <p className="mt-1 text-sm text-muted-foreground">{getChoiceSummary({ item: choice.item, textFallback: choice.textFallback ?? choice.item?.shortDescription })}</p>
                       </div>
-                      {correct ? <span className="rounded-full bg-emerald-500/15 px-3 py-1 text-xs font-semibold text-emerald-300">Bonne réponse</span> : null}
+                      {correct ? <span className="rounded-full bg-emerald-500/15 px-3 py-1 text-xs font-semibold text-emerald-300">Bonne reponse</span> : null}
                     </div>
                   </button>
                 );
@@ -267,7 +280,7 @@ const Training = () => {
               <div className="glass-surface rounded-3xl p-5">
                 <div className="flex items-center justify-between gap-4">
                   <p className="text-sm text-muted-foreground">
-                    {user ? "Ta réponse sera enregistrée dans ton profil." : "Tu peux répondre maintenant, mais il faut être connecté pour sauvegarder la progression."}
+                    {user ? "Ta reponse sera enregistree dans ton profil." : "Tu peux repondre maintenant, mais il faut etre connecte pour sauvegarder la progression."}
                   </p>
                   <Button variant="gold" disabled={!selectedChoiceId || submitAttempt.isPending} onClick={() => selectedChoiceId && submitAttempt.mutate(selectedChoiceId)}>
                     Valider
@@ -279,17 +292,17 @@ const Training = () => {
                 <div className="flex items-start gap-4">
                   {result.isCorrect ? <CheckCircle2 className="h-7 w-7 shrink-0 text-emerald-300" /> : <XCircle className="h-7 w-7 shrink-0 text-destructive" />}
                   <div className="space-y-3">
-                    <h3 className="font-heading text-2xl font-bold text-foreground">{result.isCorrect ? "Bonne lecture" : "Achat moins cohérent"}</h3>
+                    <h3 className="font-heading text-2xl font-bold text-foreground">{result.isCorrect ? "Bonne lecture" : "Achat moins coherent"}</h3>
                     <p className="text-sm text-muted-foreground">{result.explanation}</p>
                     <p className="text-sm text-muted-foreground">{result.globalExplanation}</p>
                     {result.requiresAuth ? (
                       <div className="rounded-2xl border border-border/60 bg-background/50 px-4 py-3 text-sm text-foreground">
-                        Cette réponse a été évaluée mais pas sauvegardée. <Link className="font-semibold text-primary" to="/auth">Crée un compte</Link> pour enregistrer tes tentatives, ta progression OTP et tes streaks.
+                        Cette reponse a ete evaluee mais pas sauvegardee. <Link className="font-semibold text-primary" to="/auth">Cree un compte</Link> pour enregistrer tes tentatives, ta progression OTP et tes streaks.
                       </div>
                     ) : null}
                     <div className="flex flex-wrap gap-3 pt-2">
                       {nextPuzzle ? <Button variant="gold" onClick={() => navigate(`/training/${nextPuzzle.slug}`)}><Trophy className="h-4 w-4" />{nextPuzzle.label}</Button> : null}
-                      <Link to="/dashboard"><Button variant="outline">Retour au dashboard</Button></Link>
+                      <Link to="/dashboard"><Button variant="outline">Retour au tableau de bord</Button></Link>
                     </div>
                   </div>
                 </div>
