@@ -1,6 +1,7 @@
 import { Role, type Champion, type Item, Prisma } from "@prisma/client";
 import { prisma } from "../server/src/lib/prisma.js";
 import { resolveItemSlug } from "../server/src/lib/itemSlugAliases.js";
+import { classifyLegacyScenarioBackfill, isLegacyStringArray } from "../server/src/lib/scenarioBackfill.js";
 
 type ScenarioItemRef = {
   itemId: string;
@@ -28,14 +29,6 @@ const defaultItemSlugsByRole: Record<Role, string[]> = {
   SUPPORT: ["locket-of-the-iron-solari", "knights-vow"],
   FLEX: [],
 };
-
-function isLegacyTeam(value: unknown): value is string[] {
-  return Array.isArray(value) && value.every((entry) => typeof entry === "string");
-}
-
-function isLegacyBuild(value: unknown): value is string[] {
-  return Array.isArray(value) && value.every((entry) => typeof entry === "string");
-}
 
 function unique<T>(values: T[]) {
   return [...new Set(values)];
@@ -135,16 +128,19 @@ async function main() {
   let updated = 0;
 
   for (const scenario of scenarios) {
-    const legacyTeams = isLegacyTeam(scenario.allyTeam) && isLegacyTeam(scenario.enemyTeam);
-    const legacyBuild = isLegacyBuild(scenario.currentBuild) || (Array.isArray(scenario.currentBuild) && scenario.currentBuild.length === 0);
+    const backfillTargets = classifyLegacyScenarioBackfill({
+      allyTeam: scenario.allyTeam,
+      enemyTeam: scenario.enemyTeam,
+      currentBuild: scenario.currentBuild,
+    });
 
-    if (!legacyTeams && !legacyBuild) {
+    if (!backfillTargets.shouldUpdate) {
       continue;
     }
 
-    const allySlugs = isLegacyTeam(scenario.allyTeam) ? scenario.allyTeam : [];
-    const enemySlugs = isLegacyTeam(scenario.enemyTeam) ? scenario.enemyTeam : [];
-    const buildSlugs = isLegacyBuild(scenario.currentBuild) ? scenario.currentBuild : [];
+    const allySlugs = backfillTargets.rebuildAllyTeam && isLegacyStringArray(scenario.allyTeam) ? scenario.allyTeam : [];
+    const enemySlugs = backfillTargets.rebuildEnemyTeam && isLegacyStringArray(scenario.enemyTeam) ? scenario.enemyTeam : [];
+    const buildSlugs = isLegacyStringArray(scenario.currentBuild) ? scenario.currentBuild : [];
     const enemyVisibleSlugs = Array.isArray(scenario.enemyItems) && scenario.enemyItems.every((entry) => typeof entry === "string")
       ? (scenario.enemyItems as string[])
       : [];
@@ -222,23 +218,22 @@ async function main() {
 
     const data: Prisma.PuzzleScenarioUpdateInput = {};
 
-    if (legacyBuild) {
+    if (backfillTargets.rebuildCurrentBuild) {
       data.currentBuild = currentBuild as Prisma.InputJsonValue;
     }
 
-    if (legacyTeams) {
+    if (backfillTargets.rebuildAllyTeam) {
       data.allyTeam = rebuiltAllyTeam as Prisma.InputJsonValue;
-      data.enemyTeam = rebuiltEnemyTeam as Prisma.InputJsonValue;
       data.allyItems = rebuiltAllyTeam as Prisma.InputJsonValue;
-      data.enemyItems = rebuiltEnemyTeam as Prisma.InputJsonValue;
-    } else {
-      if (!Array.isArray(scenario.allyItems) || scenario.allyItems.length === 0) {
-        data.allyItems = scenario.allyTeam as Prisma.InputJsonValue;
-      }
+    } else if (!Array.isArray(scenario.allyItems) || scenario.allyItems.length === 0) {
+      data.allyItems = scenario.allyTeam as Prisma.InputJsonValue;
+    }
 
-      if (!Array.isArray(scenario.enemyItems) || scenario.enemyItems.length === 0) {
-        data.enemyItems = scenario.enemyTeam as Prisma.InputJsonValue;
-      }
+    if (backfillTargets.rebuildEnemyTeam) {
+      data.enemyTeam = rebuiltEnemyTeam as Prisma.InputJsonValue;
+      data.enemyItems = rebuiltEnemyTeam as Prisma.InputJsonValue;
+    } else if (!Array.isArray(scenario.enemyItems) || scenario.enemyItems.length === 0) {
+      data.enemyItems = scenario.enemyTeam as Prisma.InputJsonValue;
     }
 
     await prisma.puzzleScenario.update({
