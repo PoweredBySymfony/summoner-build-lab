@@ -125,6 +125,10 @@ Lire ce fichier au debut de chaque nouvelle conversation sur ce repo, puis le me
   - liste complete des items
   - liste complete des puzzles
   - edition rapide des metadonnees champion/item/puzzle
+  - suppression admin:
+    - puzzle: suppression autorisee
+    - champion: suppression refusee si encore reference dans puzzles/scenarios/progression/requests
+    - item: suppression refusee si encore utilise dans des choix de puzzle
   - detail puzzle avec lecture des choix et du scenario
   - popup patch avec inventaire des champions/items hors patch cible
   - bouton de sync patch qui appelle `riotSyncService.syncAll()`
@@ -136,6 +140,23 @@ Lire ce fichier au debut de chaque nouvelle conversation sur ce repo, puis le me
   - `server/src/services/adminService.ts`
   - `server/src/services/viewMappers.ts`
   - `server/src/middleware/authMiddleware.ts`
+
+## Items Riot - doublons apparents
+
+- Les doublons d'items vus dans le backoffice ne viennent pas d'une corruption locale aleatoire.
+- Source actuelle:
+  - import depuis Data Dragon via `server/src/services/riotSyncService.ts`
+  - methode `syncItems()`
+  - lecture brute de `dataDragonClient.getItemSummary(version).data`
+  - stockage par `riotItemId` unique, pas par `name`
+- Consequence:
+  - plusieurs lignes peuvent partager le meme `name` mais avoir des `riotItemId` differents
+  - ces variantes correspondent a des contextes/maps differents
+  - exemple observe localement:
+    - `3006` = `Berserker's Greaves` classique, dispo map `11/12/21/35`, cout `1100`
+    - `223006` = variante homonyme, map `30`, cout `500`
+- Il y a actuellement beaucoup de noms dupliques parce qu'on importe tout le catalogue brut, y compris des variantes de modes/cartes.
+- Si on veut un catalogue produit propre pour LoL classique, la prochaine etape sera de filtrer les items importes selon `mapAvailability` et une strategie de whitelist/blacklist des variants.
 
 ## Fichiers sensibles a relire avant modifs
 

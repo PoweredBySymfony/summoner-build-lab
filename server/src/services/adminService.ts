@@ -131,6 +131,28 @@ export const adminService = {
     return mapChampionView(updated);
   },
 
+  async deleteChampion(id: string) {
+    const champion = await catalogRepository.findChampionById(id);
+    if (!champion) {
+      throw new HttpError(404, "Champion introuvable.");
+    }
+
+    const dependencies = await prisma.$transaction([
+      prisma.puzzle.count({ where: { championId: id } }),
+      prisma.puzzleScenario.count({ where: { playerChampionId: id } }),
+      prisma.userChampionProgress.count({ where: { championId: id } }),
+      prisma.generatedPuzzleRequest.count({ where: { championId: id } }),
+    ]);
+
+    const totalDependencies = dependencies.reduce((sum, value) => sum + value, 0);
+    if (totalDependencies > 0) {
+      throw new HttpError(409, "Ce champion est encore reference dans des puzzles, des scenarios ou de la progression. Archive-le ou nettoie ses dependances avant suppression.");
+    }
+
+    await catalogRepository.deleteChampion(id);
+    return { deleted: true };
+  },
+
   async updateItem(
     id: string,
     payload: {
@@ -189,6 +211,21 @@ export const adminService = {
     return mapItemView(updated);
   },
 
+  async deleteItem(id: string) {
+    const item = await catalogRepository.findItemById(id);
+    if (!item) {
+      throw new HttpError(404, "Objet introuvable.");
+    }
+
+    const dependencyCount = await prisma.puzzleChoice.count({ where: { itemId: id } });
+    if (dependencyCount > 0) {
+      throw new HttpError(409, "Cet item est encore utilise dans des choix de puzzles. Corrige d'abord les puzzles concernes.");
+    }
+
+    await catalogRepository.deleteItem(id);
+    return { deleted: true };
+  },
+
   async updatePuzzle(
     id: string,
     payload: {
@@ -231,6 +268,16 @@ export const adminService = {
     });
 
     return this.getPuzzleDetail(id);
+  },
+
+  async deletePuzzle(id: string) {
+    const puzzle = await puzzleRepository.findById(id);
+    if (!puzzle) {
+      throw new HttpError(404, "Puzzle introuvable.");
+    }
+
+    await puzzleRepository.deletePuzzle(id);
+    return { deleted: true };
   },
 
   async getPatchStatus() {

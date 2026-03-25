@@ -56,6 +56,10 @@ export const puzzleRepository = {
       data,
       include: puzzleInclude,
     }),
+  deletePuzzle: (id: string) =>
+    prisma.puzzle.delete({
+      where: { id },
+    }),
   createAttempt: (data: Prisma.PuzzleAttemptUncheckedCreateInput) =>
     prisma.puzzleAttempt.create({
       data,

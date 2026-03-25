@@ -33,9 +33,17 @@ export const catalogRepository = {
       where: { id },
       data,
     }),
+  deleteChampion: (id: string) =>
+    prisma.champion.delete({
+      where: { id },
+    }),
   updateItem: (id: string, data: Prisma.ItemUpdateInput) =>
     prisma.item.update({
       where: { id },
       data,
+    }),
+  deleteItem: (id: string) =>
+    prisma.item.delete({
+      where: { id },
     }),
 };

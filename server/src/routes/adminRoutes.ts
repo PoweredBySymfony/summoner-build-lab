@@ -54,6 +54,14 @@ router.patch("/admin/champions/:id", async (request, response, next) => {
   }
 });
 
+router.delete("/admin/champions/:id", async (request, response, next) => {
+  try {
+    response.json(await adminService.deleteChampion(request.params.id));
+  } catch (error) {
+    next(error);
+  }
+});
+
 router.get("/admin/items", async (_request, response, next) => {
   try {
     response.json(await adminService.listItems());
@@ -89,6 +97,14 @@ router.patch("/admin/items/:id", async (request, response, next) => {
     }).parse(request.body) as Parameters<typeof adminService.updateItem>[1];
 
     response.json(await adminService.updateItem(request.params.id, payload));
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.delete("/admin/items/:id", async (request, response, next) => {
+  try {
+    response.json(await adminService.deleteItem(request.params.id));
   } catch (error) {
     next(error);
   }
@@ -130,6 +146,14 @@ router.patch("/admin/puzzles/:id", async (request, response, next) => {
     }).parse(request.body) as Parameters<typeof adminService.updatePuzzle>[1];
 
     response.json(await adminService.updatePuzzle(request.params.id, payload));
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.delete("/admin/puzzles/:id", async (request, response, next) => {
+  try {
+    response.json(await adminService.deletePuzzle(request.params.id));
   } catch (error) {
     next(error);
   }

@@ -12,8 +12,12 @@ import {
   Search,
   ShieldCheck,
   Sparkles,
+  Trash2,
 } from "lucide-react";
 import {
+  useAdminDeleteChampion,
+  useAdminDeleteItem,
+  useAdminDeletePuzzle,
   useAdminChampions,
   useAdminItems,
   useAdminOverview,
@@ -29,6 +33,16 @@ import {
 import type { ChampionView, GameItem, PuzzleDetail } from "@/types/domain";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import {
   Dialog,
   DialogContent,
@@ -185,6 +199,12 @@ const Admin = () => {
   const [itemEditor, setItemEditor] = useState<GameItem | null>(null);
   const [puzzleEditorId, setPuzzleEditorId] = useState<string | null>(null);
   const [patchDialogOpen, setPatchDialogOpen] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<
+    | { type: "champion"; id: string; label: string }
+    | { type: "item"; id: string; label: string }
+    | { type: "puzzle"; id: string; label: string }
+    | null
+  >(null);
   const adminEnabled = Boolean(user?.isAdmin);
 
   const overview = useAdminOverview(adminEnabled);
@@ -197,6 +217,9 @@ const Admin = () => {
   const updateChampion = useAdminUpdateChampion();
   const updateItem = useAdminUpdateItem();
   const updatePuzzle = useAdminUpdatePuzzle();
+  const deleteChampion = useAdminDeleteChampion();
+  const deleteItem = useAdminDeleteItem();
+  const deletePuzzle = useAdminDeletePuzzle();
   const syncPatch = useAdminSyncPatch();
 
   const filteredChampions = useMemo(() => {
@@ -354,10 +377,16 @@ const Admin = () => {
                           <TableCell>{entry.patch}</TableCell>
                           <TableCell>{entry.isActive ? "Actif" : "Archive"}</TableCell>
                           <TableCell className="text-right">
-                            <Button variant="outline" onClick={() => setChampionEditor(entry)}>
-                              <PencilLine className="h-4 w-4" />
-                              Modifier
-                            </Button>
+                            <div className="flex justify-end gap-2">
+                              <Button variant="outline" onClick={() => setChampionEditor(entry)}>
+                                <PencilLine className="h-4 w-4" />
+                                Modifier
+                              </Button>
+                              <Button variant="destructive" onClick={() => setDeleteTarget({ type: "champion", id: entry.databaseId, label: entry.name })}>
+                                <Trash2 className="h-4 w-4" />
+                                Supprimer
+                              </Button>
+                            </div>
                           </TableCell>
                         </TableRow>
                       ))}
@@ -401,10 +430,16 @@ const Admin = () => {
                           <TableCell>{entry.cost}</TableCell>
                           <TableCell>{entry.patch}</TableCell>
                           <TableCell className="text-right">
-                            <Button variant="outline" onClick={() => setItemEditor(entry)}>
-                              <PencilLine className="h-4 w-4" />
-                              Modifier
-                            </Button>
+                            <div className="flex justify-end gap-2">
+                              <Button variant="outline" onClick={() => setItemEditor(entry)}>
+                                <PencilLine className="h-4 w-4" />
+                                Modifier
+                              </Button>
+                              <Button variant="destructive" onClick={() => setDeleteTarget({ type: "item", id: entry.databaseId, label: entry.name })}>
+                                <Trash2 className="h-4 w-4" />
+                                Supprimer
+                              </Button>
+                            </div>
                           </TableCell>
                         </TableRow>
                       ))}
@@ -448,10 +483,16 @@ const Admin = () => {
                           <TableCell>{entry.difficulty}</TableCell>
                           <TableCell>{entry.patch}</TableCell>
                           <TableCell className="text-right">
-                            <Button variant="outline" onClick={() => setPuzzleEditorId(entry.id)}>
-                              <PencilLine className="h-4 w-4" />
-                              Consulter / modifier
-                            </Button>
+                            <div className="flex justify-end gap-2">
+                              <Button variant="outline" onClick={() => setPuzzleEditorId(entry.id)}>
+                                <PencilLine className="h-4 w-4" />
+                                Consulter / modifier
+                              </Button>
+                              <Button variant="destructive" onClick={() => setDeleteTarget({ type: "puzzle", id: entry.id, label: entry.title })}>
+                                <Trash2 className="h-4 w-4" />
+                                Supprimer
+                              </Button>
+                            </div>
                           </TableCell>
                         </TableRow>
                       ))}
@@ -535,6 +576,48 @@ const Admin = () => {
           }
         }}
       />
+
+      <AlertDialog open={Boolean(deleteTarget)} onOpenChange={(open) => {
+        if (!open) {
+          setDeleteTarget(null);
+        }
+      }}>
+        <AlertDialogContent className="border-border/60 bg-card">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Confirmer la suppression</AlertDialogTitle>
+            <AlertDialogDescription>
+              {deleteTarget
+                ? `Tu vas supprimer ${deleteTarget.type === "puzzle" ? "le puzzle" : deleteTarget.type === "item" ? "l'item" : "le champion"} "${deleteTarget.label}".`
+                : ""}
+              {" "}Cette action est irreversible. Si l'entite est encore referencee, la suppression sera refusee.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Annuler</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={async () => {
+                if (!deleteTarget) return;
+                try {
+                  if (deleteTarget.type === "champion") {
+                    await deleteChampion.mutateAsync(deleteTarget.id);
+                  } else if (deleteTarget.type === "item") {
+                    await deleteItem.mutateAsync(deleteTarget.id);
+                  } else {
+                    await deletePuzzle.mutateAsync(deleteTarget.id);
+                  }
+                  toast.success("Suppression terminee.");
+                  setDeleteTarget(null);
+                } catch (error) {
+                  toast.error(error instanceof Error ? error.message : "Suppression impossible.");
+                }
+              }}
+            >
+              Supprimer
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 };
