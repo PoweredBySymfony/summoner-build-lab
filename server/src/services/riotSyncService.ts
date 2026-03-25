@@ -105,16 +105,20 @@ async function upsertIndexedAccount(input: {
   profileIconId?: number | null;
   summonerLevel?: number | null;
 }) {
+  const existing = await prisma.riotAccountIndex.findUnique({
+    where: { puuid: input.puuid },
+  });
+
   await prisma.riotAccountIndex.upsert({
     where: { puuid: input.puuid },
     update: {
       gameName: input.gameName,
       tagLine: input.tagLine,
       normalizedRiotId: normalizeRiotId(input.gameName, input.tagLine),
-      platform: input.platform ?? null,
-      region: input.region ?? null,
-      profileIconId: input.profileIconId ?? null,
-      summonerLevel: input.summonerLevel ?? null,
+      platform: input.platform ?? existing?.platform ?? null,
+      region: input.region ?? existing?.region ?? null,
+      profileIconId: input.profileIconId ?? existing?.profileIconId ?? null,
+      summonerLevel: input.summonerLevel ?? existing?.summonerLevel ?? null,
       lastSeenAt: new Date(),
     },
     create: {
@@ -401,7 +405,13 @@ export const riotSyncService = {
   },
 
   async importRecentMatches(userId: string, puuid: string, count = 5) {
-    const indexed = await prisma.riotAccountIndex.findUnique({ where: { puuid } });
+    let indexed = await prisma.riotAccountIndex.findUnique({ where: { puuid } });
+
+    if ((!indexed?.region || !indexed?.platform) && indexed?.gameName && indexed?.tagLine) {
+      await resolveLeagueIdentity(indexed.gameName, indexed.tagLine);
+      indexed = await prisma.riotAccountIndex.findUnique({ where: { puuid } });
+    }
+
     const region = indexed?.region as RiotRegion | undefined;
     if (!region) {
       throw new HttpError(400, "Unable to determine Riot region for this player. Open the profile first.");
