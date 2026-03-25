@@ -683,7 +683,7 @@ export const riotSyncService = {
         return {
           matchId: metadata?.matchId ?? "",
           championName: String(participant.championName ?? "Unknown"),
-          result: Boolean(participant.win) ? "Win" : "Loss",
+          result: participant.win ? "Win" : "Loss",
           kills,
           deaths,
           assists,

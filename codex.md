@@ -195,6 +195,15 @@ Lire ce fichier au debut de chaque nouvelle conversation sur ce repo, puis le me
   - la sync Riot/Data Dragon persiste des slugs d'items FR (`fr_FR`)
   - plusieurs scenarios/generateurs OTP et snapshots historiques referencent encore des slugs EN
 - Un aliasing central EN -> FR existe maintenant dans `server/src/lib/itemSlugAliases.ts`.
+- Les nouveaux scenarios doivent stocker des references canoniques, pas seulement des slugs texte:
+  - items: `itemId`, `riotItemId`, `itemSlug`
+  - champions: `championId`, `riotChampionId`, `championKey`, `championSlug`
+  - les lecteurs doivent rester retrocompatibles avec les anciens JSON
+- Attention:
+  - certains vieux puzzles legacy en base n'ont jamais stocke de snapshot d'items par membre
+  - dans ce cas `Training` affiche correctement l'absence de snapshot; il ne l'a pas "perdu"
+  - les seeds manuels doivent maintenant inferer un snapshot minimal par role pour eviter de recreer des scenarios vides
+- Un index champion multi-entrees existe maintenant dans `server/src/lib/championIndex.ts` pour resoudre un champion depuis le slug, l'id DB, le `championKey` ou le `riotChampionId`.
 - Regle:
   - tout flux qui reconstruit une vue item a partir d'un slug texte doit passer par cet aliasing
   - utiliser `buildItemViewIndex()` dans `server/src/lib/itemIndex.ts` pour les index de vues
@@ -215,6 +224,12 @@ Lire ce fichier au debut de chaque nouvelle conversation sur ce repo, puis le me
   - resoudre d'abord via `Champion.championKey` (ex: `MonkeyKing`) ou `riotChampionId`
   - ne garder le `slugify()` brut qu'en fallback
   - sinon certains champions (`Wukong`, `Lee Sin`, `Jarvan IV`, `Miss Fortune`, etc.) peuvent casser la generation personnalisee
+- Tests de garde deja poses:
+  - `src/test/itemSlugAliases.test.ts` pour les aliases EN -> FR
+  - `src/test/translateGeneratedCopy.test.ts` pour la normalisation de copy/traduction legacy
+- `src/components/ItemIcon.tsx`:
+  - le repositionnement du tooltip doit etre cadence via `requestAnimationFrame`
+  - l'icone doit rester accessible au focus clavier quand elle n'est pas deja dans un contexte interactif parent
 
 ## Fichiers sensibles a relire avant modifs
 

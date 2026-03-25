@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { CheckCircle2, Coins, Flame, ShieldAlert, Swords, Timer, Trophy, XCircle } from "lucide-react";
 import { useMutation } from "@tanstack/react-query";
@@ -107,12 +107,6 @@ const Training = () => {
       }),
     onSuccess: (payload) => setResult(payload),
   });
-
-  useEffect(() => {
-    setSelectedChoiceId(null);
-    setResult(null);
-    submitAttempt.reset();
-  }, [slug]);
 
   const nextPuzzle = useMemo(() => {
     if (!puzzle?.slug) {

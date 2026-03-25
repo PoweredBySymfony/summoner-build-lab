@@ -74,12 +74,36 @@ const itemNameMap: Record<string, string> = {
   "Ruby Crystal": "Cristal de rubis",
 };
 
+const encodingArtifactMap: Record<string, string> = {
+  "Ã©": "é",
+  "Ã¨": "è",
+  "Ã ": "à",
+  "Ã¹": "ù",
+  "Ã§": "ç",
+  "Ãª": "ê",
+  "Ã®": "î",
+  "Ã´": "ô",
+  "Ã»": "û",
+  "Ã«": "ë",
+  "Ã¯": "ï",
+  "Ã¼": "ü",
+  "Ã‰": "É",
+};
+
 function translateItemName(input: string) {
   return itemNameMap[input] ?? input;
 }
 
-function translateGeneratedCopy(input: string, championName?: string) {
-  let value = input.trim();
+function repairEncodingArtifacts(input: string) {
+  let value = input;
+  for (const [artifact, replacement] of Object.entries(encodingArtifactMap)) {
+    value = value.replaceAll(artifact, replacement);
+  }
+  return value;
+}
+
+export function translateGeneratedCopy(input: string, championName?: string) {
+  let value = repairEncodingArtifacts(input.trim());
 
   value = value.replace(
     /^(.+?) OTP ITEMIZATION PUZZLE$/i,
@@ -138,7 +162,7 @@ function translateGeneratedCopy(input: string, championName?: string) {
     value = value.replace(new RegExp(`\\b${championName}\\b focused scenario`, "gi"), `Scenario centre sur ${championName}`);
   }
 
-  return plainTextLabelMap[value] ?? value;
+  return plainTextLabelMap[value] ?? repairEncodingArtifacts(value);
 }
 
 function translateKeyValueRecord(
@@ -167,10 +191,17 @@ function translateKeyValueRecord(
 }
 
 function resolveIndexedItem(
-  itemSlug: string,
+  itemRef: string,
   itemIndex: Map<string, ReturnType<typeof mapItemView>>,
 ) {
-  return itemIndex.get(itemSlug) ?? itemIndex.get(resolveItemSlug(itemSlug)) ?? { id: itemSlug, name: itemSlug };
+  return itemIndex.get(itemRef) ?? itemIndex.get(resolveItemSlug(itemRef)) ?? { id: itemRef, name: itemRef };
+}
+
+function resolveIndexedChampion(
+  championRef: string,
+  championIndex: Map<string, ReturnType<typeof mapChampionView>>,
+) {
+  return championIndex.get(championRef) ?? { id: championRef, name: championRef };
 }
 
 export const mapChampionView = (champion: Champion) => ({
@@ -324,6 +355,14 @@ export const mapPuzzleDetailView = (
                 return resolveIndexedItem(itemSlug, itemIndex);
               }
 
+              if (entry && typeof entry === "object" && "itemId" in entry) {
+                return resolveIndexedItem(String(entry.itemId), itemIndex);
+              }
+
+              if (entry && typeof entry === "object" && "riotItemId" in entry) {
+                return resolveIndexedItem(String(entry.riotItemId), itemIndex);
+              }
+
               return { id: String(entry), name: String(entry) };
             })
           : [],
@@ -335,13 +374,36 @@ export const mapPuzzleDetailView = (
 
               if (entry && typeof entry === "object" && "championSlug" in entry) {
                 const championSlug = String(entry.championSlug);
+                const championRef =
+                  ("championId" in entry && entry.championId ? String(entry.championId) : null) ??
+                  ("riotChampionId" in entry && entry.riotChampionId ? String(entry.riotChampionId) : null) ??
+                  ("championKey" in entry && entry.championKey ? String(entry.championKey) : null) ??
+                  championSlug;
                 return {
                   id: championSlug,
                   name: championSlug,
-                  champion: championIndex.get(championSlug) ?? { id: championSlug, name: championSlug },
+                  champion: resolveIndexedChampion(championRef, championIndex),
                   role: "role" in entry ? roleLabel[String(entry.role) as Role] ?? String(entry.role) : null,
                   items: Array.isArray(entry.items)
-                    ? entry.items.map((itemSlug) => resolveIndexedItem(String(itemSlug), itemIndex))
+                    ? entry.items.map((itemEntry) => {
+                        if (typeof itemEntry === "string") {
+                          return resolveIndexedItem(itemEntry, itemIndex);
+                        }
+
+                        if (itemEntry && typeof itemEntry === "object" && "itemId" in itemEntry) {
+                          return resolveIndexedItem(String(itemEntry.itemId), itemIndex);
+                        }
+
+                        if (itemEntry && typeof itemEntry === "object" && "riotItemId" in itemEntry) {
+                          return resolveIndexedItem(String(itemEntry.riotItemId), itemIndex);
+                        }
+
+                        if (itemEntry && typeof itemEntry === "object" && "itemSlug" in itemEntry) {
+                          return resolveIndexedItem(String(itemEntry.itemSlug), itemIndex);
+                        }
+
+                        return { id: String(itemEntry), name: String(itemEntry) };
+                      })
                     : [],
                   note: "note" in entry ? String(entry.note) : undefined,
                 };
@@ -358,13 +420,36 @@ export const mapPuzzleDetailView = (
 
               if (entry && typeof entry === "object" && "championSlug" in entry) {
                 const championSlug = String(entry.championSlug);
+                const championRef =
+                  ("championId" in entry && entry.championId ? String(entry.championId) : null) ??
+                  ("riotChampionId" in entry && entry.riotChampionId ? String(entry.riotChampionId) : null) ??
+                  ("championKey" in entry && entry.championKey ? String(entry.championKey) : null) ??
+                  championSlug;
                 return {
                   id: championSlug,
                   name: championSlug,
-                  champion: championIndex.get(championSlug) ?? { id: championSlug, name: championSlug },
+                  champion: resolveIndexedChampion(championRef, championIndex),
                   role: "role" in entry ? roleLabel[String(entry.role) as Role] ?? String(entry.role) : null,
                   items: Array.isArray(entry.items)
-                    ? entry.items.map((itemSlug) => resolveIndexedItem(String(itemSlug), itemIndex))
+                    ? entry.items.map((itemEntry) => {
+                        if (typeof itemEntry === "string") {
+                          return resolveIndexedItem(itemEntry, itemIndex);
+                        }
+
+                        if (itemEntry && typeof itemEntry === "object" && "itemId" in itemEntry) {
+                          return resolveIndexedItem(String(itemEntry.itemId), itemIndex);
+                        }
+
+                        if (itemEntry && typeof itemEntry === "object" && "riotItemId" in itemEntry) {
+                          return resolveIndexedItem(String(itemEntry.riotItemId), itemIndex);
+                        }
+
+                        if (itemEntry && typeof itemEntry === "object" && "itemSlug" in itemEntry) {
+                          return resolveIndexedItem(String(itemEntry.itemSlug), itemIndex);
+                        }
+
+                        return { id: String(itemEntry), name: String(itemEntry) };
+                      })
                     : [],
                   note: "note" in entry ? String(entry.note) : undefined,
                 };

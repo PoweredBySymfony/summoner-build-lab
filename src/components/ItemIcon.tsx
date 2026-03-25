@@ -176,6 +176,8 @@ const TooltipPortal = ({
       return;
     }
 
+    let frameId: number | null = null;
+
     const updatePosition = () => {
       const rect = anchor.getBoundingClientRect();
       const width = Math.min(420, window.innerWidth - 24);
@@ -193,12 +195,26 @@ const TooltipPortal = ({
       });
     };
 
+    const scheduleUpdate = () => {
+      if (frameId !== null) {
+        return;
+      }
+
+      frameId = window.requestAnimationFrame(() => {
+        frameId = null;
+        updatePosition();
+      });
+    };
+
     updatePosition();
-    window.addEventListener("scroll", updatePosition, true);
-    window.addEventListener("resize", updatePosition);
+    window.addEventListener("scroll", scheduleUpdate, true);
+    window.addEventListener("resize", scheduleUpdate);
     return () => {
-      window.removeEventListener("scroll", updatePosition, true);
-      window.removeEventListener("resize", updatePosition);
+      if (frameId !== null) {
+        window.cancelAnimationFrame(frameId);
+      }
+      window.removeEventListener("scroll", scheduleUpdate, true);
+      window.removeEventListener("resize", scheduleUpdate);
     };
   }, [anchor]);
 
@@ -218,6 +234,11 @@ export const ItemIcon = ({ item, size = "md", showTooltip = true, className = ""
     <div
       ref={triggerRef}
       className="relative"
+      tabIndex={showTooltip ? 0 : -1}
+      role="img"
+      aria-label={item.name}
+      aria-haspopup={showTooltip ? "dialog" : undefined}
+      aria-expanded={showTooltip ? hovered : undefined}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       onFocus={() => setHovered(true)}

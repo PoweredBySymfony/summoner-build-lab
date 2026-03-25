@@ -1,5 +1,6 @@
 import { Prisma, PuzzleDifficulty, PuzzleMode, Role } from "@prisma/client";
 import { catalogRepository, standardSummonersRiftItemWhere } from "../repositories/catalogRepository.js";
+import { buildChampionViewIndex } from "../lib/championIndex.js";
 import { buildItemViewIndex } from "../lib/itemIndex.js";
 import { puzzleRepository } from "../repositories/puzzleRepository.js";
 import { dataDragonClient } from "../lib/gameData/dataDragonClient.js";
@@ -89,7 +90,7 @@ export const adminService = {
       throw new HttpError(404, "Puzzle introuvable.");
     }
 
-    const championIndex = new Map(champions.map((champion) => [champion.slug, mapChampionView(champion)]));
+    const championIndex = buildChampionViewIndex(champions);
     const itemIndex = buildItemViewIndex(items);
     return mapPuzzleDetailView(puzzle, championIndex, itemIndex);
   },

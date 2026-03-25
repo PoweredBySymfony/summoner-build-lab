@@ -3,7 +3,8 @@ import { fr } from "./translations/fr";
 import { en } from "./translations/en";
 
 type Language = "fr" | "en";
-type Translations = Record<string, any>;
+type TranslationNode = string | { [key: string]: TranslationNode };
+type Translations = Record<string, TranslationNode>;
 
 const translations: Record<Language, Translations> = { fr, en };
 
@@ -25,9 +26,9 @@ export const LanguageProvider = ({ children }: { children: ReactNode }) => {
 
   const t = useCallback((key: string): string => {
     const keys = key.split(".");
-    let value: any = translations[lang];
+    let value: TranslationNode | undefined = translations[lang];
     for (const k of keys) {
-      value = value?.[k];
+      value = typeof value === "object" && value !== null ? value[k] : undefined;
     }
     return typeof value === "string" ? value : key;
   }, [lang]);

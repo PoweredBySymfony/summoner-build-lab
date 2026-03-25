@@ -77,7 +77,7 @@ function normalizeText(value: string) {
 
 function parseStatLine(line: string): ItemStatLine | null {
   const compact = line.replace(/\s+/g, " ").trim();
-  const match = compact.match(/^([+\-]?\d+(?:[.,]\d+)?%?)\s+(.+)$/);
+  const match = compact.match(/^([+-]?\d+(?:[.,]\d+)?%?)\s+(.+)$/);
   if (!match) {
     return null;
   }

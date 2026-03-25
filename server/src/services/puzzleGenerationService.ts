@@ -34,6 +34,22 @@ type ScenarioMember = {
   note?: string;
 };
 
+type ScenarioStoredItem = {
+  itemId: string;
+  riotItemId: number;
+  itemSlug: string;
+};
+
+type ScenarioStoredMember = {
+  championId: string;
+  riotChampionId: number | null;
+  championKey: string | null;
+  championSlug: string;
+  role: ScenarioSlot;
+  items: ScenarioStoredItem[];
+  note?: string;
+};
+
 type GeneratedSeriesPayload = {
   slug: string;
   slugs: string[];
@@ -679,6 +695,51 @@ async function createGeneratedPuzzle(
     throw new HttpError(500, "Impossible de résoudre tous les items nécessaires à la génération du puzzle.");
   }
 
+  const championSlugs = unique([
+    champion.slug,
+    ...allyTeam.map((member) => member.championSlug),
+    ...enrichedEnemyTeam.map((member) => member.championSlug),
+  ]);
+  const scenarioChampions = await prisma.champion.findMany({
+    where: { slug: { in: championSlugs } },
+    select: { id: true, riotChampionId: true, championKey: true, slug: true },
+  });
+  const championScenarioIndex = new Map(scenarioChampions.map((entry) => [entry.slug, entry]));
+
+  const serializeScenarioItem = (itemSlug: string): ScenarioStoredItem => {
+    const item = itemIndex.get(itemSlug);
+    if (!item) {
+      throw new HttpError(500, `Item de scenario introuvable: ${itemSlug}`);
+    }
+
+    return {
+      itemId: item.id,
+      riotItemId: item.riotItemId,
+      itemSlug: item.slug,
+    };
+  };
+
+  const serializeScenarioMember = (member: ScenarioMember): ScenarioStoredMember => {
+    const scenarioChampion = championScenarioIndex.get(member.championSlug);
+    if (!scenarioChampion) {
+      throw new HttpError(500, `Champion de scenario introuvable: ${member.championSlug}`);
+    }
+
+    return {
+      championId: scenarioChampion.id,
+      riotChampionId: scenarioChampion.riotChampionId,
+      championKey: scenarioChampion.championKey,
+      championSlug: scenarioChampion.slug,
+      role: member.role,
+      items: member.items.map(serializeScenarioItem),
+      note: member.note,
+    };
+  };
+
+  const serializedCurrentBuild = currentBuild.map(serializeScenarioItem);
+  const serializedAllyTeam = allyTeam.map(serializeScenarioMember);
+  const serializedEnemyTeam = enrichedEnemyTeam.map(serializeScenarioMember);
+
   const generatedSlug = `${champion.slug}-${variant.key}-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
   const correctItem = itemIndex.get(variant.correctChoice)!;
   const playerRole = Role[playerSlot];
@@ -728,11 +789,11 @@ async function createGeneratedPuzzle(
           deaths: 2,
           assists: playerSlot === "SUPPORT" ? 10 : 6,
           cs: playerSlot === "SUPPORT" ? 38 : playerSlot === "JUNGLE" ? 142 : 184,
-          currentBuild,
-          allyTeam: allyTeam as Prisma.InputJsonValue,
-          enemyTeam: enrichedEnemyTeam as Prisma.InputJsonValue,
-          allyItems: allyTeam as Prisma.InputJsonValue,
-          enemyItems: enrichedEnemyTeam as Prisma.InputJsonValue,
+          currentBuild: serializedCurrentBuild as Prisma.InputJsonValue,
+          allyTeam: serializedAllyTeam as Prisma.InputJsonValue,
+          enemyTeam: serializedEnemyTeam as Prisma.InputJsonValue,
+          allyItems: serializedAllyTeam as Prisma.InputJsonValue,
+          enemyItems: serializedEnemyTeam as Prisma.InputJsonValue,
           notableThreats: { archétype: archetype, angles: variant.tags } as Prisma.InputJsonValue,
           objectiveState: variant.objectiveState as Prisma.InputJsonValue,
           damageProfile: variant.damageProfile as Prisma.InputJsonValue,
@@ -766,7 +827,7 @@ async function createGeneratedPuzzle(
         type: importedMatchId ? GeneratedPuzzleRequestType.MATCH_BASED : GeneratedPuzzleRequestType.CHAMPION,
         championId: champion.id,
         importedMatchId,
-        parameters: { variant: variant.key, playerSlot, enemyTeam: enrichedEnemyTeam },
+        parameters: { variant: variant.key, playerSlot, enemyTeam: serializedEnemyTeam },
         status: GeneratedPuzzleRequestStatus.COMPLETED,
         resultPuzzleId: puzzle.id,
       },

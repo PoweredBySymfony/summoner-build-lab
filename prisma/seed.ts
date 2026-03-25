@@ -38,6 +38,56 @@ type ManualPuzzleSeed = {
   }>;
 };
 
+const defaultScenarioItemSlugsByRole: Record<Role, string[]> = {
+  TOP: ["plated-steelcaps", "sunfire-aegis"],
+  JUNGLE: ["plated-steelcaps", "black-cleaver"],
+  MID: ["zhonyas-hourglass", "shadowflame"],
+  ADC: ["infinity-edge", "bloodthirster"],
+  SUPPORT: ["locket-of-the-iron-solari", "knights-vow"],
+  FLEX: [],
+};
+
+async function serializeScenarioItem(slug: string) {
+  const item = await prisma.item.findUnique({ where: { slug: resolveItemSlug(slug) } });
+  if (!item) {
+    return { itemSlug: resolveItemSlug(slug) };
+  }
+
+  return {
+    itemId: item.id,
+    riotItemId: item.riotItemId,
+    itemSlug: item.slug,
+  };
+}
+
+async function serializeScenarioChampion(slug: string) {
+  const champion = await prisma.champion.findUnique({ where: { slug } });
+  if (!champion) {
+    return {
+      championSlug: slug,
+      role: null,
+      items: [],
+    };
+  }
+
+  return {
+    championId: champion.id,
+    riotChampionId: champion.riotChampionId,
+    championKey: champion.championKey,
+    championSlug: champion.slug,
+    role: champion.rolePrimary,
+    items: [],
+  };
+}
+
+async function serializeScenarioItemsForRole(role: Role | null | undefined) {
+  if (!role) {
+    return [];
+  }
+
+  return Promise.all((defaultScenarioItemSlugsByRole[role] ?? []).map((slug) => serializeScenarioItem(slug)));
+}
+
 async function resetDatabase() {
   await prisma.dailyChallengeCompletion.deleteMany();
   await prisma.dailyChallenge.deleteMany();
@@ -150,6 +200,30 @@ async function createManualPuzzle(seed: ManualPuzzleSeed) {
     return null;
   }
 
+  const serializedCurrentBuild = await Promise.all(seed.currentBuild.map((slug) => serializeScenarioItem(slug)));
+  const serializedEnemyItems = await Promise.all(seed.enemyItems.map((slug) => serializeScenarioItem(slug)));
+  const serializedAllyTeam = await Promise.all(
+    seed.allyTeam.map(async (slug) => {
+      const champion = await serializeScenarioChampion(slug);
+      const isPlayerChampion = champion.championSlug === seed.championSlug;
+      return {
+        ...champion,
+        items: isPlayerChampion && serializedCurrentBuild.length > 0
+          ? serializedCurrentBuild
+          : await serializeScenarioItemsForRole(champion.role),
+      };
+    }),
+  );
+  const serializedEnemyTeam = await Promise.all(
+    seed.enemyTeam.map(async (slug) => {
+      const champion = await serializeScenarioChampion(slug);
+      return {
+        ...champion,
+        items: await serializeScenarioItemsForRole(champion.role),
+      };
+    }),
+  );
+
   const puzzle = await prisma.puzzle.create({
     data: {
       title: seed.title,
@@ -191,10 +265,10 @@ async function createManualPuzzle(seed: ManualPuzzleSeed) {
           deaths: 2,
           assists: 4,
           cs: seed.role === Role.SUPPORT ? 32 : 165,
-          currentBuild: seed.currentBuild,
-          allyTeam: seed.allyTeam,
-          enemyTeam: seed.enemyTeam,
-          enemyItems: seed.enemyItems,
+          currentBuild: serializedCurrentBuild,
+          allyTeam: serializedAllyTeam,
+          enemyTeam: serializedEnemyTeam,
+          enemyItems: serializedEnemyItems,
           notableThreats: seed.tags,
           objectiveState: { nextObjective: "dragon", contest: true },
           damageProfile: { primary: seed.role === Role.MID ? "mixed" : "physical" },

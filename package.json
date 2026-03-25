@@ -14,6 +14,7 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:e2e": "playwright test",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:studio": "prisma studio",
@@ -24,6 +25,7 @@
     "sync:items": "tsx scripts/syncItems.ts",
     "sync:assets": "tsx scripts/syncAssets.ts",
     "sync:all": "tsx scripts/syncAllGameData.ts",
+    "backfill:legacy-scenarios": "tsx scripts/backfillLegacyScenarioSnapshots.ts",
     "jobs:daily-reminders": "tsx scripts/sendDailyReminders.ts"
   },
   "dependencies": {

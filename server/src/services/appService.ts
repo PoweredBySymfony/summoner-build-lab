@@ -1,4 +1,5 @@
 import { catalogRepository } from "../repositories/catalogRepository.js";
+import { buildChampionViewIndex } from "../lib/championIndex.js";
 import { buildItemViewIndex } from "../lib/itemIndex.js";
 import { puzzleRepository } from "../repositories/puzzleRepository.js";
 import { dailyChallengeService } from "./dailyChallengeService.js";
@@ -69,7 +70,7 @@ export const appService = {
       return null;
     }
 
-    const championIndex = new Map(champions.map((champion) => [champion.slug, mapChampionView(champion)]));
+    const championIndex = buildChampionViewIndex(champions);
     const itemIndex = buildItemViewIndex(items);
     return mapPuzzleDetailView(puzzle, championIndex, itemIndex);
   },
@@ -118,7 +119,7 @@ export const appService = {
       catalogRepository.listItems(),
     ]);
 
-    const championIndex = new Map(champions.map((champion) => [champion.slug, mapChampionView(champion)]));
+    const championIndex = buildChampionViewIndex(champions);
     const itemIndex = buildItemViewIndex(items);
 
     return {
