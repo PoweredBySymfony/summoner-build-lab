@@ -1,8 +1,6 @@
 import { env } from "../../config/env.js";
 import { HttpError } from "../../utils/http.js";
-
-type RiotRegion = string;
-type RiotPlatform = string;
+import { PLATFORM_TO_REGION, type RiotPlatform, type RiotRegion } from "./routing.js";
 
 type RequestOptions = {
   query?: Record<string, string | number | undefined>;
@@ -107,9 +105,23 @@ export class RiotApiClient {
     );
   }
 
+  getAccountByRiotIdOnRegion(gameName: string, tagLine: string, region: RiotRegion) {
+    return this.request<{ puuid: string; gameName: string; tagLine: string }>(
+      `/riot/account/v1/accounts/by-riot-id/${encodeURIComponent(gameName)}/${encodeURIComponent(tagLine)}`,
+      { region },
+    );
+  }
+
   getSummonerByPuuid(puuid: string) {
     return this.request<{ puuid: string; gameName?: string; profileIconId?: number; summonerLevel?: number }>(
       `/lol/summoner/v4/summoners/by-puuid/${encodeURIComponent(puuid)}`,
+    );
+  }
+
+  getSummonerByPuuidOnPlatform(puuid: string, platform: RiotPlatform) {
+    return this.request<{ puuid: string; gameName?: string; profileIconId?: number; summonerLevel?: number }>(
+      `/lol/summoner/v4/summoners/by-puuid/${encodeURIComponent(puuid)}`,
+      { platform },
     );
   }
 
@@ -119,8 +131,25 @@ export class RiotApiClient {
     });
   }
 
+  getMatchIdsByPuuidOnRegion(puuid: string, region: RiotRegion, count = 10) {
+    return this.request<string[]>(`/lol/match/v5/matches/by-puuid/${encodeURIComponent(puuid)}/ids`, {
+      region,
+      query: { count },
+    });
+  }
+
   getMatchById(matchId: string) {
     return this.request<Record<string, unknown>>(`/lol/match/v5/matches/${encodeURIComponent(matchId)}`);
+  }
+
+  getMatchByIdOnRegion(matchId: string, region: RiotRegion) {
+    return this.request<Record<string, unknown>>(`/lol/match/v5/matches/${encodeURIComponent(matchId)}`, {
+      region,
+    });
+  }
+
+  getRegionForPlatform(platform: RiotPlatform) {
+    return PLATFORM_TO_REGION[platform];
   }
 }
 

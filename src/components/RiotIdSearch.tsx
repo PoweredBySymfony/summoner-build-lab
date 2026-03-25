@@ -1,8 +1,11 @@
 import { FormEvent, KeyboardEvent, useDeferredValue, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Clock3, Search, X } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+import { usePlayerSuggestions } from "@/api/hooks";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import type { PlayerAutocompleteSuggestion } from "@/types/domain";
 import {
   buildRiotProfileIconUrl,
   getRecentRiotSearches,
@@ -20,7 +23,8 @@ type RiotIdSearchProps = {
 
 type Suggestion =
   | { type: "current"; riotId: string; gameName: string; tagLine: string }
-  | ({ type: "recent" } & RecentRiotSearch);
+  | ({ type: "recent" } & RecentRiotSearch)
+  | ({ type: "remote" } & PlayerAutocompleteSuggestion);
 
 const RiotIdAvatar = ({ entry }: { entry: Pick<RecentRiotSearch, "gameName" | "profileIconId"> }) => {
   const iconUrl = buildRiotProfileIconUrl(entry.profileIconId);
@@ -46,11 +50,19 @@ const RiotIdAvatar = ({ entry }: { entry: Pick<RecentRiotSearch, "gameName" | "p
 export const RiotIdSearch = ({ defaultValue = "", compact = false }: RiotIdSearchProps) => {
   const navigate = useNavigate();
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const panelRef = useRef<HTMLDivElement | null>(null);
   const [riotId, setRiotId] = useState(() => normalizeRiotIdInput(defaultValue));
   const [recentSearches, setRecentSearches] = useState<RecentRiotSearch[]>([]);
   const [isOpen, setIsOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
+  const [panelStyle, setPanelStyle] = useState<{ left: number; top: number; width: number }>({
+    left: 0,
+    top: 0,
+    width: 0,
+  });
   const deferredRiotId = useDeferredValue(riotId);
+  const trimmedDeferredRiotId = deferredRiotId.trim();
+  const remoteSuggestions = usePlayerSuggestions(trimmedDeferredRiotId || undefined, 8);
 
   useEffect(() => {
     setRiotId(normalizeRiotIdInput(defaultValue));
@@ -65,7 +77,9 @@ export const RiotIdSearch = ({ defaultValue = "", compact = false }: RiotIdSearc
 
   useEffect(() => {
     const handlePointerDown = (event: PointerEvent) => {
-      if (!containerRef.current?.contains(event.target as Node)) {
+      const target = event.target as Node;
+
+      if (!containerRef.current?.contains(target) && !panelRef.current?.contains(target)) {
         setIsOpen(false);
       }
     };
@@ -74,8 +88,37 @@ export const RiotIdSearch = ({ defaultValue = "", compact = false }: RiotIdSearc
     return () => document.removeEventListener("pointerdown", handlePointerDown);
   }, []);
 
-  const parsedCurrentInput = parseRiotIdInput(deferredRiotId);
-  const normalizedQuery = normalizeRiotIdInput(deferredRiotId).toLowerCase();
+  useEffect(() => {
+    if (!isOpen) {
+      return;
+    }
+
+    const updatePanelPosition = () => {
+      const rect = containerRef.current?.getBoundingClientRect();
+      if (!rect) {
+        return;
+      }
+
+      setPanelStyle({
+        left: rect.left,
+        top: rect.bottom + 10,
+        width: rect.width,
+      });
+    };
+
+    updatePanelPosition();
+    window.addEventListener("resize", updatePanelPosition);
+    window.addEventListener("scroll", updatePanelPosition, true);
+
+    return () => {
+      window.removeEventListener("resize", updatePanelPosition);
+      window.removeEventListener("scroll", updatePanelPosition, true);
+    };
+  }, [isOpen]);
+
+  const parsedCurrentInput = parseRiotIdInput(trimmedDeferredRiotId);
+  const normalizedQuery = normalizeRiotIdInput(trimmedDeferredRiotId).toLowerCase();
+  const showRecentSearches = !trimmedDeferredRiotId;
   const filteredRecentSearches = recentSearches.filter((entry) => {
     if (!normalizedQuery) {
       return true;
@@ -89,17 +132,50 @@ export const RiotIdSearch = ({ defaultValue = "", compact = false }: RiotIdSearc
     ].some((value) => value.toLowerCase().includes(normalizedQuery));
   });
 
-  const suggestions: Suggestion[] = [
-    ...(parsedCurrentInput &&
-    !filteredRecentSearches.some((entry) => entry.riotId.toLowerCase() === parsedCurrentInput.riotId.toLowerCase())
-      ? [{ type: "current" as const, ...parsedCurrentInput }]
-      : []),
-    ...filteredRecentSearches.map((entry) => ({ type: "recent" as const, ...entry })),
-  ];
+  const dedupe = new Set<string>();
+  const suggestions: Suggestion[] = [];
+
+  if (parsedCurrentInput) {
+    const currentRiotId = parsedCurrentInput.riotId.toLowerCase();
+    dedupe.add(currentRiotId);
+    suggestions.push({ type: "current", ...parsedCurrentInput });
+  }
+
+  if (showRecentSearches) {
+    for (const entry of filteredRecentSearches) {
+      const key = entry.riotId.toLowerCase();
+      if (dedupe.has(key)) {
+        continue;
+      }
+
+      dedupe.add(key);
+      suggestions.push({ type: "recent", ...entry });
+    }
+  } else {
+    for (const entry of remoteSuggestions.data ?? []) {
+      const key = entry.riotId.toLowerCase();
+      if (dedupe.has(key)) {
+        continue;
+      }
+
+      dedupe.add(key);
+      suggestions.push({ type: "remote", ...entry });
+    }
+
+    for (const entry of filteredRecentSearches) {
+      const key = entry.riotId.toLowerCase();
+      if (dedupe.has(key)) {
+        continue;
+      }
+
+      dedupe.add(key);
+      suggestions.push({ type: "recent", ...entry });
+    }
+  }
 
   useEffect(() => {
     setActiveIndex(0);
-  }, [deferredRiotId, isOpen]);
+  }, [trimmedDeferredRiotId, isOpen, remoteSuggestions.data]);
 
   const goToProfile = (value: string) => {
     const parsed = parseRiotIdInput(value);
@@ -148,9 +224,112 @@ export const RiotIdSearch = ({ defaultValue = "", compact = false }: RiotIdSearc
     }
   };
 
-  const hintLabel = filteredRecentSearches.length > 0 || !riotId.trim()
-    ? "Dernières recherches"
-    : "Recherche rapide";
+  const hintLabel = showRecentSearches
+    ? "Dernieres recherches"
+    : "Suggestions joueurs";
+
+  const isLoadingSuggestions = !showRecentSearches && remoteSuggestions.isLoading;
+
+  const emptyState = showRecentSearches
+    ? "Commence par rechercher un Riot ID comme `Hide on bush#KR1`. Les recherches valides apparaitront ici."
+    : "Aucune suggestion distante connue pour cette saisie pour l'instant. Essaie un Riot ID complet.";
+
+  const suggestionPanel = isOpen
+    ? createPortal(
+      <div
+        ref={panelRef}
+        className="fixed z-[2147483647] overflow-hidden rounded-[28px] border border-border/60 bg-[#11161f] shadow-2xl shadow-black/50"
+        style={{
+          left: panelStyle.left,
+          top: panelStyle.top,
+          width: panelStyle.width,
+        }}
+      >
+        <div className="border-b border-border/60 px-5 py-4">
+          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">{hintLabel}</p>
+        </div>
+
+        {isLoadingSuggestions ? (
+          <div className="flex items-center gap-3 px-5 py-6 text-sm text-muted-foreground">
+            <Clock3 className="h-4 w-4" />
+            <p>Recherche de comptes connus en cours...</p>
+          </div>
+        ) : suggestions.length > 0 ? (
+          <div className="max-h-[360px] overflow-y-auto p-3">
+            {suggestions.map((suggestion, index) => {
+              const isActive = index === activeIndex;
+
+              if (suggestion.type === "current") {
+                return (
+                  <button
+                    key={suggestion.riotId}
+                    type="button"
+                    className={`flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-left transition ${isActive ? "bg-white/8" : "hover:bg-white/5"}`}
+                    onMouseEnter={() => setActiveIndex(index)}
+                    onClick={() => goToProfile(suggestion.riotId)}
+                  >
+                    <div className="flex h-11 w-11 items-center justify-center rounded-xl border border-primary/30 bg-primary/10 text-primary">
+                      <Search className="h-5 w-5" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-base font-semibold text-foreground">{suggestion.gameName}</p>
+                      <p className="text-sm text-muted-foreground">#{suggestion.tagLine}</p>
+                    </div>
+                    <div className="rounded-xl bg-primary/15 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-primary">
+                      Recherche exacte
+                    </div>
+                  </button>
+                );
+              }
+
+              const regionBadge = suggestion.type === "remote"
+                ? suggestion.platform?.toUpperCase() ?? suggestion.region?.toUpperCase() ?? suggestion.tagLine
+                : suggestion.tagLine;
+
+              return (
+                <div
+                  key={`${suggestion.type}-${suggestion.riotId}`}
+                  className={`flex items-center gap-3 rounded-2xl px-3 py-3 transition ${isActive ? "bg-white/8" : "hover:bg-white/5"}`}
+                  onMouseEnter={() => setActiveIndex(index)}
+                >
+                  <button
+                    type="button"
+                    className="flex min-w-0 flex-1 items-center gap-3 text-left"
+                    onClick={() => goToProfile(suggestion.riotId)}
+                  >
+                    <RiotIdAvatar entry={suggestion} />
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-base font-semibold text-foreground">{suggestion.gameName}</p>
+                      <p className="text-sm text-muted-foreground">#{suggestion.tagLine}</p>
+                    </div>
+                    <div className="rounded-xl bg-indigo-500 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-white">
+                      {regionBadge}
+                    </div>
+                  </button>
+                  {suggestion.type === "recent" ? (
+                    <button
+                      type="button"
+                      className="rounded-full p-2 text-muted-foreground transition hover:bg-white/8 hover:text-foreground"
+                      aria-label={`Remove ${suggestion.riotId} from recent searches`}
+                      onClick={() => removeRecentRiotSearch(suggestion.riotId)}
+                    >
+                      <X className="h-5 w-5" />
+                    </button>
+                  ) : null}
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="flex items-center gap-3 px-5 py-6 text-sm text-muted-foreground">
+            <Clock3 className="h-4 w-4" />
+            <p>{emptyState}</p>
+          </div>
+        )}
+      </div>,
+      document.body,
+    )
+    : null;
 
   return (
     <div ref={containerRef} className="relative z-[70]">
@@ -164,7 +343,7 @@ export const RiotIdSearch = ({ defaultValue = "", compact = false }: RiotIdSearc
               <Input
                 id="riot-id-search"
                 className={`rounded-2xl pl-11 ${compact ? "h-11" : "h-14 text-base"}`}
-                placeholder="Rechercher un Riot ID, ex : QuoiCouBehhhhh#EUW"
+                placeholder="Rechercher un Riot ID, ex : Hide on bush#KR1"
                 value={riotId}
                 autoComplete="off"
                 onFocus={() => setIsOpen(true)}
@@ -177,7 +356,7 @@ export const RiotIdSearch = ({ defaultValue = "", compact = false }: RiotIdSearc
             </div>
             {!compact ? (
               <p className="text-sm text-muted-foreground">
-                Utilise `GameName#TAG` ou `GameName-TAG`. Les recherches réussies restent disponibles dans ce navigateur.
+                Au focus: dernieres recherches. Pendant la saisie: suggestions de comptes connus et recherche exacte sur Riot ID complet.
               </p>
             ) : null}
           </div>
@@ -186,81 +365,7 @@ export const RiotIdSearch = ({ defaultValue = "", compact = false }: RiotIdSearc
           </Button>
         </div>
       </form>
-
-      {isOpen ? (
-        <div className="absolute left-0 right-0 top-[calc(100%+10px)] z-[90] overflow-hidden rounded-[28px] border border-border/60 bg-[#11161f] shadow-2xl shadow-black/50">
-          <div className="border-b border-border/60 px-5 py-4">
-            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">{hintLabel}</p>
-          </div>
-
-          {suggestions.length > 0 ? (
-            <div className="max-h-[360px] overflow-y-auto p-3">
-              {suggestions.map((suggestion, index) => {
-                const isActive = index === activeIndex;
-
-                if (suggestion.type === "current") {
-                  return (
-                    <button
-                      key={suggestion.riotId}
-                      type="button"
-                      className={`flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-left transition ${isActive ? "bg-white/8" : "hover:bg-white/5"}`}
-                      onMouseEnter={() => setActiveIndex(index)}
-                      onClick={() => goToProfile(suggestion.riotId)}
-                    >
-                      <div className="flex h-11 w-11 items-center justify-center rounded-xl border border-primary/30 bg-primary/10 text-primary">
-                        <Search className="h-5 w-5" />
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-base font-semibold text-foreground">{suggestion.gameName}</p>
-                        <p className="text-sm text-muted-foreground">#{suggestion.tagLine}</p>
-                      </div>
-                      <div className="rounded-xl bg-primary/15 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-primary">
-                        Ouvrir
-                      </div>
-                    </button>
-                  );
-                }
-
-                return (
-                  <div
-                    key={suggestion.riotId}
-                    className={`flex items-center gap-3 rounded-2xl px-3 py-3 transition ${isActive ? "bg-white/8" : "hover:bg-white/5"}`}
-                    onMouseEnter={() => setActiveIndex(index)}
-                  >
-                    <button
-                      type="button"
-                      className="flex min-w-0 flex-1 items-center gap-3 text-left"
-                      onClick={() => goToProfile(suggestion.riotId)}
-                    >
-                      <RiotIdAvatar entry={suggestion} />
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-base font-semibold text-foreground">{suggestion.gameName}</p>
-                        <p className="text-sm text-muted-foreground">#{suggestion.tagLine}</p>
-                      </div>
-                      <div className="rounded-xl bg-indigo-500 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-white">
-                        {suggestion.tagLine}
-                      </div>
-                    </button>
-                    <button
-                      type="button"
-                      className="rounded-full p-2 text-muted-foreground transition hover:bg-white/8 hover:text-foreground"
-                      aria-label={`Remove ${suggestion.riotId} from recent searches`}
-                      onClick={() => removeRecentRiotSearch(suggestion.riotId)}
-                    >
-                      <X className="h-5 w-5" />
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
-          ) : (
-            <div className="flex items-center gap-3 px-5 py-6 text-sm text-muted-foreground">
-              <Clock3 className="h-4 w-4" />
-              <p>Commence par rechercher un Riot ID comme `QuoiCouBehhhhh#EUW`. Les recherches valides apparaîtront ici.</p>
-            </div>
-          )}
-        </div>
-      ) : null}
+      {suggestionPanel}
     </div>
   );
 };

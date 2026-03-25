@@ -285,6 +285,19 @@ router.get("/players/search", async (request, response, next) => {
   }
 });
 
+router.get("/players/suggestions", async (request, response, next) => {
+  try {
+    const payload = z.object({
+      q: z.string().trim().min(1),
+      count: z.coerce.number().min(1).max(10).default(8),
+    }).parse(request.query);
+
+    response.json(await riotSyncService.getPlayerAutocomplete(payload.q, payload.count));
+  } catch (error) {
+    next(error);
+  }
+});
+
 router.post("/riot/import-matches", requireAuth, async (request, response, next) => {
   try {
     const payload = z.object({

@@ -348,6 +348,27 @@ model PlayerProfile {
   user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
+model RiotAccountIndex {
+  id             String   @id @default(cuid())
+  puuid          String   @unique
+  gameName       String
+  tagLine        String
+  normalizedRiotId String
+  platform       String?
+  region         String?
+  profileIconId  Int?
+  summonerLevel  Int?
+  lastSeenAt     DateTime @default(now())
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([gameName, tagLine])
+  @@index([normalizedRiotId])
+  @@index([gameName])
+  @@index([tagLine])
+  @@index([lastSeenAt])
+}
+
 model ImportedMatch {
   id           String    @id @default(cuid())
   userId       String

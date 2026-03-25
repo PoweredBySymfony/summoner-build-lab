@@ -3,7 +3,9 @@ import { env } from "../config/env.js";
 import { prisma } from "../lib/prisma.js";
 import { dataDragonClient } from "../lib/gameData/dataDragonClient.js";
 import { riotApiClient } from "../lib/riot/riotApiClient.js";
+import { RIOT_REGIONS, getPlatformSearchOrder, type RiotPlatform, type RiotRegion } from "../lib/riot/routing.js";
 import { slugify } from "../lib/slug.js";
+import { HttpError } from "../utils/http.js";
 
 const roleMap: Record<string, Role[]> = {
   Fighter: [Role.TOP, Role.JUNGLE],
@@ -45,6 +47,120 @@ function round(value: number, digits = 1) {
 
 function unique<T>(values: T[]) {
   return [...new Set(values)];
+}
+
+function normalizeRiotId(gameName: string, tagLine: string) {
+  return `${gameName.trim().toLowerCase()}#${tagLine.trim().toUpperCase()}`;
+}
+
+async function findAccountAcrossRegions(gameName: string, tagLine: string) {
+  let lastNotFound: HttpError | null = null;
+
+  for (const region of RIOT_REGIONS) {
+    try {
+      const account = await riotApiClient.getAccountByRiotIdOnRegion(gameName, tagLine, region);
+      return { account, accountRegion: region };
+    } catch (error) {
+      if (error instanceof HttpError && error.status === 404) {
+        lastNotFound = error;
+        continue;
+      }
+
+      throw error;
+    }
+  }
+
+  throw lastNotFound ?? new HttpError(404, "Riot account not found.");
+}
+
+async function resolvePlatformForPuuid(puuid: string, tagLine?: string | null, preferredPlatform?: string | null) {
+  const orderedPlatforms = preferredPlatform
+    ? [preferredPlatform as RiotPlatform, ...getPlatformSearchOrder(tagLine)]
+    : getPlatformSearchOrder(tagLine);
+
+  let lastNotFound: HttpError | null = null;
+  for (const platform of orderedPlatforms) {
+    try {
+      const summoner = await riotApiClient.getSummonerByPuuidOnPlatform(puuid, platform);
+      return { platform, region: riotApiClient.getRegionForPlatform(platform), summoner };
+    } catch (error) {
+      if (error instanceof HttpError && error.status === 404) {
+        lastNotFound = error;
+        continue;
+      }
+
+      throw error;
+    }
+  }
+
+  throw lastNotFound ?? new HttpError(404, "League of Legends summoner not found for this Riot account.");
+}
+
+async function upsertIndexedAccount(input: {
+  puuid: string;
+  gameName: string;
+  tagLine: string;
+  platform?: string | null;
+  region?: string | null;
+  profileIconId?: number | null;
+  summonerLevel?: number | null;
+}) {
+  await prisma.riotAccountIndex.upsert({
+    where: { puuid: input.puuid },
+    update: {
+      gameName: input.gameName,
+      tagLine: input.tagLine,
+      normalizedRiotId: normalizeRiotId(input.gameName, input.tagLine),
+      platform: input.platform ?? null,
+      region: input.region ?? null,
+      profileIconId: input.profileIconId ?? null,
+      summonerLevel: input.summonerLevel ?? null,
+      lastSeenAt: new Date(),
+    },
+    create: {
+      puuid: input.puuid,
+      gameName: input.gameName,
+      tagLine: input.tagLine,
+      normalizedRiotId: normalizeRiotId(input.gameName, input.tagLine),
+      platform: input.platform ?? null,
+      region: input.region ?? null,
+      profileIconId: input.profileIconId ?? null,
+      summonerLevel: input.summonerLevel ?? null,
+      lastSeenAt: new Date(),
+    },
+  });
+}
+
+async function resolveLeagueIdentity(gameName: string, tagLine: string) {
+  const cached = await prisma.riotAccountIndex.findUnique({
+    where: {
+      gameName_tagLine: {
+        gameName,
+        tagLine: tagLine.toUpperCase(),
+      },
+    },
+  });
+
+  const { account, accountRegion } = await findAccountAcrossRegions(gameName, tagLine);
+  const resolved = await resolvePlatformForPuuid(account.puuid, account.tagLine, cached?.platform);
+
+  await upsertIndexedAccount({
+    puuid: account.puuid,
+    gameName: account.gameName,
+    tagLine: account.tagLine,
+    platform: resolved.platform,
+    region: resolved.region,
+    profileIconId: resolved.summoner.profileIconId ?? null,
+    summonerLevel: resolved.summoner.summonerLevel ?? null,
+  });
+
+  return {
+    account,
+    accountRegion,
+    platform: resolved.platform,
+    region: resolved.region,
+    summoner: resolved.summoner,
+  };
 }
 
 function resolveQueueLabel(queueId: number | null | undefined) {
@@ -228,24 +344,86 @@ export const riotSyncService = {
   },
 
   async getAccountProfile(gameName: string, tagLine: string) {
-    const account = await riotApiClient.getAccountByRiotId(gameName, tagLine);
-    const summoner = await riotApiClient.getSummonerByPuuid(account.puuid);
+    const { account, summoner, region, platform } = await resolveLeagueIdentity(gameName, tagLine);
 
     return {
       account,
       summoner,
+      region,
+      platform,
     };
   },
 
+  async getPlayerAutocomplete(query: string, count = 8) {
+    const normalized = query.trim();
+    if (!normalized) {
+      return [];
+    }
+
+    const compact = normalized.toLowerCase();
+    const [gameNameQuery, rawTagLineQuery] = normalized.split("#");
+    const tagLineQuery = rawTagLineQuery?.trim().toUpperCase() ?? "";
+
+    const entries = await prisma.riotAccountIndex.findMany({
+      where: {
+        OR: [
+          { gameName: { contains: gameNameQuery.trim(), mode: "insensitive" } },
+          { normalizedRiotId: { contains: compact } },
+          ...(tagLineQuery ? [{ tagLine: { contains: tagLineQuery, mode: "insensitive" as const } }] : []),
+        ],
+      },
+      orderBy: [
+        { lastSeenAt: "desc" },
+      ],
+      take: Math.max(count * 3, 12),
+    });
+
+    return entries
+      .map((entry) => ({
+        ...entry,
+        riotId: `${entry.gameName}#${entry.tagLine}`,
+        score: [
+          entry.normalizedRiotId === compact ? 1000 : 0,
+          entry.gameName.toLowerCase().startsWith(gameNameQuery.trim().toLowerCase()) ? 300 : 0,
+          tagLineQuery && entry.tagLine.startsWith(tagLineQuery) ? 150 : 0,
+          entry.normalizedRiotId.includes(compact) ? 75 : 0,
+        ].reduce((sum, value) => sum + value, 0),
+      }))
+      .sort((left, right) => {
+        if (right.score !== left.score) {
+          return right.score - left.score;
+        }
+
+        return right.lastSeenAt.getTime() - left.lastSeenAt.getTime();
+      })
+      .slice(0, count)
+      .map(({ score: _score, normalizedRiotId: _normalizedRiotId, ...entry }) => entry);
+  },
+
   async importRecentMatches(userId: string, puuid: string, count = 5) {
-    const ids = await riotApiClient.getMatchIdsByPuuid(puuid, count);
-    const matches = await Promise.all(ids.map((matchId) => riotApiClient.getMatchById(matchId)));
+    const indexed = await prisma.riotAccountIndex.findUnique({ where: { puuid } });
+    const region = indexed?.region as RiotRegion | undefined;
+    if (!region) {
+      throw new HttpError(400, "Unable to determine Riot region for this player. Open the profile first.");
+    }
+
+    const ids = await riotApiClient.getMatchIdsByPuuidOnRegion(puuid, region, count);
+    const matches = await Promise.all(ids.map((matchId) => riotApiClient.getMatchByIdOnRegion(matchId, region)));
 
     const imported = [];
     for (const match of matches) {
       const metadata = match.metadata as { matchId?: string; participants?: string[] };
       const info = match.info as { gameVersion?: string; participants?: Array<Record<string, unknown>> };
       const participant = info.participants?.find((entry) => entry.puuid === puuid);
+      await Promise.all(
+        (info.participants ?? [])
+          .filter((entry) => typeof entry.puuid === "string" && typeof entry.riotIdGameName === "string" && typeof entry.riotIdTagline === "string")
+          .map((entry) => upsertIndexedAccount({
+            puuid: String(entry.puuid),
+            gameName: String(entry.riotIdGameName),
+            tagLine: String(entry.riotIdTagline),
+          })),
+      );
       const championSlug = slugify(String(participant?.championName ?? ""));
       const created = await prisma.importedMatch.upsert({
         where: { riotMatchId: metadata.matchId ?? crypto.randomUUID() },
@@ -273,12 +451,18 @@ export const riotSyncService = {
       where: { userId },
       update: {
         riotPuuid: puuid,
+        riotGameName: indexed?.gameName,
+        riotTagLine: indexed?.tagLine,
         lastSyncAt: new Date(),
+        region: region,
       },
       create: {
         userId,
         riotPuuid: puuid,
+        riotGameName: indexed?.gameName,
+        riotTagLine: indexed?.tagLine,
         lastSyncAt: new Date(),
+        region: region,
       },
     });
 
@@ -286,10 +470,9 @@ export const riotSyncService = {
   },
 
   async getPublicPlayerProfile(gameName: string, tagLine: string, count = 5) {
-    const account = await riotApiClient.getAccountByRiotId(gameName, tagLine);
-    const summoner = await riotApiClient.getSummonerByPuuid(account.puuid);
-    const matchIds = await riotApiClient.getMatchIdsByPuuid(account.puuid, count);
-    const matches = await Promise.all(matchIds.map((matchId) => riotApiClient.getMatchById(matchId)));
+    const { account, summoner, region, platform } = await resolveLeagueIdentity(gameName, tagLine);
+    const matchIds = await riotApiClient.getMatchIdsByPuuidOnRegion(account.puuid, region, count);
+    const matches = await Promise.all(matchIds.map((matchId) => riotApiClient.getMatchByIdOnRegion(matchId, region)));
 
     const allItemIds = unique(
       matches.flatMap((match) => {
@@ -403,6 +586,19 @@ export const riotSyncService = {
       championMap.set(match.championName, current);
     }
 
+    await Promise.all(
+      matches.flatMap((match) => {
+        const info = match.info as { participants?: Array<Record<string, unknown>> } | undefined;
+        return (info?.participants ?? [])
+          .filter((entry) => typeof entry.puuid === "string" && typeof entry.riotIdGameName === "string" && typeof entry.riotIdTagline === "string")
+          .map((entry) => upsertIndexedAccount({
+            puuid: String(entry.puuid),
+            gameName: String(entry.riotIdGameName),
+            tagLine: String(entry.riotIdTagline),
+          }));
+      }),
+    );
+
     return {
       profile: {
         riotId: `${account.gameName}#${account.tagLine}`,
@@ -411,7 +607,8 @@ export const riotSyncService = {
         puuid: account.puuid,
         summonerLevel: summoner.summonerLevel ?? null,
         profileIconId: summoner.profileIconId ?? null,
-        region: env.RIOT_REGION,
+        region,
+        platform,
       },
       summary: {
         matchesAnalyzed: recentMatches.length,

@@ -213,6 +213,7 @@ export interface PlayerSearchPayload {
     summonerLevel: number | null;
     profileIconId: number | null;
     region: string;
+    platform: string;
   };
   summary: {
     matchesAnalyzed: number;
@@ -256,4 +257,16 @@ export interface PlayerSearchPayload {
       icon: string;
     }>;
   }>;
+}
+
+export interface PlayerAutocompleteSuggestion {
+  riotId: string;
+  puuid: string;
+  gameName: string;
+  tagLine: string;
+  profileIconId: number | null;
+  summonerLevel: number | null;
+  region: string | null;
+  platform: string | null;
+  lastSeenAt: string;
 }

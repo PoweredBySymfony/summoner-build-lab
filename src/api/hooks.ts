@@ -8,6 +8,7 @@ import type {
   DailyChallengePayload,
   DashboardPayload,
   GeneratedPuzzleSeriesPayload,
+  PlayerAutocompleteSuggestion,
   PlayerSearchPayload,
   ProgressOverview,
   PuzzleDetail,
@@ -164,5 +165,13 @@ export const usePlayerSearch = (riotId: string | undefined) =>
     queryKey: ["players", riotId],
     queryFn: () => apiFetch<PlayerSearchPayload>(`/players/search?riotId=${encodeURIComponent(riotId ?? "")}`),
     enabled: Boolean(riotId),
+    retry: false,
+  });
+
+export const usePlayerSuggestions = (query: string | undefined, count = 8) =>
+  useQuery({
+    queryKey: ["players", "suggestions", query, count],
+    queryFn: () => apiFetch<PlayerAutocompleteSuggestion[]>(`/players/suggestions?q=${encodeURIComponent(query ?? "")}&count=${count}`),
+    enabled: Boolean(query?.trim()),
     retry: false,
   });

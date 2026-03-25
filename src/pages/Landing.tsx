@@ -13,8 +13,8 @@ const Landing = () => {
     <div className="min-h-screen bg-background pt-24 pb-16">
       <div className="container mx-auto px-6 space-y-10">
         <section className="grid lg:grid-cols-[1.15fr_0.85fr] gap-8 items-stretch">
-          <div className="glass-surface rounded-[28px] p-8 lg:p-10 overflow-hidden relative">
-            <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(255,201,71,0.18),transparent_35%),radial-gradient(circle_at_bottom_left,rgba(71,173,255,0.14),transparent_35%)]" />
+          <div className="glass-surface relative rounded-[28px] p-8 lg:p-10">
+            <div className="absolute inset-0 rounded-[28px] bg-[radial-gradient(circle_at_top_right,rgba(255,201,71,0.18),transparent_35%),radial-gradient(circle_at_bottom_left,rgba(71,173,255,0.14),transparent_35%)]" />
             <div className="relative z-10">
               <p className="text-xs uppercase tracking-[0.3em] text-primary font-semibold mb-4">Entraînement à l'itemisation League of Legends</p>
               <h1 className="font-heading text-5xl leading-tight font-bold text-foreground max-w-3xl">

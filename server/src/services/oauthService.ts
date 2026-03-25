@@ -50,8 +50,6 @@ export const oauthService = {
     url.searchParams.set("response_type", "code");
     url.searchParams.set("scope", "openid email profile");
     url.searchParams.set("state", state);
-    url.searchParams.set("access_type", "offline");
-    url.searchParams.set("prompt", "consent");
     return url.toString();
   },
 
