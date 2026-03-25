@@ -1,5 +1,6 @@
 import { addHours, differenceInHours, isAfter } from "date-fns";
 import { prisma } from "../lib/prisma.js";
+import { mapChampionView } from "./viewMappers.js";
 
 const STREAK_WINDOW_HOURS = 24;
 
@@ -309,7 +310,7 @@ export const progressService = {
         streakDeadlineAt: streakMetrics.deadlineAt?.toISOString() ?? null,
       },
       championProgress: championProgress.map((entry) => ({
-        champion: entry.champion,
+        champion: mapChampionView(entry.champion),
         totalAttempts: entry.totalAttempts,
         correctAttempts: entry.correctAttempts,
         masteryScore: entry.masteryScore ?? 0,
@@ -320,6 +321,7 @@ export const progressService = {
         puzzle: {
           ...attempt.puzzle,
           title: translatePuzzleTitle(attempt.puzzle.title),
+          champion: attempt.puzzle.champion ? mapChampionView(attempt.puzzle.champion) : null,
         },
       })),
     };

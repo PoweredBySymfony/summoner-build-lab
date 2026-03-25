@@ -15,6 +15,7 @@ const sizeMap = {
 
 const ChampionPortrait = ({ champion, size = "md", showInfo = false }: ChampionPortraitProps) => {
   const [failed, setFailed] = useState(false);
+  const iconSrc = typeof champion.icon === "string" && champion.icon.trim().length > 0 ? champion.icon : null;
 
   return (
     <div className="flex flex-col items-center gap-1">
@@ -22,8 +23,17 @@ const ChampionPortrait = ({ champion, size = "md", showInfo = false }: ChampionP
         className={`${sizeMap[size]} rounded-lg border border-border/60 overflow-hidden bg-muted/50 relative`}
         title={champion.name}
       >
-        {!failed ? (
-          <img src={champion.icon} alt={champion.name} className="w-full h-full object-cover" loading="lazy" onError={() => setFailed(true)} />
+        {!failed && iconSrc ? (
+          <img
+            src={iconSrc}
+            alt={champion.name}
+            className="w-full h-full object-cover"
+            loading="lazy"
+            onError={(event) => {
+              event.currentTarget.style.display = "none";
+              setFailed(true);
+            }}
+          />
         ) : (
           <div className="w-full h-full flex items-center justify-center text-[10px] font-bold text-foreground bg-gradient-to-br from-primary/15 to-secondary">
             {champion.name.slice(0, 2).toUpperCase()}
