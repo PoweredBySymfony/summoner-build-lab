@@ -31,9 +31,9 @@ const englishRoleLabel: Record<string, string> = {
 };
 
 const objectiveKeyLabel: Record<string, string> = {
-  nextObjective: "prochainObjectif",
-  soulPointThreat: "menacePointDame",
-  soulPointAdverse: "pointDameAdverse",
+  nextObjective: "Prochain objectif",
+  soulPointThreat: "Menace point d'ame",
+  soulPointAdverse: "Point d'ame adverse",
 };
 
 const objectiveValueLabel: Record<string, string> = {
@@ -43,8 +43,8 @@ const objectiveValueLabel: Record<string, string> = {
 };
 
 const mapStateKeyLabel: Record<string, string> = {
-  tempo: "tempo",
-  sideLanePriority: "prioriteSide",
+  tempo: "Tempo",
+  sideLanePriority: "Priorite side",
 };
 
 const mapStateValueLabel: Record<string, string> = {
@@ -53,8 +53,8 @@ const mapStateValueLabel: Record<string, string> = {
 };
 
 const damageProfileKeyLabel: Record<string, string> = {
-  enemyMagical: "degatsMagiquesEnnemis",
-  enemyPhysical: "degatsPhysiquesEnnemis",
+  enemyMagical: "Degats magiques ennemis",
+  enemyPhysical: "Degats physiques ennemis",
 };
 
 const plainTextLabelMap: Record<string, string> = {
@@ -123,6 +123,10 @@ function translateKeyValueRecord(
       const normalizedKey = keyMap[key] ?? key;
       if (typeof entryValue === "string") {
         return [normalizedKey, valueMap[entryValue] ?? plainTextLabelMap[entryValue] ?? translateGeneratedCopy(entryValue)];
+      }
+
+      if (typeof entryValue === "boolean") {
+        return [normalizedKey, entryValue ? "Oui" : "Non"];
       }
 
       return [normalizedKey, entryValue];

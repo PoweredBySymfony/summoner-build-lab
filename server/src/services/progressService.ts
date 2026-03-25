@@ -1,5 +1,157 @@
-import { startOfDay, differenceInCalendarDays } from "date-fns";
+import { addHours, differenceInHours, isAfter } from "date-fns";
 import { prisma } from "../lib/prisma.js";
+
+const STREAK_WINDOW_HOURS = 24;
+
+type StreakMetrics = {
+  activeStreak: number;
+  bestStreak: number;
+  lastCompletionAt: Date | null;
+  deadlineAt: Date | null;
+};
+
+const getStreakDeadline = (completedAt: Date | null) => (completedAt ? addHours(completedAt, STREAK_WINDOW_HOURS) : null);
+
+const translatePuzzleTitle = (title: string) =>
+  title.replace(/^(.+?) OTP ITEMIZATION PUZZLE$/i, (_match, name: string) => `${name} : puzzle d'itemisation OTP`);
+
+const computeStreakMetrics = (completionDates: Date[], now: Date): StreakMetrics => {
+  if (!completionDates.length) {
+    return {
+      activeStreak: 0,
+      bestStreak: 0,
+      lastCompletionAt: null,
+      deadlineAt: null,
+    };
+  }
+
+  const sortedAsc = [...completionDates].sort((left, right) => left.getTime() - right.getTime());
+  let bestStreak = 1;
+  let runningBest = 1;
+
+  for (let index = 1; index < sortedAsc.length; index += 1) {
+    const gapHours = differenceInHours(sortedAsc[index], sortedAsc[index - 1]);
+    runningBest = gapHours <= STREAK_WINDOW_HOURS ? runningBest + 1 : 1;
+    bestStreak = Math.max(bestStreak, runningBest);
+  }
+
+  const lastCompletionAt = sortedAsc.at(-1) ?? null;
+  const deadlineAt = getStreakDeadline(lastCompletionAt);
+
+  if (!lastCompletionAt || !deadlineAt || isAfter(now, deadlineAt)) {
+    return {
+      activeStreak: 0,
+      bestStreak,
+      lastCompletionAt,
+      deadlineAt,
+    };
+  }
+
+  let activeStreak = 1;
+  for (let index = sortedAsc.length - 1; index > 0; index -= 1) {
+    const gapHours = differenceInHours(sortedAsc[index], sortedAsc[index - 1]);
+    if (gapHours <= STREAK_WINDOW_HOURS) {
+      activeStreak += 1;
+      continue;
+    }
+
+    break;
+  }
+
+  return {
+    activeStreak,
+    bestStreak,
+    lastCompletionAt,
+    deadlineAt,
+  };
+};
+
+const syncDailyCompletionsFromAttempts = async (userId: string) => {
+  const attempts = await prisma.puzzleAttempt.findMany({
+    where: {
+      userId,
+      isCorrect: true,
+      puzzle: {
+        dailyChallenges: {
+          some: {},
+        },
+      },
+    },
+    include: {
+      puzzle: {
+        include: {
+          dailyChallenges: true,
+        },
+      },
+    },
+    orderBy: {
+      answeredAt: "asc",
+    },
+  });
+
+  for (const attempt of attempts) {
+    const dailyChallenge = attempt.puzzle.dailyChallenges[0];
+    if (!dailyChallenge) {
+      continue;
+    }
+
+    const existing = await prisma.dailyChallengeCompletion.findFirst({
+      where: {
+        dailyChallengeId: dailyChallenge.id,
+        userId,
+      },
+    });
+
+    if (existing) {
+      continue;
+    }
+
+    await prisma.dailyChallengeCompletion.create({
+      data: {
+        dailyChallengeId: dailyChallenge.id,
+        userId,
+        isCorrect: true,
+        completedAt: attempt.answeredAt,
+      },
+    });
+  }
+};
+
+const syncGlobalDailyProgress = async (userId: string) => {
+  await syncDailyCompletionsFromAttempts(userId);
+
+  const completions = await prisma.dailyChallengeCompletion.findMany({
+    where: {
+      userId,
+      isCorrect: true,
+    },
+    orderBy: {
+      completedAt: "asc",
+    },
+  });
+
+  const metrics = computeStreakMetrics(
+    completions.map((entry) => entry.completedAt),
+    new Date(),
+  );
+
+  await prisma.userGlobalProgress.upsert({
+    where: { userId },
+    update: {
+      dailyStreak: metrics.activeStreak,
+      bestStreak: metrics.bestStreak,
+      lastDailyCompletedAt: metrics.lastCompletionAt,
+    },
+    create: {
+      userId,
+      dailyStreak: metrics.activeStreak,
+      bestStreak: metrics.bestStreak,
+      lastDailyCompletedAt: metrics.lastCompletionAt,
+    },
+  });
+
+  return metrics;
+};
 
 export const progressService = {
   async recordAttempt(input: {
@@ -23,6 +175,27 @@ export const progressService = {
     const attempt = await prisma.puzzleAttempt.create({
       data: input,
     });
+
+    if (input.isCorrect) {
+      const activeDailyChallenge = await prisma.dailyChallenge.findFirst({
+        orderBy: { challengeDate: "desc" },
+        include: {
+          completions: {
+            where: {
+              userId: input.userId,
+            },
+          },
+        },
+      });
+
+      if (activeDailyChallenge?.puzzleId === input.puzzleId && activeDailyChallenge.completions.length === 0) {
+        await this.completeDailyChallenge({
+          userId: input.userId,
+          dailyChallengeId: activeDailyChallenge.id,
+          isCorrect: true,
+        });
+      }
+    }
 
     const globalProgress = await prisma.userGlobalProgress.upsert({
       where: { userId: input.userId },
@@ -77,6 +250,7 @@ export const progressService = {
     });
 
     if (existing) {
+      await syncGlobalDailyProgress(input.userId);
       return existing;
     }
 
@@ -84,30 +258,13 @@ export const progressService = {
       data: input,
     });
 
-    const progress = await prisma.userGlobalProgress.upsert({
-      where: { userId: input.userId },
-      update: {},
-      create: { userId: input.userId },
-    });
-
-    const today = startOfDay(new Date());
-    const lastCompletion = progress.lastDailyCompletedAt ? startOfDay(progress.lastDailyCompletedAt) : null;
-    const gap = lastCompletion ? differenceInCalendarDays(today, lastCompletion) : null;
-    const nextStreak = gap === null ? 1 : gap <= 1 ? progress.dailyStreak + 1 : 1;
-
-    await prisma.userGlobalProgress.update({
-      where: { userId: input.userId },
-      data: {
-        dailyStreak: nextStreak,
-        bestStreak: Math.max(progress.bestStreak, nextStreak),
-        lastDailyCompletedAt: new Date(),
-      },
-    });
-
+    await syncGlobalDailyProgress(input.userId);
     return completion;
   },
 
   async getOverview(userId: string) {
+    const streakMetrics = await syncGlobalDailyProgress(userId);
+
     const [globalProgress, championProgress, recentAttempts, dailyCompletions] = await Promise.all([
       prisma.userGlobalProgress.findUnique({ where: { userId } }),
       prisma.userChampionProgress.findMany({
@@ -135,13 +292,21 @@ export const progressService = {
       }),
     ]);
 
+    const fallbackProgress = globalProgress ?? {
+      totalAttempts: 0,
+      totalCorrect: 0,
+      dailyStreak: 0,
+      bestStreak: 0,
+      lastDailyCompletedAt: null,
+    };
+
     return {
-      global: globalProgress ?? {
-        totalAttempts: 0,
-        totalCorrect: 0,
-        dailyStreak: 0,
-        bestStreak: 0,
-        lastDailyCompletedAt: null,
+      global: {
+        ...fallbackProgress,
+        dailyStreak: streakMetrics.activeStreak,
+        bestStreak: Math.max(fallbackProgress.bestStreak, streakMetrics.bestStreak),
+        lastDailyCompletedAt: streakMetrics.lastCompletionAt?.toISOString() ?? fallbackProgress.lastDailyCompletedAt,
+        streakDeadlineAt: streakMetrics.deadlineAt?.toISOString() ?? null,
       },
       championProgress: championProgress.map((entry) => ({
         champion: entry.champion,
@@ -149,8 +314,14 @@ export const progressService = {
         correctAttempts: entry.correctAttempts,
         masteryScore: entry.masteryScore ?? 0,
       })),
-      recentAttempts,
       dailyCompletedCount: dailyCompletions,
+      recentAttempts: recentAttempts.map((attempt) => ({
+        ...attempt,
+        puzzle: {
+          ...attempt.puzzle,
+          title: translatePuzzleTitle(attempt.puzzle.title),
+        },
+      })),
     };
   },
 };

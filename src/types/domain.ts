@@ -141,6 +141,7 @@ export interface ProgressOverview {
     dailyStreak: number;
     bestStreak: number;
     lastDailyCompletedAt: string | null;
+    streakDeadlineAt: string | null;
   };
   championProgress: Array<{
     champion: ChampionView;

@@ -19,6 +19,14 @@ const Dashboard = () => {
   const accuracy = data.progress.global.totalAttempts
     ? Math.round((data.progress.global.totalCorrect / data.progress.global.totalAttempts) * 100)
     : 0;
+  const streakDeadline = data.progress.global.streakDeadlineAt
+    ? new Date(data.progress.global.streakDeadlineAt).toLocaleString("fr-FR", {
+        day: "2-digit",
+        month: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+      })
+    : null;
 
   return (
     <div className="min-h-screen bg-background pt-24 pb-12">
@@ -34,7 +42,7 @@ const Dashboard = () => {
         <div className="grid gap-4 md:grid-cols-4">
           <div className="glass-surface rounded-2xl p-5"><TrendingUp className="mb-4 h-5 w-5 text-primary" /><p className="text-3xl font-bold">{data.progress.global.totalAttempts}</p><p className="text-sm text-muted-foreground">Tentatives totales</p></div>
           <div className="glass-surface rounded-2xl p-5"><Target className="mb-4 h-5 w-5 text-primary" /><p className="text-3xl font-bold">{accuracy}%</p><p className="text-sm text-muted-foreground">Precision</p></div>
-          <div className="glass-surface rounded-2xl p-5"><Flame className="mb-4 h-5 w-5 text-primary" /><p className="text-3xl font-bold">{data.progress.global.dailyStreak}</p><p className="text-sm text-muted-foreground">Streak actuelle</p></div>
+          <div className="glass-surface rounded-2xl p-5"><Flame className="mb-4 h-5 w-5 text-primary" /><p className="text-3xl font-bold">{data.progress.global.dailyStreak}</p><p className="text-sm text-muted-foreground">Streak actuelle</p><p className="mt-2 text-xs text-muted-foreground">{streakDeadline ? `A conserver avant le ${streakDeadline}` : "Aucune streak active"}</p></div>
           <div className="glass-surface rounded-2xl p-5"><Swords className="mb-4 h-5 w-5 text-primary" /><p className="text-3xl font-bold">{data.progress.dailyCompletedCount}</p><p className="text-sm text-muted-foreground">Succes quotidiens</p></div>
         </div>
 

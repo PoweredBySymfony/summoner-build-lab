@@ -98,6 +98,13 @@ Lire ce fichier au debut de chaque nouvelle conversation sur ce repo, puis le me
   - `upsertIndexedAccount()` preserve maintenant les valeurs existantes si le nouvel update ne fournit pas mieux
   - `importRecentMatches()` rehydrate aussi la region/plateforme via `resolveLeagueIdentity()` si l'index est incomplet
 
+## Streak quotidien
+
+- La streak quotidienne est maintenant geree sur une fenetre glissante de 24h a partir de la derniere completion reussie.
+- Le backend backfill automatiquement les completions manquantes a partir des tentatives correctes deja enregistrees sur les puzzles du daily.
+- Le flux standard de tentative de puzzle credite maintenant aussi le daily challenge quand le joueur reussit effectivement le puzzle du jour.
+- `getOverview()` retourne en plus `streakDeadlineAt` pour afficher l'echeance exacte de conservation de la streak.
+
 ## Migrations recentes
 
 - migration a appliquer si besoin sur une nouvelle DB:
@@ -142,6 +149,8 @@ Lire ce fichier au debut de chaque nouvelle conversation sur ce repo, puis le me
   - `server/src/services/viewMappers.ts` normalise maintenant en francais les puzzles generes/deja stockes en base pour eviter que d'anciens contenus anglais remontent encore sur `daily` et `training`
   - plusieurs pages critiques contournent encore l'i18n et gardent du texte hardcode
   - il reste du vocabulaire produit semi-anglais a harmoniser (`dashboard`, `OTP`, `build`, etc.) selon une vraie charte lexicale
+- UI training:
+  - la zone `Lecture tactique` de `src/pages/Training.tsx` a ete recomposee avec cartes de details et retours a la ligne pour eviter les debordements de libelles/valeurs
 
 ## Regles de maintenance pour ce fichier
 

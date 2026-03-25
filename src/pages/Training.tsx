@@ -68,6 +68,14 @@ const getChoiceSummary = (choice: { item?: GameItem | null; textFallback?: strin
   return "Decision d'achat situationnelle.";
 };
 
+const renderTacticalEntries = (entries: Record<string, unknown>) =>
+  Object.entries(entries).map(([key, value]) => (
+    <div key={key} className="rounded-xl border border-border/50 bg-background/40 p-3">
+      <p className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">{key}</p>
+      <p className="mt-2 break-words text-sm font-medium leading-5 text-foreground">{String(value)}</p>
+    </div>
+  ));
+
 const Training = () => {
   const navigate = useNavigate();
   const { slug } = useParams();
@@ -185,24 +193,24 @@ const Training = () => {
 
                   <div className="glass-surface rounded-3xl p-5">
                     <p className="text-xs font-semibold uppercase tracking-[0.24em] text-primary">Lecture tactique</p>
-                    <div className="mt-4 grid gap-3 md:grid-cols-3">
+                    <div className="mt-4 grid gap-3 xl:grid-cols-2">
                       <div className="rounded-2xl border border-border/60 bg-background/60 p-4">
                         <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Objectif</p>
-                        {Object.entries((puzzle.scenario.objectiveState ?? {}) as Record<string, unknown>).map(([key, value]) => (
-                          <p key={key} className="mt-2 text-sm text-foreground">{key}: <span className="text-muted-foreground">{String(value)}</span></p>
-                        ))}
+                        <div className="mt-3 space-y-3">
+                          {renderTacticalEntries((puzzle.scenario.objectiveState ?? {}) as Record<string, unknown>)}
+                        </div>
                       </div>
                       <div className="rounded-2xl border border-border/60 bg-background/60 p-4">
                         <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Profil de degats</p>
-                        {Object.entries((puzzle.scenario.damageProfile ?? {}) as Record<string, unknown>).map(([key, value]) => (
-                          <p key={key} className="mt-2 text-sm text-foreground">{key}: <span className="text-muted-foreground">{String(value)}</span></p>
-                        ))}
+                        <div className="mt-3 space-y-3">
+                          {renderTacticalEntries((puzzle.scenario.damageProfile ?? {}) as Record<string, unknown>)}
+                        </div>
                       </div>
-                      <div className="rounded-2xl border border-border/60 bg-background/60 p-4">
+                      <div className="rounded-2xl border border-border/60 bg-background/60 p-4 xl:col-span-2">
                         <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Etat de carte</p>
-                        {Object.entries((puzzle.scenario.mapState ?? {}) as Record<string, unknown>).map(([key, value]) => (
-                          <p key={key} className="mt-2 text-sm text-foreground">{key}: <span className="text-muted-foreground">{String(value)}</span></p>
-                        ))}
+                        <div className="mt-3 grid gap-3 md:grid-cols-2">
+                          {renderTacticalEntries((puzzle.scenario.mapState ?? {}) as Record<string, unknown>)}
+                        </div>
                       </div>
                     </div>
                     {puzzle.scenario.notes ? (
