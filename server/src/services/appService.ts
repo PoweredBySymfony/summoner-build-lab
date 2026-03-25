@@ -7,18 +7,24 @@ import { mapChampionView, mapItemView, mapPuzzleDetailView, mapPuzzleListView } 
 export const appService = {
   async getBootstrap(userId?: string) {
     const [items, champions, puzzles, dailyChallenge, progress] = await Promise.all([
-      catalogRepository.listItems({ take: 18 }),
+      catalogRepository.listStandardItems({ take: 18 }),
       catalogRepository.listChampions({ take: 24 }),
       puzzleRepository.listPublished({ take: 12, orderBy: [{ createdAt: "desc" }] }),
       dailyChallengeService.getOrCreateToday(),
       userId ? progressService.getOverview(userId) : Promise.resolve(null),
     ]);
 
+    const [itemCount, championCount, puzzleCount] = await Promise.all([
+      catalogRepository.countStandardItems(),
+      catalogRepository.listChampions({}).then((list) => list.length),
+      puzzleRepository.listPublished({}).then((list) => list.length),
+    ]);
+
     return {
       stats: {
-        itemCount: await catalogRepository.listItems({}).then((list) => list.length),
-        championCount: await catalogRepository.listChampions({}).then((list) => list.length),
-        puzzleCount: await puzzleRepository.listPublished({}).then((list) => list.length),
+        itemCount,
+        championCount,
+        puzzleCount,
         latestPatch: items[0]?.patch ?? champions[0]?.patch ?? "unknown",
       },
       featuredItems: items.map(mapItemView),
@@ -30,7 +36,7 @@ export const appService = {
   },
 
   async getCatalog() {
-    const [champions, items] = await Promise.all([catalogRepository.listChampions(), catalogRepository.listItems()]);
+    const [champions, items] = await Promise.all([catalogRepository.listChampions(), catalogRepository.listStandardItems()]);
     return {
       champions: champions.map(mapChampionView),
       items: items.map(mapItemView),

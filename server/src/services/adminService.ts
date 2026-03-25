@@ -1,5 +1,5 @@
 import { Prisma, PuzzleDifficulty, PuzzleMode, Role } from "@prisma/client";
-import { catalogRepository } from "../repositories/catalogRepository.js";
+import { catalogRepository, standardSummonersRiftItemWhere } from "../repositories/catalogRepository.js";
 import { puzzleRepository } from "../repositories/puzzleRepository.js";
 import { dataDragonClient } from "../lib/gameData/dataDragonClient.js";
 import { prisma } from "../lib/prisma.js";
@@ -35,12 +35,12 @@ export const adminService = {
   async getOverview() {
     const [championCount, itemCount, puzzleCount, publishedPuzzleCount, latestRemotePatch, championPatches, itemPatches] = await Promise.all([
       prisma.champion.count(),
-      prisma.item.count(),
+      catalogRepository.countStandardItems(),
       prisma.puzzle.count(),
       prisma.puzzle.count({ where: { isPublished: true } }),
       dataDragonClient.getLatestVersion(),
       prisma.champion.groupBy({ by: ["patch"], _count: { _all: true } }),
-      prisma.item.groupBy({ by: ["patch"], _count: { _all: true } }),
+      prisma.item.groupBy({ by: ["patch"], where: standardSummonersRiftItemWhere, _count: { _all: true } }),
     ]);
 
     const patchCandidates = [...championPatches.map((entry) => entry.patch), ...itemPatches.map((entry) => entry.patch)]
@@ -68,7 +68,7 @@ export const adminService = {
   },
 
   async listItems() {
-    const items = await catalogRepository.listItems();
+    const items = await catalogRepository.listStandardItems();
     return items.map(mapItemView);
   },
 
@@ -287,7 +287,7 @@ export const adminService = {
         where: { patch: { not: latestRemotePatch } },
         orderBy: [{ patch: "asc" }, { name: "asc" }],
       }),
-      prisma.item.findMany({
+      catalogRepository.listStandardItems({
         where: { patch: { not: latestRemotePatch } },
         orderBy: [{ patch: "asc" }, { name: "asc" }],
       }),

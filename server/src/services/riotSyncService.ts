@@ -53,6 +53,39 @@ function normalizeRiotId(gameName: string, tagLine: string) {
   return `${gameName.trim().toLowerCase()}#${tagLine.trim().toUpperCase()}`;
 }
 
+function isStandardSummonersRiftItem(
+  riotItemId: number,
+  item: {
+    maps?: Record<string, boolean> | null;
+    gold?: { total?: number | null; purchasable?: boolean | null } | null;
+    inStore?: boolean | null;
+  },
+) {
+  return (
+    Boolean(item.maps?.["11"]) &&
+    riotItemId < 100000 &&
+    (item.gold?.total ?? 0) > 0 &&
+    item.gold?.purchasable !== false &&
+    item.inStore !== false
+  );
+}
+
+function countEnabledMaps(maps?: Record<string, boolean> | null) {
+  return Object.values(maps ?? {}).filter(Boolean).length;
+}
+
+function compareCanonicalItemCandidates(
+  left: [string, { maps?: Record<string, boolean> | null }],
+  right: [string, { maps?: Record<string, boolean> | null }],
+) {
+  const mapDelta = countEnabledMaps(left[1].maps) - countEnabledMaps(right[1].maps);
+  if (mapDelta !== 0) {
+    return mapDelta;
+  }
+
+  return Number(left[0]) - Number(right[0]);
+}
+
 async function findAccountAcrossRegions(gameName: string, tagLine: string) {
   let lastNotFound: HttpError | null = null;
 
@@ -248,8 +281,20 @@ export const riotSyncService = {
     const resolvedVersion = version ?? (await dataDragonClient.getLatestVersion());
     const summary = await dataDragonClient.getItemSummary(resolvedVersion);
     const items = Object.entries(summary.data);
+    const standardItems = items.filter(([itemId, item]) => isStandardSummonersRiftItem(Number(itemId), item));
+    const canonicalItems = new Map<string, (typeof standardItems)[number]>();
 
-    for (const [itemId, item] of items) {
+    for (const entry of standardItems) {
+      const existing = canonicalItems.get(entry[1].name);
+      if (!existing || compareCanonicalItemCandidates(entry, existing) < 0) {
+        canonicalItems.set(entry[1].name, entry);
+      }
+    }
+
+    const canonicalEntries = [...canonicalItems.values()];
+    const canonicalItemIds = canonicalEntries.map(([itemId]) => Number(itemId));
+
+    for (const [itemId, item] of canonicalEntries) {
       const numericItemId = Number(itemId);
       const slug = await buildUniqueItemSlug(numericItemId, item.name);
       await prisma.item.upsert({
@@ -306,7 +351,28 @@ export const riotSyncService = {
       });
     }
 
-    return { version: resolvedVersion, count: items.length };
+    const cleanup = await prisma.item.deleteMany({
+      where: {
+        AND: [
+          {
+            riotItemId: {
+              notIn: canonicalItemIds,
+            },
+          },
+          {
+            puzzleChoices: {
+              none: {},
+            },
+          },
+        ],
+      },
+    });
+
+    return {
+      version: resolvedVersion,
+      count: canonicalEntries.length,
+      removedNonStandardCount: cleanup.count,
+    };
   },
 
   async syncAssets(version?: string) {

@@ -1,6 +1,20 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "../lib/prisma.js";
 
+export const standardSummonersRiftItemWhere = {
+  mapAvailability: {
+    path: ["11"],
+    equals: true,
+  },
+  riotItemId: {
+    lt: 100000,
+  },
+  isActive: true,
+  goldTotal: {
+    gt: 0,
+  },
+} satisfies Prisma.ItemWhereInput;
+
 export const catalogRepository = {
   listChampions: (args?: Prisma.ChampionFindManyArgs) =>
     prisma.champion.findMany({
@@ -11,6 +25,24 @@ export const catalogRepository = {
     prisma.item.findMany({
       orderBy: [{ category: "asc" }, { name: "asc" }],
       ...args,
+    }),
+  listStandardItems: (args?: Prisma.ItemFindManyArgs) =>
+    prisma.item.findMany({
+      ...args,
+      where: args?.where
+        ? {
+            AND: [standardSummonersRiftItemWhere, args.where],
+          }
+        : standardSummonersRiftItemWhere,
+      orderBy: args?.orderBy ?? [{ category: "asc" }, { name: "asc" }],
+    }),
+  countStandardItems: (where?: Prisma.ItemWhereInput) =>
+    prisma.item.count({
+      where: where
+        ? {
+            AND: [standardSummonersRiftItemWhere, where],
+          }
+        : standardSummonersRiftItemWhere,
     }),
   findChampionBySlug: (slug: string) =>
     prisma.champion.findUnique({
