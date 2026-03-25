@@ -180,7 +180,7 @@ async function main() {
       items: itemRefs,
     });
 
-    const allyTeam = allySlugs.map((slug, index) => {
+    const rebuiltAllyTeam = allySlugs.map((slug, index) => {
       const champion = allyChampions[index];
       const role = allyRoles[index];
       const isPlayer = slug === scenario.playerChampion.slug;
@@ -193,7 +193,7 @@ async function main() {
       return buildMember(champion, slug, role, items);
     });
 
-    const enemyTeam = enemySlugs.map((slug, index) => {
+    const rebuiltEnemyTeam = enemySlugs.map((slug, index) => {
       const champion = enemyChampions[index];
       const role = enemyRoles[index];
       const defaultItems = (role ? defaultItemSlugsByRole[role] : [])
@@ -202,33 +202,48 @@ async function main() {
       return buildMember(champion, slug, role, defaultItems);
     });
 
-    if (enemyVisibleSlugs.length > 0 && enemyTeam.length > 0) {
+    if (enemyVisibleSlugs.length > 0 && rebuiltEnemyTeam.length > 0) {
       const extraVisibleItems = enemyVisibleSlugs
         .map((slug) => resolveItemRef(itemRefIndex, slug))
         .filter(notNull);
 
-      const supportIndex = enemyTeam.findIndex((member) => member.role === Role.SUPPORT);
-      const targetIndex = supportIndex >= 0 ? supportIndex : enemyTeam.length - 1;
-      enemyTeam[targetIndex] = {
-        ...enemyTeam[targetIndex],
+      const supportIndex = rebuiltEnemyTeam.findIndex((member) => member.role === Role.SUPPORT);
+      const targetIndex = supportIndex >= 0 ? supportIndex : rebuiltEnemyTeam.length - 1;
+      rebuiltEnemyTeam[targetIndex] = {
+        ...rebuiltEnemyTeam[targetIndex],
         items: unique([
           ...extraVisibleItems.map((item) => item.itemSlug),
-          ...enemyTeam[targetIndex].items.map((item) => item.itemSlug),
+          ...rebuiltEnemyTeam[targetIndex].items.map((item) => item.itemSlug),
         ])
           .map((slug) => resolveItemRef(itemRefIndex, slug))
           .filter(notNull),
       };
     }
 
+    const data: Prisma.PuzzleScenarioUpdateInput = {};
+
+    if (legacyBuild) {
+      data.currentBuild = currentBuild as Prisma.InputJsonValue;
+    }
+
+    if (legacyTeams) {
+      data.allyTeam = rebuiltAllyTeam as Prisma.InputJsonValue;
+      data.enemyTeam = rebuiltEnemyTeam as Prisma.InputJsonValue;
+      data.allyItems = rebuiltAllyTeam as Prisma.InputJsonValue;
+      data.enemyItems = rebuiltEnemyTeam as Prisma.InputJsonValue;
+    } else {
+      if (!Array.isArray(scenario.allyItems) || scenario.allyItems.length === 0) {
+        data.allyItems = scenario.allyTeam as Prisma.InputJsonValue;
+      }
+
+      if (!Array.isArray(scenario.enemyItems) || scenario.enemyItems.length === 0) {
+        data.enemyItems = scenario.enemyTeam as Prisma.InputJsonValue;
+      }
+    }
+
     await prisma.puzzleScenario.update({
       where: { id: scenario.id },
-      data: {
-        currentBuild: currentBuild as Prisma.InputJsonValue,
-        allyTeam: allyTeam as Prisma.InputJsonValue,
-        enemyTeam: enemyTeam as Prisma.InputJsonValue,
-        allyItems: allyTeam as Prisma.InputJsonValue,
-        enemyItems: enemyTeam as Prisma.InputJsonValue,
-      },
+      data,
     });
 
     updated += 1;

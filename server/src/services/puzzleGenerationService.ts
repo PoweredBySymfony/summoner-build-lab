@@ -740,6 +740,10 @@ async function createGeneratedPuzzle(
   const serializedAllyTeam = allyTeam.map(serializeScenarioMember);
   const serializedEnemyTeam = enrichedEnemyTeam.map(serializeScenarioMember);
 
+  if (serializedAllyTeam.length !== scenarioSlots.length || serializedEnemyTeam.length !== scenarioSlots.length) {
+    throw new HttpError(500, "Generation de puzzle invalide: equipes de scenario incompletes.");
+  }
+
   const generatedSlug = `${champion.slug}-${variant.key}-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
   const correctItem = itemIndex.get(variant.correctChoice)!;
   const playerRole = Role[playerSlot];

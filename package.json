@@ -26,6 +26,7 @@
     "sync:assets": "tsx scripts/syncAssets.ts",
     "sync:all": "tsx scripts/syncAllGameData.ts",
     "backfill:legacy-scenarios": "tsx scripts/backfillLegacyScenarioSnapshots.ts",
+    "repair:generated-scenario-teams": "tsx scripts/repairGeneratedScenarioTeams.ts",
     "jobs:daily-reminders": "tsx scripts/sendDailyReminders.ts"
   },
   "dependencies": {

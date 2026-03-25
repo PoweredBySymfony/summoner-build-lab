@@ -230,6 +230,12 @@ Lire ce fichier au debut de chaque nouvelle conversation sur ce repo, puis le me
 - `src/components/ItemIcon.tsx`:
   - le repositionnement du tooltip doit etre cadence via `requestAnimationFrame`
   - l'icone doit rester accessible au focus clavier quand elle n'est pas deja dans un contexte interactif parent
+- Scenarios de puzzle:
+  - les backfills ne doivent jamais ecraser `allyTeam` / `enemyTeam` si ces equipes sont deja stockees au format riche (objets avec `championSlug`, `role`, `items`)
+  - le script `scripts/backfillLegacyScenarioSnapshots.ts` ne doit reconstruire les equipes qu'a partir de vraies donnees legacy (tableaux de slugs)
+  - le script `scripts/repairGeneratedScenarioTeams.ts` sert a restaurer les puzzles `GENERATED` dont `allyTeam` / `enemyTeam` auraient ete vides apres un backfill
+  - commande utile: `npm run repair:generated-scenario-teams`
+  - `server/src/services/puzzleGenerationService.ts` doit refuser toute creation de puzzle si une equipe de scenario n'a pas ses 5 membres
 
 ## Fichiers sensibles a relire avant modifs
 
