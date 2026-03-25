@@ -36,6 +36,10 @@ export interface GameItem {
   passiveEffect?: string | null;
   buildsFrom: string[];
   buildsInto: string[];
+  buildsFromIcons?: Array<{
+    riotItemId: number;
+    icon: string;
+  }>;
   mapAvailability?: Record<string, unknown> | null;
   isBoots: boolean;
   isLegendary: boolean;

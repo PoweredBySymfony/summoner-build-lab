@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Route, Routes, useLocation } from "react-router-dom";
+import { BrowserRouter, Route, Routes, useLocation, useParams } from "react-router-dom";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -56,6 +56,11 @@ const PageFallback = () => (
   </div>
 );
 
+const KeyedTrainingRoute = () => {
+  const { slug } = useParams();
+  return <Training key={slug ?? "training-root"} />;
+};
+
 const AppFrame = () => {
   const location = useLocation();
   const isAdminRoute = location.pathname.startsWith("/admin");
@@ -70,8 +75,8 @@ const AppFrame = () => {
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/modules" element={<Modules />} />
           <Route path="/puzzles" element={<Modules />} />
-          <Route path="/training" element={<Training />} />
-          <Route path="/training/:slug" element={<Training />} />
+          <Route path="/training" element={<KeyedTrainingRoute />} />
+          <Route path="/training/:slug" element={<KeyedTrainingRoute />} />
           <Route path="/daily" element={<Daily />} />
           <Route path="/auth" element={<Auth />} />
           <Route path="/champions/:slug" element={<Champion />} />

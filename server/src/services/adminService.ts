@@ -1,5 +1,6 @@
 import { Prisma, PuzzleDifficulty, PuzzleMode, Role } from "@prisma/client";
 import { catalogRepository, standardSummonersRiftItemWhere } from "../repositories/catalogRepository.js";
+import { buildItemViewIndex } from "../lib/itemIndex.js";
 import { puzzleRepository } from "../repositories/puzzleRepository.js";
 import { dataDragonClient } from "../lib/gameData/dataDragonClient.js";
 import { prisma } from "../lib/prisma.js";
@@ -89,7 +90,7 @@ export const adminService = {
     }
 
     const championIndex = new Map(champions.map((champion) => [champion.slug, mapChampionView(champion)]));
-    const itemIndex = new Map(items.map((item) => [item.slug, mapItemView(item)]));
+    const itemIndex = buildItemViewIndex(items);
     return mapPuzzleDetailView(puzzle, championIndex, itemIndex);
   },
 

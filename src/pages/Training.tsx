@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { CheckCircle2, Coins, Flame, ShieldAlert, Swords, Timer, Trophy, XCircle } from "lucide-react";
 import { useMutation } from "@tanstack/react-query";
@@ -25,7 +25,7 @@ const isChampionView = (entry: TeamEntry): entry is ChampionView => "slug" in en
 
 const renderItem = (item: GameItem | { id: string; name: string }, size: "sm" | "md" = "sm") =>
   "slug" in item ? (
-    <ItemIcon key={item.id} item={item} size={size} showTooltip={false} />
+    <ItemIcon key={item.id} item={item} size={size} />
   ) : (
     <div key={item.id} className="flex h-10 min-w-10 items-center justify-center rounded-lg border border-border/60 bg-secondary px-2 text-[11px] text-foreground">
       {item.name.slice(0, 3).toUpperCase()}
@@ -107,6 +107,12 @@ const Training = () => {
       }),
     onSuccess: (payload) => setResult(payload),
   });
+
+  useEffect(() => {
+    setSelectedChoiceId(null);
+    setResult(null);
+    submitAttempt.reset();
+  }, [slug]);
 
   const nextPuzzle = useMemo(() => {
     if (!puzzle?.slug) {
@@ -266,7 +272,7 @@ const Training = () => {
                   >
                     <div className="grid grid-cols-[56px_1fr_auto] items-center gap-4">
                       <div className="relative">
-                        {choice.item ? <ItemIcon item={choice.item} size="md" showTooltip={false} /> : <div className="h-12 w-12 rounded-xl bg-secondary" />}
+                        {choice.item ? <ItemIcon item={choice.item} size="md" /> : <div className="h-12 w-12 rounded-xl bg-secondary" />}
                         <div className={`absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full border text-[10px] font-bold ${
                           correct ? "border-emerald-400 bg-emerald-500 text-white" : selected ? "border-primary bg-primary text-primary-foreground" : "border-border/60 bg-background text-muted-foreground"
                         }`}>

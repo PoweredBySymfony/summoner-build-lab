@@ -1,4 +1,5 @@
 import { catalogRepository } from "../repositories/catalogRepository.js";
+import { buildItemViewIndex } from "../lib/itemIndex.js";
 import { puzzleRepository } from "../repositories/puzzleRepository.js";
 import { dailyChallengeService } from "./dailyChallengeService.js";
 import { progressService } from "./progressService.js";
@@ -69,7 +70,7 @@ export const appService = {
     }
 
     const championIndex = new Map(champions.map((champion) => [champion.slug, mapChampionView(champion)]));
-    const itemIndex = new Map(items.map((item) => [item.slug, mapItemView(item)]));
+    const itemIndex = buildItemViewIndex(items);
     return mapPuzzleDetailView(puzzle, championIndex, itemIndex);
   },
 
@@ -118,7 +119,7 @@ export const appService = {
     ]);
 
     const championIndex = new Map(champions.map((champion) => [champion.slug, mapChampionView(champion)]));
-    const itemIndex = new Map(items.map((item) => [item.slug, mapItemView(item)]));
+    const itemIndex = buildItemViewIndex(items);
 
     return {
       id: challenge.id,

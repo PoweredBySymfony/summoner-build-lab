@@ -1,4 +1,5 @@
 import { Prisma } from "@prisma/client";
+import { resolveItemSlug } from "../lib/itemSlugAliases.js";
 import { prisma } from "../lib/prisma.js";
 
 export const standardSummonersRiftItemWhere = {
@@ -50,7 +51,7 @@ export const catalogRepository = {
     }),
   findItemBySlug: (slug: string) =>
     prisma.item.findUnique({
-      where: { slug },
+      where: { slug: resolveItemSlug(slug) },
     }),
   findChampionById: (id: string) =>
     prisma.champion.findUnique({

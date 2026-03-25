@@ -1,4 +1,5 @@
 import { GeneratedPuzzleRequestStatus, GeneratedPuzzleRequestType, Prisma, PuzzleChoiceType, PuzzleDifficulty, PuzzleMode, PuzzleSourceType, Role } from "@prisma/client";
+import { resolveItemSlug } from "../lib/itemSlugAliases.js";
 import { prisma } from "../lib/prisma.js";
 import { slugify } from "../lib/slug.js";
 import { HttpError } from "../utils/http.js";
@@ -592,15 +593,23 @@ function resolveScenarioSlot(championSlug: string, tags: unknown): ScenarioSlot 
 }
 
 async function getItemsBySlugs(slugs: string[]) {
+  const requestedSlugs = unique(slugs);
+  const slugsToQuery = unique(requestedSlugs.flatMap((slug) => [slug, resolveItemSlug(slug)]));
   const items = await prisma.item.findMany({
     where: {
       slug: {
-        in: unique(slugs),
+        in: slugsToQuery,
       },
     },
   });
 
-  return new Map(items.map((item) => [item.slug, item]));
+  const directIndex = new Map(items.map((item) => [item.slug, item]));
+  return new Map(
+    requestedSlugs.flatMap((slug) => {
+      const item = directIndex.get(slug) ?? directIndex.get(resolveItemSlug(slug));
+      return item ? [[slug, item] as const] : [];
+    }),
+  );
 }
 
 function buildTeamSkeleton(playerChampionSlug: string, playerSlot: ScenarioSlot) {

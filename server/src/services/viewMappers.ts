@@ -1,4 +1,5 @@
 import { Champion, Item, Puzzle, PuzzleChoice, PuzzleDifficulty, PuzzleMode, Role } from "@prisma/client";
+import { resolveItemSlug } from "../lib/itemSlugAliases.js";
 
 const difficultyLabel: Record<PuzzleDifficulty, string> = {
   BEGINNER: "debutant",
@@ -66,6 +67,17 @@ const plainTextLabelMap: Record<string, string> = {
   daily: "defi quotidien",
 };
 
+const itemNameMap: Record<string, string> = {
+  "Quest: Support": "Quête : support",
+  Sheen: "Brillance",
+  "Rejuvenation Bead": "Collier rafraîchissant",
+  "Ruby Crystal": "Cristal de rubis",
+};
+
+function translateItemName(input: string) {
+  return itemNameMap[input] ?? input;
+}
+
 function translateGeneratedCopy(input: string, championName?: string) {
   let value = input.trim();
 
@@ -97,6 +109,26 @@ function translateGeneratedCopy(input: string, championName?: string) {
   value = value.replace(
     /Generated from champion-focused OTP heuristics\./gi,
     "Genere a partir des heuristiques OTP centrees sur le champion.",
+  );
+  value = value.replace(
+    /^(.+?) is the most coherent pivot because it matches the threat profile, keeps your champion's plan online and teaches the adaptation pattern this OTP scenario targets\.$/i,
+    (_match, itemName: string) =>
+      `${translateItemName(itemName)} est le pivot le plus coherent ici : il repond au profil de menace, garde le plan du champion intact et enseigne bien le pattern d'adaptation vise par ce scenario OTP.`,
+  );
+  value = value.replace(
+    /^(.+?) is plausible, but it underperforms compared with the best adaptation for this exact board state\.$/i,
+    (_match, itemName: string) =>
+      `${translateItemName(itemName)} est jouable, mais reste moins performant que la meilleure adaptation pour cet etat de partie precis.`,
+  );
+  value = value.replace(
+    /^(.+?) best covers the immediate itemization problem while keeping your champion's win condition intact\.$/i,
+    (_match, itemName: string) =>
+      `${translateItemName(itemName)} couvre le mieux le probleme d'itemisation immediat tout en preservant la condition de victoire de ton champion.`,
+  );
+  value = value.replace(
+    /^(.+?) is the most coherent purchase here\.(.*)$/i,
+    (_match, itemName: string, rest: string) =>
+      `${translateItemName(itemName)} est l'achat le plus coherent ici.${rest ? ` ${rest.trim()}` : ""}`,
   );
   value = value.replace(/slightly increases health regen/gi, "Augmente legerement la regeneration de PV");
   value = value.replace(/increases health/gi, "Augmente les points de vie");
@@ -134,6 +166,13 @@ function translateKeyValueRecord(
   );
 }
 
+function resolveIndexedItem(
+  itemSlug: string,
+  itemIndex: Map<string, ReturnType<typeof mapItemView>>,
+) {
+  return itemIndex.get(itemSlug) ?? itemIndex.get(resolveItemSlug(itemSlug)) ?? { id: itemSlug, name: itemSlug };
+}
+
 export const mapChampionView = (champion: Champion) => ({
   id: champion.slug,
   databaseId: champion.id,
@@ -156,7 +195,7 @@ export const mapItemView = (item: Item) => ({
   id: item.slug,
   databaseId: item.id,
   riotItemId: item.riotItemId,
-  name: item.name,
+  name: translateItemName(item.name),
   slug: item.slug,
   icon: item.image,
   image: item.image,
@@ -172,6 +211,15 @@ export const mapItemView = (item: Item) => ({
   passiveEffect: item.passiveEffect ? translateGeneratedCopy(item.passiveEffect) : item.passiveEffect,
   buildsFrom: Array.isArray(item.buildsFrom) ? item.buildsFrom : [],
   buildsInto: Array.isArray(item.buildsInto) ? item.buildsInto : [],
+  buildsFromIcons: Array.isArray(item.buildsFrom)
+    ? item.buildsFrom
+        .map((entry) => Number(entry))
+        .filter((entry) => Number.isFinite(entry) && entry > 0)
+        .map((riotItemId) => ({
+          riotItemId,
+          icon: `https://ddragon.leagueoflegends.com/cdn/${item.patch}/img/item/${riotItemId}.png`,
+        }))
+    : [],
   mapAvailability: item.mapAvailability,
   isBoots: item.isBoots,
   isLegendary: item.isLegendary,
@@ -268,12 +316,12 @@ export const mapPuzzleDetailView = (
         currentBuild: Array.isArray(puzzle.scenario.currentBuild)
           ? puzzle.scenario.currentBuild.map((entry) => {
               if (typeof entry === "string") {
-                return itemIndex.get(entry) ?? { id: entry, name: entry };
+                return resolveIndexedItem(entry, itemIndex);
               }
 
               if (entry && typeof entry === "object" && "itemSlug" in entry) {
                 const itemSlug = String(entry.itemSlug);
-                return itemIndex.get(itemSlug) ?? { id: itemSlug, name: itemSlug };
+                return resolveIndexedItem(itemSlug, itemIndex);
               }
 
               return { id: String(entry), name: String(entry) };
@@ -293,7 +341,7 @@ export const mapPuzzleDetailView = (
                   champion: championIndex.get(championSlug) ?? { id: championSlug, name: championSlug },
                   role: "role" in entry ? roleLabel[String(entry.role) as Role] ?? String(entry.role) : null,
                   items: Array.isArray(entry.items)
-                    ? entry.items.map((itemSlug) => itemIndex.get(String(itemSlug)) ?? { id: itemSlug, name: itemSlug })
+                    ? entry.items.map((itemSlug) => resolveIndexedItem(String(itemSlug), itemIndex))
                     : [],
                   note: "note" in entry ? String(entry.note) : undefined,
                 };
@@ -316,7 +364,7 @@ export const mapPuzzleDetailView = (
                   champion: championIndex.get(championSlug) ?? { id: championSlug, name: championSlug },
                   role: "role" in entry ? roleLabel[String(entry.role) as Role] ?? String(entry.role) : null,
                   items: Array.isArray(entry.items)
-                    ? entry.items.map((itemSlug) => itemIndex.get(String(itemSlug)) ?? { id: itemSlug, name: itemSlug })
+                    ? entry.items.map((itemSlug) => resolveIndexedItem(String(itemSlug), itemIndex))
                     : [],
                   note: "note" in entry ? String(entry.note) : undefined,
                 };
@@ -327,9 +375,7 @@ export const mapPuzzleDetailView = (
           : [],
         allyItems: puzzle.scenario.allyItems,
         enemyItems: Array.isArray(puzzle.scenario.enemyItems)
-          ? puzzle.scenario.enemyItems.map((entry) =>
-              typeof entry === "string" ? itemIndex.get(entry) ?? { id: entry, name: entry } : entry,
-            )
+          ? puzzle.scenario.enemyItems.map((entry) => (typeof entry === "string" ? resolveIndexedItem(entry, itemIndex) : entry))
           : puzzle.scenario.enemyItems,
         notableThreats: puzzle.scenario.notableThreats,
         objectiveState: translateKeyValueRecord(puzzle.scenario.objectiveState, objectiveKeyLabel, objectiveValueLabel),

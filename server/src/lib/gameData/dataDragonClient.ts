@@ -60,7 +60,8 @@ export const dataDragonClient = {
   },
   getChampionSummary: (version: string) =>
     fetchJson<ChampionSummaryResponse>(`${DDRAGON_BASE_URL}/cdn/${version}/data/en_US/champion.json`),
-  getItemSummary: (version: string) => fetchJson<ItemResponse>(`${DDRAGON_BASE_URL}/cdn/${version}/data/en_US/item.json`),
+  getItemSummary: (version: string, locale = "fr_FR") =>
+    fetchJson<ItemResponse>(`${DDRAGON_BASE_URL}/cdn/${version}/data/${locale}/item.json`),
   getChampionIconUrl: (version: string, championId: string) => `${DDRAGON_BASE_URL}/cdn/${version}/img/champion/${championId}.png`,
   getChampionSplashUrl: (championId: string) => `${DDRAGON_BASE_URL}/cdn/img/champion/splash/${championId}_0.jpg`,
   getItemIconUrl: (version: string, itemId: string | number) => `${DDRAGON_BASE_URL}/cdn/${version}/img/item/${itemId}.png`,

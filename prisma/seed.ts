@@ -1,5 +1,6 @@
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient, PuzzleChoiceType, PuzzleDifficulty, PuzzleMode, PuzzleSourceType, Role, UserAuthProvider } from "@prisma/client";
+import { resolveItemSlug } from "../server/src/lib/itemSlugAliases.js";
 import { hashPassword } from "../server/src/lib/password.js";
 import { slugify } from "../server/src/lib/slug.js";
 import { puzzleGenerationService } from "../server/src/services/puzzleGenerationService.js";
@@ -61,7 +62,7 @@ async function getChampionId(slug: string) {
 }
 
 async function getItemId(slug: string) {
-  const item = await prisma.item.findUnique({ where: { slug } });
+  const item = await prisma.item.findUnique({ where: { slug: resolveItemSlug(slug) } });
   return item?.id;
 }
 

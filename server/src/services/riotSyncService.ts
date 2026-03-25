@@ -25,6 +25,34 @@ function stripHtml(input: string) {
   return input.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
 }
 
+function decodeHtmlEntities(input: string) {
+  return input
+    .replace(/&nbsp;|&#160;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&quot;/g, "\"")
+    .replace(/&#39;|&apos;/g, "'")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/\u00a0/g, " ");
+}
+
+function formatItemDescription(input: string) {
+  return decodeHtmlEntities(
+    input
+      .replace(/<br\s*\/?>/gi, "\n")
+      .replace(/<\/(mainText|stats)>/gi, "\n")
+      .replace(/<(mainText|stats)>/gi, "")
+      .replace(/<\/?(attention|passive|active|ornnBonus|rarityLegendary|rarityMythic|scaleLevel|scaleAD|scaleAP|scaleMana|scaleHealth|magicDamage|physicalDamage|trueDamage|healing|OnHit|status|keywordMajor|keywordStealth|speed|shield|rules|itemPassive|itemActive)>/gi, "")
+      .replace(/<li>/gi, "• ")
+      .replace(/<\/li>/gi, "\n")
+      .replace(/<[^>]+>/g, "")
+      .replace(/[ \t]+\n/g, "\n")
+      .replace(/\n{3,}/g, "\n\n")
+      .replace(/[ \t]{2,}/g, " ")
+      .trim(),
+  );
+}
+
 function detectCategory(tags: string[] = []) {
   if (tags.includes("Boots")) return "boots";
   if (tags.includes("CriticalStrike")) return "crit";
@@ -235,6 +263,32 @@ function resolveQueueLabel(queueId: number | null | undefined) {
   }
 }
 
+async function resolveChampionSlugFromParticipant(participant: Record<string, unknown> | undefined) {
+  const championKey = String(participant?.championName ?? "").trim();
+  if (championKey) {
+    const championByKey = await prisma.champion.findUnique({
+      where: { championKey: championKey },
+      select: { slug: true },
+    });
+    if (championByKey) {
+      return championByKey.slug;
+    }
+  }
+
+  const riotChampionId = Number(participant?.championId);
+  if (Number.isFinite(riotChampionId) && riotChampionId > 0) {
+    const championByRiotId = await prisma.champion.findUnique({
+      where: { riotChampionId },
+      select: { slug: true },
+    });
+    if (championByRiotId) {
+      return championByRiotId.slug;
+    }
+  }
+
+  return slugify(championKey);
+}
+
 async function buildUniqueItemSlug(riotItemId: number, name: string) {
   const base = slugify(name);
   const existing = await prisma.item.findFirst({
@@ -320,8 +374,8 @@ export const riotSyncService = {
         update: {
           name: item.name,
           slug,
-          shortDescription: stripHtml(item.plaintext || item.description || ""),
-          fullDescription: stripHtml(item.description || ""),
+          shortDescription: decodeHtmlEntities((item.plaintext || "").trim()),
+          fullDescription: formatItemDescription(item.description || ""),
           image: dataDragonClient.getItemIconUrl(resolvedVersion, itemId),
           goldTotal: item.gold.total,
           goldBase: item.gold.base,
@@ -329,8 +383,8 @@ export const riotSyncService = {
           category: detectCategory(item.tags),
           tags: item.tags ?? [],
           stats: item.stats ?? {},
-          activeEffect: undefined,
-          passiveEffect: undefined,
+          activeEffect: null,
+          passiveEffect: null,
           buildsFrom: item.from ?? [],
           buildsInto: item.into ?? [],
           mapAvailability: item.maps ?? null,
@@ -346,8 +400,8 @@ export const riotSyncService = {
           riotItemId: numericItemId,
           name: item.name,
           slug,
-          shortDescription: stripHtml(item.plaintext || item.description || ""),
-          fullDescription: stripHtml(item.description || ""),
+          shortDescription: decodeHtmlEntities((item.plaintext || "").trim()),
+          fullDescription: formatItemDescription(item.description || ""),
           image: dataDragonClient.getItemIconUrl(resolvedVersion, itemId),
           goldTotal: item.gold.total,
           goldBase: item.gold.base,
@@ -364,6 +418,8 @@ export const riotSyncService = {
           isTrinket: item.tags?.includes("Trinket") ?? false,
           isStarter: item.tags?.includes("Lane") ?? false,
           isActive: item.gold.purchasable && item.inStore !== false,
+          activeEffect: null,
+          passiveEffect: null,
           patch: resolvedVersion,
         },
       });
@@ -518,7 +574,7 @@ export const riotSyncService = {
             tagLine: String(entry.riotIdTagline),
           })),
       );
-      const championSlug = slugify(String(participant?.championName ?? ""));
+      const championSlug = await resolveChampionSlugFromParticipant(participant);
       const created = await prisma.importedMatch.upsert({
         where: { riotMatchId: metadata.matchId ?? crypto.randomUUID() },
         update: {

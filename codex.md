@@ -174,6 +174,47 @@ Lire ce fichier au debut de chaque nouvelle conversation sur ce repo, puis le me
 - Si un item canonique a ete supprime manuellement dans le backoffice, une nouvelle sync item le recree.
 - Le profil joueur ne doit pas dependre exclusivement de la table `Item` pour afficher les icones d'historique:
   - si un `riotItemId` n'est pas resolu localement, `getPublicPlayerProfile()` tombe maintenant sur l'URL Data Dragon directe pour afficher quand meme l'icone.
+- La sync item utilise maintenant `fr_FR` pour les noms et descriptions Riot.
+- `fullDescription` est formatee avec retours a la ligne exploitables pour un tooltip type jeu:
+  - bloc de stats en tete
+  - puis effets/passifs lisibles
+- Le composant `src/components/ItemIcon.tsx` rend maintenant un tooltip riche via portal/fixed positioning:
+  - hover utilisable aussi dans les quiz
+  - stats affichees avec icones thematiques par type
+  - contenu integre entierement en francais quand la source Riot le permet
+- `src/lib/itemPresentation.ts` centralise la presentation des stats d'item:
+  - parsing des lignes de stats depuis la description Riot FR
+  - fallback sur les cles `stats` Data Dragon si besoin
+  - mapping vers icones thematiques frontend "style jeu"
+- Les composants de build dans le tooltip item utilisent maintenant les icones Data Dragon des `riotItemId` composants au lieu d'afficher seulement des IDs bruts.
+- Verification locale deja faite via serveur demarre en local + Playwright sur `http://localhost:8080`:
+  - `/daily` charge correctement
+  - `/training/yunara-1774362367269` charge correctement
+  - le tooltip item apparait bien au hover sur un choix de quiz
+- La base item et les puzzles historiques ne parlent pas toujours le meme dialecte de slug:
+  - la sync Riot/Data Dragon persiste des slugs d'items FR (`fr_FR`)
+  - plusieurs scenarios/generateurs OTP et snapshots historiques referencent encore des slugs EN
+- Un aliasing central EN -> FR existe maintenant dans `server/src/lib/itemSlugAliases.ts`.
+- Regle:
+  - tout flux qui reconstruit une vue item a partir d'un slug texte doit passer par cet aliasing
+  - utiliser `buildItemViewIndex()` dans `server/src/lib/itemIndex.ts` pour les index de vues
+  - utiliser `resolveItemSlug()` ou l'index aliasé pour les scenarios JSON legacy et les nouvelles generations
+  - `server/src/services/puzzleGenerationService.ts` doit aussi resoudre ses slugs via `resolveItemSlug()` avant de requeter Prisma
+- Symptomes deja observes quand on oublie cet aliasing:
+  - generation OTP en `500` sur `Impossible de resoudre tous les items...`
+  - fallback UI texte type `SPI` / `PLA` / `SUN` a la place des icones d'items dans `Training`
+
+## Page Training - etat local
+
+- La page `src/pages/Training.tsx` conserve son etat local React entre deux slugs de puzzle si on navigue vers la question suivante dans la meme vue.
+- Regle:
+  - a chaque changement de `slug`, reinitialiser `selectedChoiceId`, `result` et l'etat de mutation associe pour eviter qu'un resume/reponse de la question precedente reste affiche sur la suivante
+  - le reset doit dependre du `slug` uniquement, pas de l'objet complet retourne par `useMutation`
+  - la route `/training/:slug` doit remonter `Training` avec une `key` dependante du `slug` pour supprimer tout flash d'etat precedent
+- Les matchs importes Riot ne doivent pas deduire le champion uniquement via `slugify(participant.championName)`:
+  - resoudre d'abord via `Champion.championKey` (ex: `MonkeyKing`) ou `riotChampionId`
+  - ne garder le `slugify()` brut qu'en fallback
+  - sinon certains champions (`Wukong`, `Lee Sin`, `Jarvan IV`, `Miss Fortune`, etc.) peuvent casser la generation personnalisee
 
 ## Fichiers sensibles a relire avant modifs
 
