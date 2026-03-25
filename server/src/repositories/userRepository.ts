@@ -45,6 +45,16 @@ export const userRepository = {
         playerProfile: true,
       },
     }),
+  promoteToAdmin: (id: string) =>
+    prisma.user.update({
+      where: { id },
+      data: { isAdmin: true },
+      include: {
+        globalProgress: true,
+        emailPreference: true,
+        playerProfile: true,
+      },
+    }),
   ensureUserScaffolding: async (userId: string) => {
     await prisma.userGlobalProgress.upsert({
       where: { userId },

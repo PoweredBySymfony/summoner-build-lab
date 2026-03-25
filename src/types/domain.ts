@@ -13,6 +13,7 @@ export interface ChampionView {
   tags: string[];
   stats: Record<string, unknown>;
   patch: string;
+  isActive: boolean;
 }
 
 export interface GameItem {
@@ -41,6 +42,7 @@ export interface GameItem {
   isConsumable: boolean;
   isTrinket: boolean;
   isStarter: boolean;
+  isActive: boolean;
   patch: string;
 }
 
@@ -62,10 +64,15 @@ export interface PuzzleListItem {
   description: string;
   shortPrompt: string;
   difficulty: string;
+  difficultyKey: string;
   patch: string;
   role: string | null;
+  roleKey: string | null;
   mode: string;
+  modeKey: string;
   sourceType: string;
+  isPublished: boolean;
+  isDailyEligible: boolean;
   champion: ChampionView | null;
   tags: Array<{ slug: string; name: string }>;
   choiceCount: number;
@@ -128,10 +135,36 @@ export interface CurrentUser {
   id: string;
   email: string;
   username: string;
+  isAdmin: boolean;
   avatarUrl?: string | null;
   authProvider: string;
   hasPassword: boolean;
   linkedGoogle: boolean;
+}
+
+export interface AdminOverviewPayload {
+  stats: {
+    championCount: number;
+    itemCount: number;
+    puzzleCount: number;
+    publishedPuzzleCount: number;
+  };
+  patch: {
+    localLatestPatch: string | null;
+    remoteLatestPatch: string;
+    hasUpdate: boolean;
+  };
+}
+
+export interface AdminPatchStatusPayload {
+  remoteLatestPatch: string;
+  hasUpdate: boolean;
+  summary: {
+    championCount: number;
+    itemCount: number;
+  };
+  champions: ChampionView[];
+  items: GameItem[];
 }
 
 export interface ProgressOverview {

@@ -1,4 +1,5 @@
 import { UserAuthProvider } from "@prisma/client";
+import { adminEmails } from "../config/env.js";
 import { hashPassword, verifyPassword } from "../lib/password.js";
 import { slugify } from "../lib/slug.js";
 import { userRepository } from "../repositories/userRepository.js";
@@ -25,10 +26,12 @@ const toSessionUser = (user: {
   googleId?: string | null;
   authProvider: UserAuthProvider;
   passwordHash?: string | null;
+  isAdmin?: boolean;
 }) => ({
   id: user.id,
   email: user.email,
   username: user.username,
+  isAdmin: Boolean(user.isAdmin),
   avatarUrl: user.avatarUrl ?? null,
   authProvider: user.authProvider.toLowerCase(),
   hasPassword: Boolean(user.passwordHash),
@@ -36,6 +39,7 @@ const toSessionUser = (user: {
 });
 
 const normalizeEmail = (email: string) => email.trim().toLowerCase();
+const shouldGrantAdmin = (email: string) => adminEmails.has(normalizeEmail(email));
 
 async function ensureAvailableIdentity(email: string, username: string, ignoreUserId?: string) {
   const [emailUser, usernameUser] = await Promise.all([
@@ -84,6 +88,7 @@ export const authService = {
     const user = await userRepository.createUser({
       email,
       username,
+      isAdmin: shouldGrantAdmin(email),
       passwordHash,
       authProvider: UserAuthProvider.EMAIL,
       globalProgress: { create: {} },
@@ -104,6 +109,12 @@ export const authService = {
       throw new HttpError(401, "Email ou mot de passe invalide.");
     }
 
+    if (!user.isAdmin && shouldGrantAdmin(user.email)) {
+      const promotedUser = await userRepository.promoteToAdmin(user.id);
+      await userRepository.ensureUserScaffolding(promotedUser.id);
+      return toSessionUser(promotedUser);
+    }
+
     await userRepository.ensureUserScaffolding(user.id);
     return toSessionUser(user);
   },
@@ -112,6 +123,12 @@ export const authService = {
     const user = await userRepository.findById(userId);
     if (!user) {
       throw new HttpError(401, "La session n'est plus valide.");
+    }
+
+    if (!user.isAdmin && shouldGrantAdmin(user.email)) {
+      const promotedUser = await userRepository.promoteToAdmin(user.id);
+      await userRepository.ensureUserScaffolding(promotedUser.id);
+      return promotedUser;
     }
 
     await userRepository.ensureUserScaffolding(user.id);
@@ -125,6 +142,7 @@ export const authService = {
       const updatedUser = await userRepository.updateUser(existingGoogleUser.id, {
         email,
         avatarUrl: profile.avatarUrl ?? existingGoogleUser.avatarUrl,
+        isAdmin: existingGoogleUser.isAdmin || shouldGrantAdmin(email),
         authProvider: mergeAuthProvider(existingGoogleUser.authProvider, UserAuthProvider.GOOGLE),
       });
       await userRepository.ensureUserScaffolding(updatedUser.id);
@@ -136,6 +154,7 @@ export const authService = {
       const linkedUser = await userRepository.updateUser(existingEmailUser.id, {
         googleId: profile.googleId,
         avatarUrl: profile.avatarUrl ?? existingEmailUser.avatarUrl,
+        isAdmin: existingEmailUser.isAdmin || shouldGrantAdmin(email),
         authProvider: mergeAuthProvider(existingEmailUser.authProvider, UserAuthProvider.GOOGLE),
       });
       await userRepository.ensureUserScaffolding(linkedUser.id);
@@ -147,6 +166,7 @@ export const authService = {
       username: await buildUniqueUsername(profile.username ?? email.split("@")[0] ?? "summoner"),
       googleId: profile.googleId,
       avatarUrl: profile.avatarUrl,
+      isAdmin: shouldGrantAdmin(email),
       authProvider: UserAuthProvider.GOOGLE,
       globalProgress: { create: {} },
       emailPreference: { create: { dailyReminderEnabled: true } },

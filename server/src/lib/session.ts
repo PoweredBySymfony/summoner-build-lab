@@ -6,12 +6,14 @@ export type AuthenticatedUser = {
   id: string;
   email: string | null;
   username: string;
+  isAdmin: boolean;
 };
 
 type SessionPayload = {
   sub: string;
   email: string | null;
   username: string;
+  isAdmin: boolean;
 };
 
 const SESSION_DURATION_SECONDS = 60 * 60 * 24 * 30;
@@ -22,6 +24,7 @@ export const signSessionToken = (user: AuthenticatedUser) =>
       sub: user.id,
       email: user.email,
       username: user.username,
+      isAdmin: user.isAdmin,
     } satisfies SessionPayload,
     env.AUTH_SECRET,
     { expiresIn: SESSION_DURATION_SECONDS },

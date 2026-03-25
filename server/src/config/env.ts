@@ -14,6 +14,7 @@ const envSchema = z.object({
   AUTH_SECRET: z.string().min(16),
   SESSION_COOKIE_NAME: z.string().default("summoner_build_lab_session"),
   SYNC_ADMIN_TOKEN: z.string().optional(),
+  ADMIN_EMAILS: z.string().optional(),
   RIOT_API_KEY: z.string().optional(),
   RIOT_REGION: z.string().default("europe"),
   RIOT_PLATFORM: z.string().default("euw1"),
@@ -35,3 +36,10 @@ export const env = envSchema.parse({
 });
 
 export const isProduction = env.NODE_ENV === "production";
+
+export const adminEmails = new Set(
+  (env.ADMIN_EMAILS ?? "")
+    .split(",")
+    .map((value) => value.trim().toLowerCase())
+    .filter(Boolean),
+);

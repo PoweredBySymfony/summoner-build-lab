@@ -2,11 +2,15 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "./client";
 import type {
   BootstrapPayload,
+  AdminOverviewPayload,
+  AdminPatchStatusPayload,
   CatalogPayload,
+  ChampionView,
   ChampionLearningPayload,
   CurrentUser,
   DailyChallengePayload,
   DashboardPayload,
+  GameItem,
   GeneratedPuzzleSeriesPayload,
   PlayerAutocompleteSuggestion,
   PlayerSearchPayload,
@@ -175,3 +179,112 @@ export const usePlayerSuggestions = (query: string | undefined, count = 8) =>
     enabled: Boolean(query?.trim()),
     retry: false,
   });
+
+export const useAdminOverview = (enabled = true) =>
+  useQuery({
+    queryKey: ["admin", "overview"],
+    queryFn: () => apiFetch<AdminOverviewPayload>("/admin/overview"),
+    enabled,
+  });
+
+export const useAdminChampions = (enabled = true) =>
+  useQuery({
+    queryKey: ["admin", "champions"],
+    queryFn: () => apiFetch<ChampionView[]>("/admin/champions"),
+    enabled,
+  });
+
+export const useAdminItems = (enabled = true) =>
+  useQuery({
+    queryKey: ["admin", "items"],
+    queryFn: () => apiFetch<GameItem[]>("/admin/items"),
+    enabled,
+  });
+
+export const useAdminPuzzles = (enabled = true) =>
+  useQuery({
+    queryKey: ["admin", "puzzles"],
+    queryFn: () => apiFetch<PuzzleListItem[]>("/admin/puzzles"),
+    enabled,
+  });
+
+export const useAdminPuzzleDetail = (id: string | null, enabled = true) =>
+  useQuery({
+    queryKey: ["admin", "puzzle", id],
+    queryFn: () => apiFetch<PuzzleDetail>(`/admin/puzzles/${id}`),
+    enabled: Boolean(id) && enabled,
+  });
+
+export const useAdminPatchStatus = (enabled = true) =>
+  useQuery({
+    queryKey: ["admin", "patch-status"],
+    queryFn: () => apiFetch<AdminPatchStatusPayload>("/admin/patch-status"),
+    enabled,
+  });
+
+export const useAdminUpdateChampion = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: { id: string; data: Record<string, unknown> }) =>
+      apiFetch<ChampionView>(`/admin/champions/${payload.id}`, {
+        method: "PATCH",
+        body: JSON.stringify(payload.data),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin", "champions"] });
+      queryClient.invalidateQueries({ queryKey: ["catalog"] });
+      queryClient.invalidateQueries({ queryKey: ["bootstrap"] });
+    },
+  });
+};
+
+export const useAdminUpdateItem = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: { id: string; data: Record<string, unknown> }) =>
+      apiFetch<GameItem>(`/admin/items/${payload.id}`, {
+        method: "PATCH",
+        body: JSON.stringify(payload.data),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin", "items"] });
+      queryClient.invalidateQueries({ queryKey: ["catalog"] });
+      queryClient.invalidateQueries({ queryKey: ["bootstrap"] });
+    },
+  });
+};
+
+export const useAdminUpdatePuzzle = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: { id: string; data: Record<string, unknown> }) =>
+      apiFetch<PuzzleDetail>(`/admin/puzzles/${payload.id}`, {
+        method: "PATCH",
+        body: JSON.stringify(payload.data),
+      }),
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["admin", "puzzles"] });
+      queryClient.invalidateQueries({ queryKey: ["admin", "puzzle", variables.id] });
+      queryClient.invalidateQueries({ queryKey: ["puzzles"] });
+      queryClient.invalidateQueries({ queryKey: ["daily-challenge"] });
+      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+    },
+  });
+};
+
+export const useAdminSyncPatch = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (payload?: { version?: string }) =>
+      apiFetch<{ result: unknown; status: AdminPatchStatusPayload }>("/admin/patch-sync", {
+        method: "POST",
+        body: JSON.stringify(payload ?? {}),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin"] });
+      queryClient.invalidateQueries({ queryKey: ["catalog"] });
+      queryClient.invalidateQueries({ queryKey: ["bootstrap"] });
+      queryClient.invalidateQueries({ queryKey: ["puzzles"] });
+    },
+  });
+};

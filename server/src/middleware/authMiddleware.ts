@@ -16,7 +16,7 @@ export const attachUser = async (request: Request, _response: Response, next: Ne
   try {
     const payload = readSessionToken(token);
     const user = await userRepository.findById(payload.sub);
-    request.user = user ? { id: user.id, email: user.email, username: user.username } : null;
+    request.user = user ? { id: user.id, email: user.email, username: user.username, isAdmin: user.isAdmin } : null;
   } catch {
     request.user = null;
   }
@@ -27,6 +27,20 @@ export const attachUser = async (request: Request, _response: Response, next: Ne
 export const requireAuth = (request: Request, _response: Response, next: NextFunction) => {
   if (!request.user) {
     next(new HttpError(401, "Authentication required."));
+    return;
+  }
+
+  next();
+};
+
+export const requireAdmin = (request: Request, _response: Response, next: NextFunction) => {
+  if (!request.user) {
+    next(new HttpError(401, "Authentification requise."));
+    return;
+  }
+
+  if (!request.user.isAdmin) {
+    next(new HttpError(403, "Acces administrateur requis."));
     return;
   }
 

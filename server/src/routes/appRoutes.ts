@@ -53,6 +53,7 @@ router.get("/auth/me", async (request, response, next) => {
         id: user.id,
         email: user.email,
         username: user.username,
+        isAdmin: user.isAdmin,
         avatarUrl: user.avatarUrl,
         authProvider: user.authProvider.toLowerCase(),
         hasPassword: Boolean(user.passwordHash),

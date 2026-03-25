@@ -24,6 +24,14 @@ export const puzzleInclude = {
 } satisfies Prisma.PuzzleInclude;
 
 export const puzzleRepository = {
+  listAll: (args?: Omit<Prisma.PuzzleFindManyArgs, "include">) =>
+    prisma.puzzle.findMany({
+      include: puzzleInclude,
+      orderBy: args?.orderBy ?? [{ updatedAt: "desc" }],
+      take: args?.take,
+      skip: args?.skip,
+      where: args?.where,
+    }),
   listPublished: (args?: Omit<Prisma.PuzzleFindManyArgs, "include">) =>
     prisma.puzzle.findMany({
       where: { isPublished: true, ...(args?.where ?? {}) },
@@ -35,6 +43,17 @@ export const puzzleRepository = {
   findBySlug: (slug: string) =>
     prisma.puzzle.findUnique({
       where: { slug },
+      include: puzzleInclude,
+    }),
+  findById: (id: string) =>
+    prisma.puzzle.findUnique({
+      where: { id },
+      include: puzzleInclude,
+    }),
+  updatePuzzle: (id: string, data: Prisma.PuzzleUpdateInput) =>
+    prisma.puzzle.update({
+      where: { id },
+      data,
       include: puzzleInclude,
     }),
   createAttempt: (data: Prisma.PuzzleAttemptUncheckedCreateInput) =>

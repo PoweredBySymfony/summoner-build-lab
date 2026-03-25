@@ -55,6 +55,12 @@ const Navbar = () => {
 
           {user ? (
             <>
+              {user.isAdmin ? (
+                <Link to="/admin" className="hidden h-11 items-center gap-2 rounded-lg border border-primary/30 bg-primary/10 px-4 text-sm text-primary lg:flex">
+                  <Shield className="h-4 w-4" />
+                  Backoffice
+                </Link>
+              ) : null}
               <Link to="/profile" className="flex h-11 items-center gap-2 rounded-lg bg-primary/10 px-4 text-sm text-primary">
                 <User className="h-4 w-4" />
                 {user.username}

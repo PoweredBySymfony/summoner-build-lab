@@ -36,6 +36,8 @@ Lire ce fichier au debut de chaque nouvelle conversation sur ce repo, puis le me
 ## Auth
 
 - La page d'auth est branchee a l'i18n dans `src/pages/Auth.tsx`.
+- Un vrai role admin existe maintenant sur `User.isAdmin`.
+- Les emails presents dans `ADMIN_EMAILS` sont promus admin automatiquement a l'inscription, au login, au callback Google et au rafraichissement de session (`auth/me`).
 - Google OAuth:
   - `prompt=consent` a ete retire pour eviter de re-forcer le consentement/choix de compte.
   - le comportement Google reste depend de la session navigateur, donc un selecteur de compte peut toujours apparaitre.
@@ -109,6 +111,31 @@ Lire ce fichier au debut de chaque nouvelle conversation sur ce repo, puis le me
 
 - migration a appliquer si besoin sur une nouvelle DB:
   - `20260325082310_riot_account_index`
+  - `20260325151500_admin_backoffice_user_role`
+
+## Backoffice admin
+
+- Nouvelle route front: `/admin`
+- Le backoffice a son propre layout et masque la navbar publique sur cette route.
+- La session front recoit maintenant `user.isAdmin`.
+- API admin dediee dans `server/src/routes/adminRoutes.ts`, protegee par `attachUser + requireAdmin`.
+- Capacites actuelles:
+  - vue d'ensemble admin
+  - liste complete des champions
+  - liste complete des items
+  - liste complete des puzzles
+  - edition rapide des metadonnees champion/item/puzzle
+  - detail puzzle avec lecture des choix et du scenario
+  - popup patch avec inventaire des champions/items hors patch cible
+  - bouton de sync patch qui appelle `riotSyncService.syncAll()`
+- Fichiers clefs:
+  - `src/pages/Admin.tsx`
+  - `src/api/hooks.ts`
+  - `src/types/domain.ts`
+  - `server/src/routes/adminRoutes.ts`
+  - `server/src/services/adminService.ts`
+  - `server/src/services/viewMappers.ts`
+  - `server/src/middleware/authMiddleware.ts`
 
 ## Fichiers sensibles a relire avant modifs
 

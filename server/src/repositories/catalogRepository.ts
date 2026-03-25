@@ -20,4 +20,22 @@ export const catalogRepository = {
     prisma.item.findUnique({
       where: { slug },
     }),
+  findChampionById: (id: string) =>
+    prisma.champion.findUnique({
+      where: { id },
+    }),
+  findItemById: (id: string) =>
+    prisma.item.findUnique({
+      where: { id },
+    }),
+  updateChampion: (id: string, data: Prisma.ChampionUpdateInput) =>
+    prisma.champion.update({
+      where: { id },
+      data,
+    }),
+  updateItem: (id: string, data: Prisma.ItemUpdateInput) =>
+    prisma.item.update({
+      where: { id },
+      data,
+    }),
 };

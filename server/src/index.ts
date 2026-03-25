@@ -4,6 +4,7 @@ import express from "express";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 import { env } from "./config/env.js";
+import { adminRoutes } from "./routes/adminRoutes.js";
 import { appRoutes } from "./routes/appRoutes.js";
 import { HttpError } from "./utils/http.js";
 
@@ -38,6 +39,7 @@ app.use((request, _response, next) => {
   next();
 });
 app.use("/api", appRoutes);
+app.use("/api", adminRoutes);
 
 app.use((error: unknown, _request: express.Request, response: express.Response, _next: express.NextFunction) => {
   if (error instanceof HttpError) {

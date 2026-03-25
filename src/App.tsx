@@ -18,6 +18,7 @@ const Auth = lazy(() => import("./pages/Auth"));
 const Daily = lazy(() => import("./pages/Daily"));
 const Champion = lazy(() => import("./pages/Champion"));
 const PlayerProfile = lazy(() => import("./pages/PlayerProfile"));
+const Admin = lazy(() => import("./pages/Admin"));
 
 const queryClient = new QueryClient();
 
@@ -31,6 +32,7 @@ const routeTitles: Array<{ pattern: RegExp; title: string }> = [
   { pattern: /^\/champions\//, title: "Champion" },
   { pattern: /^\/players\//, title: "Profil joueur" },
   { pattern: /^\/profile/, title: "Mon profil" },
+  { pattern: /^\/admin/, title: "Backoffice" },
 ];
 
 const RouteTitleSync = () => {
@@ -54,6 +56,36 @@ const PageFallback = () => (
   </div>
 );
 
+const AppFrame = () => {
+  const location = useLocation();
+  const isAdminRoute = location.pathname.startsWith("/admin");
+
+  return (
+    <>
+      {!isAdminRoute && <Navbar />}
+      <RouteTitleSync />
+      <Suspense fallback={<PageFallback />}>
+        <Routes>
+          <Route path="/" element={<Landing />} />
+          <Route path="/dashboard" element={<Dashboard />} />
+          <Route path="/modules" element={<Modules />} />
+          <Route path="/puzzles" element={<Modules />} />
+          <Route path="/training" element={<Training />} />
+          <Route path="/training/:slug" element={<Training />} />
+          <Route path="/daily" element={<Daily />} />
+          <Route path="/auth" element={<Auth />} />
+          <Route path="/champions/:slug" element={<Champion />} />
+          <Route path="/players/:gameName/:tagLine" element={<PlayerProfile />} />
+          <Route path="/results" element={<Results />} />
+          <Route path="/profile" element={<Profile />} />
+          <Route path="/admin" element={<Admin />} />
+          <Route path="*" element={<NotFound />} />
+        </Routes>
+      </Suspense>
+    </>
+  );
+};
+
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <LanguageProvider>
@@ -61,25 +93,7 @@ const App = () => (
         <Toaster />
         <Sonner />
         <BrowserRouter>
-          <Navbar />
-          <RouteTitleSync />
-          <Suspense fallback={<PageFallback />}>
-            <Routes>
-              <Route path="/" element={<Landing />} />
-              <Route path="/dashboard" element={<Dashboard />} />
-              <Route path="/modules" element={<Modules />} />
-              <Route path="/puzzles" element={<Modules />} />
-              <Route path="/training" element={<Training />} />
-              <Route path="/training/:slug" element={<Training />} />
-              <Route path="/daily" element={<Daily />} />
-              <Route path="/auth" element={<Auth />} />
-              <Route path="/champions/:slug" element={<Champion />} />
-              <Route path="/players/:gameName/:tagLine" element={<PlayerProfile />} />
-              <Route path="/results" element={<Results />} />
-              <Route path="/profile" element={<Profile />} />
-              <Route path="*" element={<NotFound />} />
-            </Routes>
-          </Suspense>
+          <AppFrame />
         </BrowserRouter>
       </TooltipProvider>
     </LanguageProvider>

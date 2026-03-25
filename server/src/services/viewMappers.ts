@@ -149,6 +149,7 @@ export const mapChampionView = (champion: Champion) => ({
   tags: Array.isArray(champion.tags) ? champion.tags : [],
   stats: champion.stats,
   patch: champion.patch,
+  isActive: champion.isActive,
 });
 
 export const mapItemView = (item: Item) => ({
@@ -177,6 +178,7 @@ export const mapItemView = (item: Item) => ({
   isConsumable: item.isConsumable,
   isTrinket: item.isTrinket,
   isStarter: item.isStarter,
+  isActive: item.isActive,
   patch: item.patch,
 });
 
@@ -204,10 +206,15 @@ export const mapPuzzleListView = (
   description: translateGeneratedCopy(puzzle.description, puzzle.champion?.name ?? undefined),
   shortPrompt: translateGeneratedCopy(puzzle.shortPrompt, puzzle.champion?.name ?? undefined),
   difficulty: difficultyLabel[puzzle.difficulty],
+  difficultyKey: puzzle.difficulty,
   patch: puzzle.patch,
   role: puzzle.role ? roleLabel[puzzle.role] : null,
+  roleKey: puzzle.role,
   mode: modeLabel[puzzle.mode],
+  modeKey: puzzle.mode,
   sourceType: puzzle.sourceType.toLowerCase(),
+  isPublished: puzzle.isPublished,
+  isDailyEligible: puzzle.isDailyEligible,
   champion: puzzle.champion ? mapChampionView(puzzle.champion) : null,
   tags: puzzle.tags.map((tag) => ({ slug: tag.tag.slug, name: tag.tag.name })),
   choiceCount: puzzle.choices.length,
