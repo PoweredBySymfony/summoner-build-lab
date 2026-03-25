@@ -60,6 +60,7 @@ export const RiotIdSearch = ({ defaultValue = "", compact = false }: RiotIdSearc
     top: 0,
     width: 0,
   });
+  const [panelMaxHeight, setPanelMaxHeight] = useState(360);
   const deferredRiotId = useDeferredValue(riotId);
   const trimmedDeferredRiotId = deferredRiotId.trim();
   const remoteSuggestions = usePlayerSuggestions(trimmedDeferredRiotId || undefined, 8);
@@ -99,11 +100,27 @@ export const RiotIdSearch = ({ defaultValue = "", compact = false }: RiotIdSearc
         return;
       }
 
+      const viewportWidth = window.innerWidth;
+      const viewportHeight = window.innerHeight;
+      const gutter = 16;
+      const preferredGap = 10;
+      const desiredWidth = rect.width;
+      const width = Math.min(desiredWidth, viewportWidth - gutter * 2);
+      const left = Math.min(Math.max(rect.left, gutter), viewportWidth - gutter - width);
+      const spaceBelow = viewportHeight - rect.bottom - gutter;
+      const spaceAbove = rect.top - gutter;
+      const shouldOpenAbove = spaceBelow < 260 && spaceAbove > spaceBelow;
+      const availableHeight = Math.max(160, (shouldOpenAbove ? spaceAbove : spaceBelow) - preferredGap);
+      const top = shouldOpenAbove
+        ? Math.max(gutter, rect.top - preferredGap - Math.min(availableHeight, 420))
+        : rect.bottom + preferredGap;
+
       setPanelStyle({
-        left: rect.left,
-        top: rect.bottom + 10,
-        width: rect.width,
+        left,
+        top,
+        width,
       });
+      setPanelMaxHeight(Math.min(availableHeight, 420));
     };
 
     updatePanelPosition();
@@ -255,7 +272,7 @@ export const RiotIdSearch = ({ defaultValue = "", compact = false }: RiotIdSearc
             <p>Recherche de comptes connus en cours...</p>
           </div>
         ) : suggestions.length > 0 ? (
-          <div className="max-h-[360px] overflow-y-auto p-3">
+          <div className="overflow-y-auto p-3" style={{ maxHeight: panelMaxHeight }}>
             {suggestions.map((suggestion, index) => {
               const isActive = index === activeIndex;
 
