@@ -2,7 +2,7 @@ import type { GameItem } from "@/types/domain";
 import { getItemEffectBlocks, getItemStatLines, type ItemStatIconKey } from "@/lib/itemPresentation";
 import { AnimatePresence, motion } from "framer-motion";
 import type { CSSProperties, ReactNode } from "react";
-import { useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 interface ItemIconProps {
@@ -10,6 +10,11 @@ interface ItemIconProps {
   size?: "sm" | "md" | "lg";
   showTooltip?: boolean;
   className?: string;
+  highlighted?: boolean;
+  onInspect?: (item: GameItem) => void;
+  onOpenDetail?: (item: GameItem) => void;
+  interactive?: boolean;
+  inspectControls?: string;
 }
 
 const sizeMap = {
@@ -166,10 +171,10 @@ const TooltipPortal = ({
   children,
 }: {
   anchor: HTMLElement | null;
-  children: (placement: "top" | "bottom") => ReactNode;
+  children: (placement: "right" | "left" | "top" | "bottom") => ReactNode;
 }) => {
   const [style, setStyle] = useState<CSSProperties | null>(null);
-  const [placement, setPlacement] = useState<"top" | "bottom">("top");
+  const [placement, setPlacement] = useState<"right" | "left" | "top" | "bottom">("right");
 
   useLayoutEffect(() => {
     if (!anchor) {
@@ -180,11 +185,49 @@ const TooltipPortal = ({
 
     const updatePosition = () => {
       const rect = anchor.getBoundingClientRect();
-      const width = Math.min(420, window.innerWidth - 24);
-      const left = Math.min(window.innerWidth - width - 12, Math.max(12, rect.left + rect.width / 2 - width / 2));
-      const top = rect.top > 340 ? rect.top - 14 : rect.bottom + 14;
-      const nextPlacement = rect.top > 340 ? "top" : "bottom";
+      const width = Math.min(340, window.innerWidth - 24);
+      const estimatedHeight = Math.min(420, window.innerHeight - 32);
+      const gap = 16;
+      const spaceRight = window.innerWidth - rect.right - 12;
+      const spaceLeft = rect.left - 12;
+      const spaceBottom = window.innerHeight - rect.bottom - 12;
+      const spaceTop = rect.top - 12;
+
+      let nextPlacement: "right" | "left" | "top" | "bottom" = "right";
+      if (spaceRight >= width + gap) {
+        nextPlacement = "right";
+      } else if (spaceLeft >= width + gap) {
+        nextPlacement = "left";
+      } else if (spaceBottom >= estimatedHeight * 0.45) {
+        nextPlacement = "bottom";
+      } else {
+        nextPlacement = "top";
+      }
+
       setPlacement(nextPlacement);
+
+      if (nextPlacement === "right" || nextPlacement === "left") {
+        const left =
+          nextPlacement === "right"
+            ? Math.min(window.innerWidth - width - 12, rect.right + gap)
+            : Math.max(12, rect.left - width - gap);
+        const top = Math.min(
+          window.innerHeight - estimatedHeight - 12,
+          Math.max(12, rect.top + rect.height / 2 - estimatedHeight / 2),
+        );
+
+        setStyle({
+          position: "fixed",
+          left,
+          top,
+          width,
+          zIndex: 9999,
+        });
+        return;
+      }
+
+      const left = Math.min(window.innerWidth - width - 12, Math.max(12, rect.left + rect.width / 2 - width / 2));
+      const top = nextPlacement === "top" ? Math.max(12, rect.top - estimatedHeight - gap) : Math.min(window.innerHeight - estimatedHeight - 12, rect.bottom + gap);
 
       setStyle({
         position: "fixed",
@@ -225,27 +268,112 @@ const TooltipPortal = ({
   return createPortal(<div style={style}>{children(placement)}</div>, document.body);
 };
 
-export const ItemIcon = ({ item, size = "md", showTooltip = true, className = "" }: ItemIconProps) => {
+export const ItemIcon = ({
+  item,
+  size = "md",
+  showTooltip = true,
+  className = "",
+  highlighted = false,
+  onInspect,
+  onOpenDetail,
+  interactive = true,
+  inspectControls,
+}: ItemIconProps) => {
   const [hovered, setHovered] = useState(false);
+  const [active, setActive] = useState(false);
   const [failed, setFailed] = useState(false);
   const triggerRef = useRef<HTMLDivElement | null>(null);
+  const openTimeoutRef = useRef<number | null>(null);
+  const closeTimeoutRef = useRef<number | null>(null);
+  const canPreview = showTooltip || Boolean(onInspect) || Boolean(onOpenDetail);
+  const canInteract = interactive && canPreview;
+
+  useEffect(() => {
+    return () => {
+      if (openTimeoutRef.current !== null) {
+        window.clearTimeout(openTimeoutRef.current);
+      }
+      if (closeTimeoutRef.current !== null) {
+        window.clearTimeout(closeTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  const scheduleOpen = () => {
+    if (!canPreview) {
+      return;
+    }
+
+    if (closeTimeoutRef.current !== null) {
+      window.clearTimeout(closeTimeoutRef.current);
+      closeTimeoutRef.current = null;
+    }
+
+    setActive(true);
+    onInspect?.(item);
+
+    if (!showTooltip) {
+      return;
+    }
+
+    if (openTimeoutRef.current !== null) {
+      window.clearTimeout(openTimeoutRef.current);
+    }
+
+    openTimeoutRef.current = window.setTimeout(() => {
+      setHovered(true);
+      openTimeoutRef.current = null;
+    }, 120);
+  };
+
+  const closeTooltip = () => {
+    if (!canPreview) {
+      return;
+    }
+
+    if (openTimeoutRef.current !== null) {
+      window.clearTimeout(openTimeoutRef.current);
+      openTimeoutRef.current = null;
+    }
+
+    if (closeTimeoutRef.current !== null) {
+      window.clearTimeout(closeTimeoutRef.current);
+    }
+
+    closeTimeoutRef.current = window.setTimeout(() => {
+      setActive(false);
+      setHovered(false);
+      closeTimeoutRef.current = null;
+    }, 90);
+  };
 
   return (
     <div
       ref={triggerRef}
       className="relative"
-      tabIndex={showTooltip ? 0 : -1}
-      role="img"
+      data-item-icon={item.slug}
+      tabIndex={canInteract ? 0 : -1}
+      role={canInteract ? "button" : "img"}
       aria-label={item.name}
-      aria-haspopup={showTooltip ? "dialog" : undefined}
+      aria-haspopup={showTooltip ? "tooltip" : onOpenDetail ? "dialog" : undefined}
       aria-expanded={showTooltip ? hovered : undefined}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-      onFocus={() => setHovered(true)}
-      onBlur={() => setHovered(false)}
+      aria-controls={inspectControls}
+      aria-pressed={canInteract ? highlighted : undefined}
+      onMouseEnter={scheduleOpen}
+      onMouseLeave={closeTooltip}
+      onFocus={scheduleOpen}
+      onBlur={closeTooltip}
+      onClick={(event) => {
+        if (!canInteract) {
+          return;
+        }
+        event.stopPropagation();
+        onInspect?.(item);
+        onOpenDetail?.(item);
+      }}
     >
       <div
-        className={`${sizeMap[size]} overflow-hidden rounded-md border border-border/60 bg-muted/50 cursor-pointer transition-all duration-200 hover:border-primary/50 hover:shadow-lg hover:shadow-primary/10 ${className}`}
+        className={`${sizeMap[size]} overflow-hidden rounded-md border border-border/60 bg-muted/50 ${canInteract ? "cursor-pointer" : ""} transition-all duration-200 hover:border-primary/50 hover:shadow-lg hover:shadow-primary/10 ${active || highlighted ? "border-primary/50 shadow-lg shadow-primary/10" : ""} ${className}`}
         style={{ boxShadow: "inset 0 2px 4px hsl(222 47% 4% / 0.5)" }}
       >
         {!failed ? (
@@ -270,31 +398,33 @@ export const ItemIcon = ({ item, size = "md", showTooltip = true, className = ""
   );
 };
 
-const ItemTooltip = ({ item, placement }: { item: GameItem; placement: "top" | "bottom" }) => {
+const ItemTooltip = ({ item, placement }: { item: GameItem; placement: "right" | "left" | "top" | "bottom" }) => {
   const statLines = getItemStatLines(item);
   const effectBlocks = getItemEffectBlocks(item);
 
   return (
     <motion.div
-      initial={{ opacity: 0, y: 6, scale: 0.96 }}
+      initial={{ opacity: 0, y: 4, scale: 0.98 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
-      exit={{ opacity: 0, y: 6, scale: 0.96 }}
-      transition={{ duration: 0.14 }}
+      exit={{ opacity: 0, y: 4, scale: 0.98 }}
+      transition={{ duration: 0.12 }}
       className="pointer-events-none relative"
     >
-      <div className="overflow-hidden rounded-[18px] border border-[#8b6a24]/40 bg-[#0d1320]/96 shadow-[0_20px_50px_rgba(0,0,0,0.6)] backdrop-blur-md">
-        <div className="bg-[linear-gradient(180deg,rgba(255,198,90,0.07),rgba(255,198,90,0))] px-4 pb-4 pt-4">
+      <div className="max-h-[min(70vh,420px)] overflow-hidden rounded-[18px] border border-[#8b6a24]/35 bg-[#0d1320]/96 shadow-[0_22px_60px_rgba(0,0,0,0.62)] backdrop-blur-md">
+        <div className="max-h-[min(70vh,420px)] overflow-y-auto">
+          <div className="bg-[linear-gradient(180deg,rgba(255,198,90,0.07),rgba(255,198,90,0))] px-4 pb-4 pt-4">
           <div className="flex items-start gap-3">
-            <div className="h-14 w-14 overflow-hidden rounded-md border border-[#c49b43]/45 bg-black/20 shadow-[inset_0_1px_4px_rgba(0,0,0,0.5)]">
+            <div className="h-12 w-12 shrink-0 overflow-hidden rounded-md border border-[#c49b43]/45 bg-black/20 shadow-[inset_0_1px_4px_rgba(0,0,0,0.5)]">
               <img src={item.icon} alt={item.name} className="h-full w-full object-cover" />
             </div>
             <div className="min-w-0 flex-1">
-              <h4 className="font-heading text-lg font-bold uppercase tracking-[0.04em] text-[#f2c249]">
+              <h4 className="font-heading text-base font-bold uppercase tracking-[0.04em] text-[#f2c249]">
                 {item.name}
               </h4>
-              <div className="mt-1 flex items-center gap-2 text-sm font-semibold text-[#f3d37a]">
+              <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm font-semibold text-[#f3d37a]">
                 <span>{item.cost} or</span>
                 {item.baseCost ? <span className="text-[#c5ab63]/85">({item.baseCost})</span> : null}
+                {item.category ? <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[11px] uppercase tracking-[0.12em] text-[#b7c0d1]">{item.category}</span> : null}
               </div>
               {item.shortDescription ? (
                 <p className="mt-2 text-sm leading-5 text-[#d1d8e5]/76">{item.shortDescription}</p>
@@ -305,12 +435,12 @@ const ItemTooltip = ({ item, placement }: { item: GameItem; placement: "top" | "
 
         {statLines.length > 0 ? (
           <div className="border-t border-white/6 px-4 py-3">
-            <div className="space-y-2">
+            <div className="grid gap-2 sm:grid-cols-2">
               {statLines.map((entry) => (
-                <div key={`${item.id}-${entry.key}-${entry.value}`} className="grid grid-cols-[24px_1fr_auto] items-center gap-3">
+                <div key={`${item.id}-${entry.key}-${entry.value}`} className="grid grid-cols-[24px_1fr_auto] items-center gap-3 rounded-xl border border-white/6 bg-white/[0.03] px-2 py-2">
                   <StatBadge icon={entry.icon} />
-                  <span className="text-sm text-[#f4f5f7]">{entry.label}</span>
-                  <span className="text-sm font-semibold text-[#6be8ff]">{entry.value}</span>
+                  <span className="text-[13px] text-[#f4f5f7]">{entry.label}</span>
+                  <span className="text-[13px] font-semibold text-[#6be8ff]">{entry.value}</span>
                 </div>
               ))}
             </div>
@@ -321,9 +451,9 @@ const ItemTooltip = ({ item, placement }: { item: GameItem; placement: "top" | "
           <div className="border-t border-white/6 px-4 py-3">
             <div className="space-y-3">
               {effectBlocks.map((block, index) => (
-                <div key={`${item.id}-block-${index}`}>
+                <div key={`${item.id}-block-${index}`} className="rounded-xl border border-white/6 bg-white/[0.03] px-3 py-3">
                   {block.title ? (
-                    <p className="text-sm font-semibold text-[#f7e3a1]">{block.title}</p>
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#f7e3a1]">{block.title}</p>
                   ) : null}
                   <p className="text-sm leading-5 text-[#d4dae5]/84">{block.body}</p>
                 </div>
@@ -365,13 +495,13 @@ const ItemTooltip = ({ item, placement }: { item: GameItem; placement: "top" | "
             )}
           </div>
         ) : null}
+        </div>
       </div>
 
-      {placement === "top" ? (
-        <div className="absolute left-1/2 top-[calc(100%-6px)] h-3 w-3 -translate-x-1/2 rotate-45 border-b border-r border-[#8b6a24]/40 bg-[#0d1320]/96" />
-      ) : (
-        <div className="absolute bottom-[calc(100%-6px)] left-1/2 h-3 w-3 -translate-x-1/2 rotate-45 border-l border-t border-[#8b6a24]/40 bg-[#0d1320]/96" />
-      )}
+      {placement === "top" ? <div className="absolute left-1/2 top-[calc(100%-6px)] h-3 w-3 -translate-x-1/2 rotate-45 border-b border-r border-[#8b6a24]/40 bg-[#0d1320]/96" /> : null}
+      {placement === "bottom" ? <div className="absolute bottom-[calc(100%-6px)] left-1/2 h-3 w-3 -translate-x-1/2 rotate-45 border-l border-t border-[#8b6a24]/40 bg-[#0d1320]/96" /> : null}
+      {placement === "left" ? <div className="absolute left-[calc(100%-6px)] top-1/2 h-3 w-3 -translate-y-1/2 rotate-45 border-r border-t border-[#8b6a24]/40 bg-[#0d1320]/96" /> : null}
+      {placement === "right" ? <div className="absolute right-[calc(100%-6px)] top-1/2 h-3 w-3 -translate-y-1/2 rotate-45 border-b border-l border-[#8b6a24]/40 bg-[#0d1320]/96" /> : null}
     </motion.div>
   );
 };

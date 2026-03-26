@@ -230,11 +230,17 @@ Lire ce fichier au debut de chaque nouvelle conversation sur ce repo, puis le me
 - `src/components/ItemIcon.tsx`:
   - le repositionnement du tooltip doit etre cadence via `requestAnimationFrame`
   - l'icone doit rester accessible au focus clavier quand elle n'est pas deja dans un contexte interactif parent
+  - dans les contextes denses comme `src/pages/Training.tsx`, ne pas utiliser de gros tooltip flottant par item
+  - preferer un panneau d'inspection stable alimente par hover/focus/click sur les items, pour conserver toute la data sans recouvrir le curseur ni casser la lecture
+  - les tooltips item riches restent reserves aux contextes moins denses (catalogue, landing, admin) et doivent etre deports hors du pointeur avec une ouverture retardee
 - Scenarios de puzzle:
   - les backfills ne doivent jamais ecraser `allyTeam` / `enemyTeam` si ces equipes sont deja stockees au format riche (objets avec `championSlug`, `role`, `items`)
+  - regression identifiee le `2026-03-25`: un backfill legacy pouvait vider les equipes de puzzles `GENERATED` ouverts depuis l'historique si seul `currentBuild` etait legacy; le flux dashboard n'etait pas en cause, c'etait bien la donnee scenario qui avait ete reecrite
+  - garde-fou code: `server/src/lib/scenarioBackfill.ts` classe separement `allyTeam`, `enemyTeam` et `currentBuild`; le backfill ne reconstruit que les champs vraiment legacy
   - le script `scripts/backfillLegacyScenarioSnapshots.ts` ne doit reconstruire les equipes qu'a partir de vraies donnees legacy (tableaux de slugs)
   - le script `scripts/repairGeneratedScenarioTeams.ts` sert a restaurer les puzzles `GENERATED` dont `allyTeam` / `enemyTeam` auraient ete vides apres un backfill
   - commande utile: `npm run repair:generated-scenario-teams`
+  - test de garde: `src/test/scenarioBackfill.test.ts`
   - `server/src/services/puzzleGenerationService.ts` doit refuser toute creation de puzzle si une equipe de scenario n'a pas ses 5 membres
 
 ## Fichiers sensibles a relire avant modifs
@@ -278,6 +284,10 @@ Lire ce fichier au debut de chaque nouvelle conversation sur ce repo, puis le me
   - il reste du vocabulaire produit semi-anglais a harmoniser (`dashboard`, `OTP`, `build`, etc.) selon une vraie charte lexicale
 - UI training:
   - la zone `Lecture tactique` de `src/pages/Training.tsx` a ete recomposee avec cartes de details et retours a la ligne pour eviter les debordements de libelles/valeurs
+  - si `allyTeam` ou `enemyTeam` remontent vides, `Training` doit afficher un message explicite de donnees indisponibles au lieu de laisser un panneau vide silencieux
+  - les items de `Training` affichent directement leur fiche complete au hover, sans etape de clic supplementaire
+  - le panneau de detail item reste ancre a l'icone via portal/fixed positioning et choisit `right`, `left`, `top` puis `bottom` selon l'espace disponible
+  - le panneau item ne doit jamais suivre le curseur; il doit rester stable, lisible, avec une ouverture/fermeture legerement temporisee pour eviter le flicker
 
 ## Regles de maintenance pour ce fichier
 

@@ -23,9 +23,20 @@ type TeamEntry =
 
 const isChampionView = (entry: TeamEntry): entry is ChampionView => "slug" in entry;
 
-const renderItem = (item: GameItem | { id: string; name: string }, size: "sm" | "md" = "sm") =>
+const renderItem = (
+  item: GameItem | { id: string; name: string },
+  options: {
+    size?: "sm" | "md";
+    showTooltip?: boolean;
+  } = {},
+) =>
   "slug" in item ? (
-    <ItemIcon key={item.id} item={item} size={size} />
+    <ItemIcon
+      key={item.id}
+      item={item}
+      size={options.size ?? "sm"}
+      showTooltip={options.showTooltip ?? true}
+    />
   ) : (
     <div key={item.id} className="flex h-10 min-w-10 items-center justify-center rounded-lg border border-border/60 bg-secondary px-2 text-[11px] text-foreground">
       {item.name.slice(0, 3).toUpperCase()}
@@ -49,7 +60,9 @@ const TeamRow = ({ entry }: { entry: TeamEntry }) => {
         </div>
       </div>
       <div className="flex flex-wrap gap-2">
-        {items.length > 0 ? items.map((item) => renderItem(item)) : <span className="text-xs text-muted-foreground">Pas de snapshot d'items.</span>}
+        {items.length > 0
+          ? items.map((item) => renderItem(item))
+          : <span className="text-xs text-muted-foreground">Pas de snapshot d'items.</span>}
       </div>
     </div>
   );
@@ -186,7 +199,9 @@ const Training = () => {
                     <div className="mt-5">
                       <p className="mb-3 text-xs font-semibold uppercase tracking-[0.24em] text-primary">Build actuel</p>
                       <div className="flex flex-wrap gap-2">
-                        {puzzle.scenario.currentBuild.length > 0 ? puzzle.scenario.currentBuild.map((item) => renderItem(item)) : <span className="text-sm text-muted-foreground">Build non renseigne.</span>}
+                        {puzzle.scenario.currentBuild.length > 0
+                          ? puzzle.scenario.currentBuild.map((item) => renderItem(item))
+                          : <span className="text-sm text-muted-foreground">Build non renseigne.</span>}
                       </div>
                     </div>
                   </div>
@@ -225,11 +240,27 @@ const Training = () => {
                 <div className="grid gap-4 lg:grid-cols-2">
                   <div className="glass-surface rounded-3xl p-5">
                     <p className="mb-3 text-xs font-semibold uppercase tracking-[0.24em] text-primary">Equipe alliee</p>
-                    <div className="space-y-3">{allies.map((entry) => <TeamRow key={entry.id} entry={entry} />)}</div>
+                    <div className="space-y-3">
+                      {allies.length > 0 ? (
+                        allies.map((entry) => <TeamRow key={entry.id} entry={entry} />)
+                      ) : (
+                        <div className="rounded-2xl border border-border/60 bg-background/40 px-4 py-5 text-sm text-muted-foreground">
+                          Donnees d'equipe indisponibles pour ce puzzle.
+                        </div>
+                      )}
+                    </div>
                   </div>
                   <div className="glass-surface rounded-3xl p-5">
                     <p className="mb-3 text-xs font-semibold uppercase tracking-[0.24em] text-primary">Equipe ennemie et items visibles</p>
-                    <div className="space-y-3">{enemies.map((entry) => <TeamRow key={entry.id} entry={entry} />)}</div>
+                    <div className="space-y-3">
+                      {enemies.length > 0 ? (
+                        enemies.map((entry) => <TeamRow key={entry.id} entry={entry} />)
+                      ) : (
+                        <div className="rounded-2xl border border-border/60 bg-background/40 px-4 py-5 text-sm text-muted-foreground">
+                          Donnees d'equipe indisponibles pour ce puzzle.
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
               </>
@@ -242,7 +273,6 @@ const Training = () => {
               <h2 className="mt-3 font-heading text-3xl font-bold text-foreground">{puzzle.question}</h2>
               <p className="mt-3 text-sm leading-6 text-muted-foreground">{puzzle.shortPrompt}</p>
             </div>
-
             <div className="grid gap-3">
               {puzzle.choices.map((choice) => {
                 const selected = selectedChoiceId === choice.id;
@@ -266,11 +296,18 @@ const Training = () => {
                   >
                     <div className="grid grid-cols-[56px_1fr_auto] items-center gap-4">
                       <div className="relative">
-                        {choice.item ? <ItemIcon item={choice.item} size="md" /> : <div className="h-12 w-12 rounded-xl bg-secondary" />}
+                        {choice.item ? (
+                          <ItemIcon
+                            item={choice.item}
+                            size="md"
+                            showTooltip
+                            interactive={false}
+                          />
+                        ) : <div className="h-12 w-12 rounded-xl bg-secondary" />}
                         <div className={`absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full border text-[10px] font-bold ${
                           correct ? "border-emerald-400 bg-emerald-500 text-white" : selected ? "border-primary bg-primary text-primary-foreground" : "border-border/60 bg-background text-muted-foreground"
                         }`}>
-                          {correct ? "✓" : selected ? "•" : ""}
+                          {correct ? "V" : selected ? "." : ""}
                         </div>
                       </div>
                       <div>
