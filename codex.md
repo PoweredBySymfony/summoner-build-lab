@@ -13,6 +13,7 @@ Lire ce fichier au debut de chaque nouvelle conversation sur ce repo, puis le me
   - recherche de profil joueur Riot
   - page profil joueur
   - generation de serie depuis une game importee
+  - Lab d'Items dedie (`/lab`) pour comparer deux setups cote a cote en mode miroir ou duel
 
 ## Stack
 
@@ -20,6 +21,70 @@ Lire ce fichier au debut de chaque nouvelle conversation sur ce repo, puis le me
 - Backend: Express + TypeScript
 - DB: PostgreSQL + Prisma
 - Data jeu: Riot API + Data Dragon
+
+## Lab d'Items
+
+- Nouvelle route front: `/lab`
+- Navigation publique:
+  - entree `Lab` ajoutee dans `src/components/Navbar.tsx`
+- Architecture front:
+  - page: `src/pages/Lab.tsx`
+  - composants:
+    - `src/components/lab/SetupColumn.tsx`
+    - `src/components/lab/StatTable.tsx`
+    - `src/components/lab/StatDeltaBadge.tsx`
+    - `src/components/lab/ComparisonSummary.tsx`
+  - logique metier isolee:
+    - `src/lib/item-lab/types.ts`
+    - `src/lib/item-lab/calculations.ts`
+    - `src/lib/item-lab/storage.ts`
+- Donnees:
+  - le Lab consomme le catalogue existant via `useCatalog()`
+  - champions:
+    - base + croissance depuis `ChampionView.stats` (Data Dragon)
+  - items:
+    - bonus depuis `GameItem.stats`
+    - tags reutilises pour les heuristiques produit
+- Regles de calcul MVP:
+  - niveau 1 a 18
+  - jusqu'a 6 items par cote
+  - slots vides autorises
+  - doublons d'items bloques dans une meme colonne
+  - stats finales:
+    - base champion calculee a partir des stats Riot + croissance par niveau
+    - bonus d'items agreges separement
+    - vitesse d'attaque calculee a partir de la base champion puis multipliee par le bonus AS en %
+  - deltas:
+    - chaque colonne garde l'etat precedent du setup
+    - le panneau `Level up / Last change` compare les stats precedentes aux stats courantes
+- Heuristiques produit MVP:
+  - profils:
+    - burst
+    - DPS soutenu
+    - anti-frontline
+    - anti-squishy
+    - survivabilite
+  - sources:
+    - stats dominantes
+    - tags d'items
+    - croissance champion
+  - la feature doit etre presentee comme heuristique pedagogique, pas comme simulation Riot exacte
+- Sauvegarde / export:
+  - persistence locale en `localStorage` pour les experiences du Lab
+  - format sauvegarde:
+    - nom
+    - mode
+    - setup A/B (champion, niveau, items)
+    - dates de creation / maj
+  - export MVP:
+    - texte synthese copiable dans le presse-papiers
+    - fallback telechargement `.txt` si clipboard indisponible
+- Tests:
+  - `src/test/itemLabCalculations.test.ts` couvre les calculs de base et la synthese comparative
+- Limites actuelles du MVP:
+  - pas de runes, passifs champions, buffs contextuels, ratios de sorts, resistances cibles detaillees ou simulation de combat
+  - heuristiques de profil/contextes volontairement simples et maintenables
+  - sauvegarde non synchronisee serveur pour l'instant
 
 ## Commandes utiles
 
