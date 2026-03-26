@@ -233,6 +233,12 @@ Lire ce fichier au debut de chaque nouvelle conversation sur ce repo, puis le me
   - dans les contextes denses comme `src/pages/Training.tsx`, ne pas utiliser de gros tooltip flottant par item
   - preferer un panneau d'inspection stable alimente par hover/focus/click sur les items, pour conserver toute la data sans recouvrir le curseur ni casser la lecture
   - les tooltips item riches restent reserves aux contextes moins denses (catalogue, landing, admin) et doivent etre deports hors du pointeur avec une ouverture retardee
+  - le hover panel item doit etre adaptatif selon la densite reelle du contenu:
+    - `compact`: items courts, largeur et hauteur contenues
+    - `balanced`: contenu moyen, grille stats standard
+    - `dense`: passifs longs et/ou composants, seule la zone centrale d'effets peut scroller
+  - dans ce panneau, le header, les stats et les composants doivent rester des zones fixes (`shrink-0`); les passifs/effets absorbent la variabilite de hauteur
+  - le placement doit rester stable avec une marge de securite plus confortable entre trigger et panneau; ordre de preference: `right`, `left`, `top`, `bottom`
 - Scenarios de puzzle:
   - les backfills ne doivent jamais ecraser `allyTeam` / `enemyTeam` si ces equipes sont deja stockees au format riche (objets avec `championSlug`, `role`, `items`)
   - regression identifiee le `2026-03-25`: un backfill legacy pouvait vider les equipes de puzzles `GENERATED` ouverts depuis l'historique si seul `currentBuild` etait legacy; le flux dashboard n'etait pas en cause, c'etait bien la donnee scenario qui avait ete reecrite
@@ -298,5 +304,6 @@ Lire ce fichier au debut de chaque nouvelle conversation sur ce repo, puis le me
   - changement de logique Riot/search/autocomplete
   - ajout de migration importante
   - ajout de workflow ou commande recurrente
+  - tout changement produit/UX non trivial qui risquerait d'etre oublie au tour suivant
 - Avant tout autocompact / compactage Codex, mettre a jour `codex.md` avec les informations produit ou techniques qui ne doivent pas etre oubliees.
 - Garder le fichier court, pratique, et oriente execution.
