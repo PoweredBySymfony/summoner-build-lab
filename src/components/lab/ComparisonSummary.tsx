@@ -22,7 +22,18 @@ const ComparisonSummary = ({ analysisA, analysisB }: ComparisonSummaryProps) => 
         </div>
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
+      <div className="grid gap-4 xl:grid-cols-[1.05fr_0.95fr]">
+        <div className="surface-elevated rounded-2xl p-4">
+          <p className="text-xs font-semibold uppercase tracking-[0.22em] text-primary">Insights clés</p>
+          <div className="mt-3 space-y-2">
+            {comparison.narrative.map((line) => (
+              <div key={line} className="rounded-xl border border-border/60 bg-card/70 px-3 py-3 text-sm text-foreground">
+                {line}
+              </div>
+            ))}
+          </div>
+        </div>
+
         <div className="grid gap-4 md:grid-cols-2">
           {comparison.cards.map((card) => (
             <div key={card.label} className="surface-elevated rounded-2xl p-4">
@@ -56,35 +67,22 @@ const ComparisonSummary = ({ analysisA, analysisB }: ComparisonSummaryProps) => 
             </div>
           ))}
         </div>
+      </div>
 
-        <div className="space-y-4">
-          <div className="surface-elevated rounded-2xl p-4">
-            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-primary">Lecture produit</p>
-            <div className="mt-3 space-y-2">
-              {comparison.narrative.map((line) => (
-                <div key={line} className="rounded-xl border border-border/60 bg-card/70 px-3 py-2 text-sm text-foreground">
-                  {line}
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="surface-elevated rounded-2xl p-4">
-            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-primary">Écarts clés</p>
-            <div className="mt-3 space-y-2">
-              {comparison.standoutStats.map((entry) => {
-                const definition = getStatDefinition(entry.key);
-                return (
-                  <div key={entry.key} className="flex items-center justify-between gap-3 rounded-xl border border-border/60 bg-card/70 px-3 py-2">
-                    <span className="text-sm text-foreground">{definition.label}</span>
-                    <span className={`text-sm font-medium ${entry.delta >= 0 ? "text-primary" : "text-cyan-300"}`}>
-                      {entry.delta >= 0 ? "A" : "B"} {Math.abs(entry.delta) > 0 ? `+${formatStatValue(entry.key, Math.abs(entry.delta))}` : "Égalité"}
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
+      <div className="mt-4 surface-elevated rounded-2xl p-4">
+        <p className="text-xs font-semibold uppercase tracking-[0.22em] text-primary">Écarts de stats</p>
+        <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+          {comparison.standoutStats.slice(0, 3).map((entry) => {
+            const definition = getStatDefinition(entry.key);
+            return (
+              <div key={entry.key} className="flex items-center justify-between gap-3 rounded-xl border border-border/60 bg-card/70 px-3 py-2">
+                <span className="text-sm text-foreground">{definition.label}</span>
+                <span className={`text-sm font-medium ${entry.delta >= 0 ? "text-primary" : "text-cyan-300"}`}>
+                  {entry.delta >= 0 ? "A" : "B"} +{formatStatValue(entry.key, Math.abs(entry.delta))}
+                </span>
+              </div>
+            );
+          })}
         </div>
       </div>
     </section>

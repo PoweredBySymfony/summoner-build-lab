@@ -1,5 +1,5 @@
 import type { ComparisonSummary, SavedLabExperiment, SetupAnalysis } from "@/lib/item-lab/types";
-import { formatStatValue, getStatDefinition } from "@/lib/item-lab/calculations";
+import { buildComparisonSummary, formatStatValue, getStatDefinition } from "@/lib/item-lab/calculations";
 
 const STORAGE_KEY = "summoner-build-lab:item-lab-experiments";
 
@@ -54,13 +54,13 @@ export const buildComparisonExport = ({
   mode,
   analysisA,
   analysisB,
-  comparison,
+  comparison = buildComparisonSummary(analysisA, analysisB),
 }: {
   name: string;
   mode: "mirror" | "duel";
   analysisA: SetupAnalysis;
   analysisB: SetupAnalysis;
-  comparison: ComparisonSummary;
+  comparison?: ComparisonSummary;
 }) => {
   const statLines = comparison.standoutStats.slice(0, 5).map((entry) => {
     const definition = getStatDefinition(entry.key);
@@ -71,13 +71,15 @@ export const buildComparisonExport = ({
     `Analyse Lab d'Items: ${name}`,
     `Mode: ${mode === "mirror" ? "Miroir" : "Duel"}`,
     "",
-    `Setup A: ${analysisA.champion.name} niv. ${analysisA.level}`,
+    `Setup A: ${analysisA.champion.name} ${analysisA.role} niv. ${analysisA.level}`,
     `Items A: ${formatItemList(analysisA.items)}`,
     `Résumé A: ${analysisA.summaryLine}`,
+    ...(analysisA.context.isUnlocked ? [`Contexte A: ${analysisA.context.tags.join(", ") || "aucun tag dominant"}`, `Lecture A: ${analysisA.context.summary}`] : []),
     "",
-    `Setup B: ${analysisB.champion.name} niv. ${analysisB.level}`,
+    `Setup B: ${analysisB.champion.name} ${analysisB.role} niv. ${analysisB.level}`,
     `Items B: ${formatItemList(analysisB.items)}`,
     `Résumé B: ${analysisB.summaryLine}`,
+    ...(analysisB.context.isUnlocked ? [`Contexte B: ${analysisB.context.tags.join(", ") || "aucun tag dominant"}`, `Lecture B: ${analysisB.context.summary}`] : []),
     "",
     "Principales différences",
     ...statLines,

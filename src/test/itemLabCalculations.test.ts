@@ -86,7 +86,7 @@ const asCritItem: GameItem = {
 describe("item lab calculations", () => {
   it("adds champion base stats and item bonuses", () => {
     const analysis = analyzeSetup({
-      setup: { championId: "jinx", level: 11, itemIds: [adItem.id, null, null, null, null, null] },
+      setup: { championId: "jinx", role: "ADC", level: 11, itemIds: [adItem.id, null, null, null, null, null, null] },
       champion,
       items: [adItem],
     });
@@ -98,17 +98,45 @@ describe("item lab calculations", () => {
 
   it("captures comparison narrative when one setup has more dps", () => {
     const base = analyzeSetup({
-      setup: { championId: "jinx", level: 11, itemIds: [null, null, null, null, null, null] },
+      setup: { championId: "jinx", role: "ADC", level: 11, itemIds: [null, null, null, null, null, null, null] },
       champion,
       items: [],
     });
     const spiked = analyzeSetup({
-      setup: { championId: "jinx", level: 11, itemIds: [asCritItem.id, null, null, null, null, null] },
+      setup: { championId: "jinx", role: "ADC", level: 11, itemIds: [asCritItem.id, null, null, null, null, null, null] },
       champion,
       items: [asCritItem],
     });
 
     const comparison = buildComparisonSummary(spiked, base);
     expect(comparison.narrative.some((line) => line.includes("DPS soutenu"))).toBe(true);
+  });
+
+  it("unlocks abstract composition context at two items", () => {
+    const analysis = analyzeSetup({
+      setup: { championId: "jinx", role: "ADC", level: 11, itemIds: [adItem.id, asCritItem.id, null, null, null, null, null] },
+      champion,
+      items: [adItem, asCritItem],
+    });
+
+    expect(analysis.context.isUnlocked).toBe(true);
+    expect(analysis.context.tags.length).toBeGreaterThan(0);
+  });
+
+  it("applies role rules for adc item slots and top max level", () => {
+    const adcAnalysis = analyzeSetup({
+      setup: { championId: "jinx", role: "ADC", level: 18, itemIds: [null, null, null, null, null, null, null] },
+      champion,
+      items: [],
+    });
+
+    const topAnalysis = analyzeSetup({
+      setup: { championId: "jinx", role: "TOP", level: 20, itemIds: [null, null, null, null, null, null] },
+      champion,
+      items: [],
+    });
+
+    expect(adcAnalysis.roleConfig.maxItems).toBe(7);
+    expect(topAnalysis.roleConfig.maxLevel).toBe(20);
   });
 });

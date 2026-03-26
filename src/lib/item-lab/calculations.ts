@@ -1,18 +1,9 @@
 import type { ChampionView, GameItem } from "@/types/domain";
-import type {
-  ComparisonSummary,
-  ItemLabSetup,
-  LabSide,
-  SetupAnalysis,
-  SetupHeuristicNote,
-  SetupProfileScore,
-  StatDefinition,
-  StatDelta,
-  StatKey,
-  StatValueMap,
-} from "@/lib/item-lab/types";
+import type { ComparisonSummary, ItemLabSetup, LabSide, SetupAnalysis, StatDefinition, StatDelta, StatKey, StatValueMap } from "@/lib/item-lab/types";
+import { BuildAnalysisService } from "@/lib/item-lab/BuildAnalysisService";
+import { getRoleConfig } from "@/lib/item-lab/roleConfig";
 
-export const MAX_ITEM_SLOTS = 6;
+export const MAX_ITEM_SLOTS = 7;
 
 export const STAT_DEFINITIONS: StatDefinition[] = [
   { key: "attackDamage", label: "AD", shortLabel: "AD", group: "offense", decimals: 0 },
@@ -32,10 +23,7 @@ export const STAT_DEFINITIONS: StatDefinition[] = [
   { key: "manaRegen", label: "Régén. mana", shortLabel: "MP5", group: "utility", decimals: 1 },
 ];
 
-const STAT_LOOKUP = Object.fromEntries(STAT_DEFINITIONS.map((definition) => [definition.key, definition])) as Record<
-  StatKey,
-  StatDefinition
->;
+const STAT_LOOKUP = Object.fromEntries(STAT_DEFINITIONS.map((definition) => [definition.key, definition])) as Record<StatKey, StatDefinition>;
 
 const emptyStats = (): StatValueMap => ({
   health: 0,
@@ -60,7 +48,7 @@ const safeNumber = (value: unknown) => (typeof value === "number" && Number.isFi
 const toPercentValue = (value: number) => (Math.abs(value) <= 1 ? value * 100 : value);
 
 const growthFactor = (level: number) => {
-  const normalizedLevel = clamp(level, 1, 18);
+  const normalizedLevel = clamp(level, 1, 20);
   const previousLevels = normalizedLevel - 1;
   return previousLevels <= 0 ? 0 : previousLevels * (0.7025 + previousLevels * 0.0175);
 };
@@ -143,161 +131,7 @@ const getScalingScore = (champion: ChampionView, analysis: { stats: StatValueMap
   return clamp(Math.round((innate + itemSynergy) / 8), 0, 100);
 };
 
-const getProfileScores = (analysis: {
-  stats: StatValueMap;
-  items: GameItem[];
-  champion: ChampionView;
-  scalingScore: number;
-}): SetupProfileScore[] => {
-  const { stats, items, champion, scalingScore } = analysis;
-  const itemTags = items.flatMap((item) => item.tags ?? []);
-  const tagText = itemTags.join(" ").toLowerCase();
-  const roleTags = champion.tags.join(" ").toLowerCase();
-
-  const burst = clamp(
-    Math.round(
-      stats.attackDamage * 0.48 +
-        stats.abilityPower * 0.62 +
-        stats.lethality * 4.2 +
-        stats.magicPen * 3.1 +
-        stats.critChance * 0.9 +
-        stats.abilityHaste * 0.25 +
-        (tagText.includes("assassin") ? 12 : 0) +
-        (roleTags.includes("assassin") ? 8 : 0),
-    ),
-    0,
-    100,
-  );
-
-  const sustainedDps = clamp(
-    Math.round(
-      stats.attackDamage * 0.34 +
-        stats.abilityPower * 0.22 +
-        stats.attackSpeed * 28 +
-        stats.critChance * 1.1 +
-        stats.abilityHaste * 0.35 +
-        (tagText.includes("attackspeed") ? 10 : 0) +
-        (roleTags.includes("marksman") ? 10 : 0),
-    ),
-    0,
-    100,
-  );
-
-  const antiFrontline = clamp(
-    Math.round(
-      stats.armorPen * 2.8 +
-        stats.magicPen * 2.5 +
-        stats.attackSpeed * 14 +
-        stats.abilityHaste * 0.35 +
-        (tagText.includes("armorpen") ? 18 : 0) +
-        (tagText.includes("magicpen") ? 14 : 0),
-    ),
-    0,
-    100,
-  );
-
-  const antiSquishy = clamp(
-    Math.round(
-      burst * 0.72 +
-        stats.moveSpeed * 0.08 +
-        stats.lethality * 2.4 +
-        (tagText.includes("boots") ? 4 : 0) +
-        (roleTags.includes("mage") ? 4 : 0),
-    ),
-    0,
-    100,
-  );
-
-  const survivability = clamp(
-    Math.round(
-      stats.health * 0.032 +
-        stats.armor * 0.82 +
-        stats.magicResist * 0.82 +
-        stats.healthRegen * 0.4 +
-        (tagText.includes("health") ? 8 : 0) +
-        (tagText.includes("spellblock") ? 4 : 0),
-    ),
-    0,
-    100,
-  );
-
-  return [
-    { key: "burst", label: "Burst", value: burst, emphasis: "impact immédiat" },
-    { key: "sustainedDps", label: "DPS soutenu", value: sustainedDps, emphasis: "combats longs" },
-    { key: "antiFrontline", label: "Anti-frontline", value: antiFrontline, emphasis: "shred des cibles lourdes" },
-    { key: "antiSquishy", label: "Anti-squishy", value: antiSquishy, emphasis: "punition rapide" },
-    { key: "survivability", label: "Survie", value: survivability, emphasis: scalingScore > 50 ? "stabilité de carry" : "tenue en fight" },
-  ];
-};
-
-const buildWhyItChanges = (analysis: {
-  bonusStats: StatValueMap;
-  items: GameItem[];
-  profileScores: SetupProfileScore[];
-}): SetupHeuristicNote[] => {
-  const { bonusStats, items } = analysis;
-  const notes: SetupHeuristicNote[] = [];
-
-  if (bonusStats.attackSpeed >= 20 || bonusStats.critChance >= 25) {
-    notes.push({
-      title: "DPS accéléré",
-      body: "La montée de vitesse d'attaque et/ou de critique renforce le volume de dégâts sur la durée.",
-    });
-  }
-
-  if (bonusStats.attackDamage >= 40 || bonusStats.abilityPower >= 70) {
-    notes.push({
-      title: "Spike de puissance direct",
-      body: "Le build gagne un gros palier brut de dégâts, utile pour convertir un timing d'achat en fight gagné.",
-    });
-  }
-
-  if (bonusStats.armorPen > 0 || bonusStats.magicPen > 0 || bonusStats.lethality > 0) {
-    notes.push({
-      title: "Réponse aux résistances",
-      body: "La pénétration ou la létalité améliorent la valeur des dégâts quand l'adversaire commence à itemiser défensif.",
-    });
-  }
-
-  if (bonusStats.health >= 250 || bonusStats.armor >= 35 || bonusStats.magicResist >= 35) {
-    notes.push({
-      title: "Fenêtre de survie plus large",
-      body: "Le setup se stabilise mieux grâce au mix PV et résistances, ce qui laisse plus d'espace pour jouer les fights.",
-    });
-  }
-
-  if (items.some((item) => (item.tags ?? []).some((tag) => /boots|active/i.test(tag)))) {
-    notes.push({
-      title: "Tempo et accès au fight",
-      body: "La mobilité ou les actifs rendent le build plus flexible pour engager, kite ou se repositionner.",
-    });
-  }
-
-  return notes.slice(0, 3).length > 0
-    ? notes.slice(0, 3)
-    : [
-        {
-          title: "Courbe neutre",
-          body: "Le setup reste plutôt équilibré: il ne force pas un angle extrême mais garde plusieurs options de jeu ouvertes.",
-        },
-      ];
-};
-
-const buildContextNotes = (analysis: { stats: StatValueMap; profileScores: SetupProfileScore[] }): string[] => {
-  const byKey = Object.fromEntries(analysis.profileScores.map((entry) => [entry.key, entry.value])) as Record<string, number>;
-  const notes: string[] = [];
-
-  if (byKey.antiFrontline >= 55) notes.push("Fort contre frontline lourde");
-  if (byKey.antiSquishy >= 55) notes.push("Fort contre cibles fragiles");
-  if (byKey.sustainedDps >= 55) notes.push("Plus adapté aux combats longs");
-  if (byKey.burst >= 55) notes.push("Meilleur pour burst rapide");
-  if (byKey.survivability >= 55) notes.push("Tolère mieux les engages adverses");
-  if (analysis.stats.moveSpeed >= 380) notes.push("Bon pour kiting et tempo latéral");
-
-  return notes.slice(0, 4);
-};
-
-const buildSummaryLine = (analysis: { champion: ChampionView; profileScores: SetupProfileScore[]; level: number }) => {
+const buildSummaryLine = (analysis: { champion: ChampionView; profileScores: SetupAnalysis["profileScores"]; level: number }) => {
   const topProfiles = [...analysis.profileScores].sort((left, right) => right.value - left.value).slice(0, 2);
   const profileText = topProfiles.map((entry) => entry.label.toLowerCase()).join(" + ");
   return `${analysis.champion.name} niv. ${analysis.level} oriente ${profileText}.`;
@@ -338,6 +172,7 @@ export const analyzeSetup = ({
   items: GameItem[];
   previousStats?: StatValueMap | null;
 }): SetupAnalysis => {
+  const roleConfig = getRoleConfig(setup.role);
   const championBase = getChampionBaseStats(champion, setup.level);
   const itemBonuses = items.reduce((accumulator, item) => mergeStats(accumulator, getNormalizedItemBonuses(item)), emptyStats());
   const baseAttackSpeed = championBase.attackSpeed;
@@ -349,18 +184,25 @@ export const analyzeSetup = ({
   finalStats.armorPen = clamp(itemBonuses.armorPen, 0, 100);
 
   const scalingScore = getScalingScore(champion, { stats: finalStats, items });
-  const profileScores = getProfileScores({ stats: finalStats, items, champion, scalingScore });
+  const profileScores = BuildAnalysisService.getProfileScores({ stats: finalStats, items, champion, scalingScore });
+  const buildSignals = BuildAnalysisService.deriveBuildSignals({ stats: finalStats, items, profileScores });
+  const rawContext = BuildAnalysisService.deriveCompositionArchetypes({ stats: finalStats, items, signals: buildSignals });
+  const context = BuildAnalysisService.buildContextSummary({ stats: finalStats, items, signals: buildSignals, context: rawContext });
 
   return {
     champion,
+    role: setup.role,
+    roleConfig,
     level: setup.level,
     items,
+    itemCount: items.length,
     stats: finalStats,
     bonusStats: itemBonuses,
     changedStats: buildChangedStats(previousStats ?? null, finalStats),
     profileScores,
-    whyItChanges: buildWhyItChanges({ bonusStats: itemBonuses, items, profileScores }),
-    contextNotes: buildContextNotes({ stats: finalStats, profileScores }),
+    buildSignals,
+    whyItChanges: BuildAnalysisService.buildWhyItChanges({ bonusStats: itemBonuses, items }),
+    context,
     summaryLine: buildSummaryLine({ champion, profileScores, level: setup.level }),
     scalingScore,
     totalGold: items.reduce((sum, item) => sum + item.cost, 0),
@@ -398,18 +240,18 @@ export const buildComparisonSummary = (analysisA: SetupAnalysis, analysisB: Setu
 
   if (profileA.sustainedDps - profileB.sustainedDps >= 8) narrative.push("A a plus de DPS soutenu.");
   if (profileB.sustainedDps - profileA.sustainedDps >= 8) narrative.push("B a plus de DPS soutenu.");
-  if (profileA.burst - profileB.burst >= 8) narrative.push("A a plus de burst immédiat.");
-  if (profileB.burst - profileA.burst >= 8) narrative.push("B a plus de burst immédiat.");
-  if (profileA.survivability - profileB.survivability >= 8) narrative.push("A est plus résistant.");
-  if (profileB.survivability - profileA.survivability >= 8) narrative.push("B est plus résistant.");
-  if (analysisA.scalingScore - analysisB.scalingScore >= 8) narrative.push("A scale mieux à haut niveau.");
-  if (analysisB.scalingScore - analysisA.scalingScore >= 8) narrative.push("B scale mieux à haut niveau.");
+  if (profileA.burst - profileB.burst >= 8) narrative.push("A a plus de burst.");
+  if (profileB.burst - profileA.burst >= 8) narrative.push("B a plus de burst.");
+  if (profileA.antiFrontline - profileB.antiFrontline >= 8) narrative.push("A est meilleur contre frontline.");
+  if (profileB.antiFrontline - profileA.antiFrontline >= 8) narrative.push("B est meilleur contre frontline.");
+  if (analysisA.scalingScore - analysisB.scalingScore >= 8) narrative.push("A scale mieux.");
+  if (analysisB.scalingScore - analysisA.scalingScore >= 8) narrative.push("B scale mieux.");
 
   return {
     cards: [
       buildComparisonCard("Burst", profileA.burst, profileB.burst, (value) => String(Math.round(value))),
       buildComparisonCard("DPS soutenu", profileA.sustainedDps, profileB.sustainedDps, (value) => String(Math.round(value))),
-      buildComparisonCard("Survie", profileA.survivability, profileB.survivability, (value) => String(Math.round(value))),
+      buildComparisonCard("Anti-frontline", profileA.antiFrontline, profileB.antiFrontline, (value) => String(Math.round(value))),
       buildComparisonCard("Scaling", analysisA.scalingScore, analysisB.scalingScore, (value) => String(Math.round(value))),
     ],
     narrative: narrative.length > 0 ? narrative.slice(0, 4) : ["Les deux setups restent proches sur les heuristiques principales."],
@@ -422,3 +264,5 @@ export const statDefinitionsByGroup = STAT_DEFINITIONS.reduce<Record<string, Sta
   groups[definition.group].push(definition);
   return groups;
 }, {});
+
+export const getStatLabel = (key: StatKey) => STAT_LOOKUP[key]?.label ?? key;

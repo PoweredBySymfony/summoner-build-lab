@@ -32,11 +32,11 @@ Lire ce fichier au debut de chaque nouvelle conversation sur ce repo, puis le me
   - composants:
     - `src/components/lab/SetupColumn.tsx`
     - `src/components/lab/StatTable.tsx`
-    - `src/components/lab/StatDeltaBadge.tsx`
     - `src/components/lab/ComparisonSummary.tsx`
   - logique metier isolee:
     - `src/lib/item-lab/types.ts`
     - `src/lib/item-lab/calculations.ts`
+    - `src/lib/item-lab/BuildAnalysisService.ts`
     - `src/lib/item-lab/storage.ts`
 - Donnees:
   - le Lab consomme le catalogue existant via `useCatalog()`
@@ -56,19 +56,133 @@ Lire ce fichier au debut de chaque nouvelle conversation sur ce repo, puis le me
     - vitesse d'attaque calculee a partir de la base champion puis multipliee par le bonus AS en %
   - deltas:
     - chaque colonne garde l'etat precedent du setup
-    - le panneau `Level up / Last change` compare les stats precedentes aux stats courantes
-- Heuristiques produit MVP:
-  - profils:
-    - burst
-    - DPS soutenu
-    - anti-frontline
-    - anti-squishy
-    - survivabilite
-  - sources:
-    - stats dominantes
-    - tags d'items
-    - croissance champion
-  - la feature doit etre presentee comme heuristique pedagogique, pas comme simulation Riot exacte
+    - le panneau `Dernier changement` compare les stats precedentes aux stats courantes
+- Architecture heuristique V2:
+  - `calculations.ts` garde:
+    - calcul des stats champion par niveau
+    - aggregation des bonus d'items
+    - formattage des stats
+    - synthese comparative A/B
+  - `BuildAnalysisService.ts` gere:
+    - `getProfileScores()`
+    - `deriveBuildSignals()`
+    - `deriveCompositionArchetypes()`
+    - `buildContextSummary()`
+    - `buildWhyItChanges()`
+- Regles par role / lane:
+  - configuration centrale: `src/lib/item-lab/roleConfig.ts`
+  - `ROLE_CONFIG` actuel:
+    - `TOP`: `maxLevel 20`, `maxItems 6`
+    - `JUNGLE`: `maxLevel 18`, `maxItems 6`
+    - `MID`: `maxLevel 18`, `maxItems 6`
+    - `ADC`: `maxLevel 18`, `maxItems 7`
+    - `SUPPORT`: `maxLevel 18`, `maxItems 6`
+  - le setup Lab stocke maintenant explicitement un `role`
+  - le role est normalise puis applique via `normalizeSetupForRole()`
+  - effets:
+    - clamp automatique du niveau autorise
+    - nombre de slots d'items dynamique
+    - conservation des premiers items quand le role change
+    - migration douce des anciennes sauvegardes sans role
+- Impact UI des roles:
+  - chaque colonne propose un role actif parmi les roles du champion
+  - le controle de niveau ne doit plus reposer uniquement sur un `Input` range generique
+  - utiliser un slider natif + actions explicites (`-`, `+`, `Max`) pour rendre le cap visible et atteignable
+  - le slider affiche dynamiquement son niveau max autorise
+  - le panneau inventaire affiche dynamiquement le nombre max de slots
+  - en mode miroir, le changement de champion/role de A recopie aussi la contrainte sur B
+- Overlay / layering Lab:
+  - les overlays du Lab doivent toujours passer par un portal ou une couche globale quand ils depassent la colonne
+  - `src/components/ui/popover.tsx` utilise un `Portal` avec `z-index` eleve (`z-[80]`) et `collisionPadding`
+  - les containers du Lab sont marques `overflow-visible` / `isolate` pour eviter les coupes visuelles
+  - hierarchie visee:
+    - base UI: `z 1`
+    - panneaux/colonnes: `z 10`
+    - overlays/popovers: `z 80+`
+  - diagnostic UX important:
+    - le probleme visuel principal du Lab n'etait pas seulement le layering
+    - il venait surtout d'un rail lateral interne trop large dans chaque `SetupColumn`, qui cassait la lecture entre la colonne A et la colonne B
+  - correction structurelle retenue:
+    - abandon du rail lateral interne
+    - retour a une colonne verticale unique:
+      - bloc haut `champion + role + niveau + inventaire`
+      - stats principales
+      - profil de force en pleine largeur
+      - pourquoi ca change / contexte conseille
+      - utilitaire
+    - objectif:
+      - aucun panneau ne doit "manger" l'espace central entre A et B
+- Profils de force:
+  - burst
+  - DPS soutenu
+  - anti-frontline
+  - anti-squishy
+  - survivabilite
+  - ces profils restent heuristiques et ne simulent pas le kit Riot exact
+- Signaux derives:
+  - `burstScore`
+  - `sustainedDpsScore`
+  - `survivabilityScore`
+  - `antiFrontlineScore`
+  - `mobilityScore`
+  - `sustainScore`
+  - `pokeStabilityScore`
+- Compo type / archetypes:
+  - le Lab ne genere plus jamais une equipe ennemie concrete
+  - il produit une lecture abstraite par archetypes:
+    - `Frontline lourde`
+    - `Squishy`
+    - `Sustain`
+    - `Poke`
+    - `Engage fort`
+    - `Combat long`
+    - `Burst rapide`
+  - faiblesses possibles:
+    - `Faible contre poke`
+    - `Faible contre burst`
+    - `Faible contre frontline`
+    - `Faible dans les combats longs`
+- Regles principales d'archetypes:
+  - `Frontline lourde`:
+    - si anti-frontline fort
+    - ou DPS soutenu eleve + penetration elevee
+  - `Squishy`:
+    - si burst eleve
+    - ou crit + AD eleves
+    - ou lethalite suffisante
+  - `Combat long`:
+    - si DPS soutenu eleve + survivabilite ou sustain
+  - `Burst rapide`:
+    - si burst tres eleve
+  - `Engage fort`:
+    - si mobilite forte + burst ou survie correcte
+  - `Sustain`:
+    - si lifesteal / regen / tenue longue detectes
+  - `Poke`:
+    - si la combinaison mobilite + cadence / haste permet une pression repetee
+- Regles UX Lab V2:
+  - hierarchie en 3 niveaux:
+    - niveau 1:
+      - champion + niveau
+      - items
+      - stats principales offensif / defensif
+      - profil de force
+      - synthese comparative
+    - niveau 2:
+      - pourquoi ca change
+      - contexte conseille
+    - niveau 3:
+      - utilitaire / mana / regen
+      - lecture de delta
+  - les petits badges de delta flottants sont retires des stats principales
+  - les deltas restent dans `Dernier changement`
+  - `Pourquoi ca change` reste volontairement court:
+    - 2 lignes visibles par defaut
+    - extension manuelle si besoin
+  - `Contexte conseille` est rendu en pills/tags + une phrase courte + max 2 raisons
+  - `Contexte conseille`:
+    - ne se debloque qu'a partir de 2 items
+    - devient `lecture complete` a 6 items
 - Sauvegarde / export:
   - persistence locale en `localStorage` pour les experiences du Lab
   - format sauvegarde:
@@ -79,11 +193,22 @@ Lire ce fichier au debut de chaque nouvelle conversation sur ce repo, puis le me
   - export MVP:
     - texte synthese copiable dans le presse-papiers
     - fallback telechargement `.txt` si clipboard indisponible
+- Ajustements UX Lab suite aux captures:
+  - les colonnes du Lab doivent etre rendues dans une grille `items-start` pour eviter les grands vides verticaux
+  - ne jamais afficher les cles internes de stats (`moveSpeed`, `manaRegen`, etc.) dans l'UI
+  - utiliser `getStatLabel()` / les definitions de stats pour toute etiquette visible
+  - les scores de profil utilisent un soft-cap plus strict pour eviter les `100/100` trop frequents
+  - les experiences sauvegardees sont maintenant affichees en liste horizontale compacte, pas en grande grille verticale
+- Sous-agents Cursor ajoutes pour les prochaines iterations Lab:
+  - `.cursor/agents/item-lab-ux-auditor.md`
+  - `.cursor/agents/item-lab-matchup-analyst.md`
 - Tests:
   - `src/test/itemLabCalculations.test.ts` couvre les calculs de base et la synthese comparative
 - Limites actuelles du MVP:
   - pas de runes, passifs champions, buffs contextuels, ratios de sorts, resistances cibles detaillees ou simulation de combat
-  - heuristiques de profil/contextes volontairement simples et maintenables
+  - heuristiques de profils, contextes et archetypes volontairement simples et maintenables
+  - les archetypes restent une lecture produit:
+    - ils ne remplacent pas une vraie simulation de draft ou de teamfight
   - sauvegarde non synchronisee serveur pour l'instant
 
 ## Commandes utiles
