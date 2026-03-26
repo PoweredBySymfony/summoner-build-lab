@@ -1,73 +1,254 @@
-# Welcome to your Lovable project
+# Summoner Build Lab
 
-## Project info
+Plateforme Vite/React + API Express/Prisma pour apprendre l'itemisation League of Legends via des puzzles interactifs. Cette version ajoute une vraie base produit: PostgreSQL, synchronisation complète champions/items depuis Data Dragon, auth, progression persistée, mode OTP, défi quotidien, génération de puzzles et socle d'emails.
 
-**URL**: https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID
+## Stack
 
-## How can I edit this code?
+- Frontend: Vite, React, TypeScript, React Query, shadcn/ui
+- Backend: Express, TypeScript
+- ORM: Prisma
+- Database: PostgreSQL
+- Infra locale: Docker Compose
+- Sources LoL:
+  - Data Dragon pour tous les champions, tous les items et les assets
+  - Riot API pour les profils/matchs utilisateurs
 
-There are several ways of editing your application.
+## Fonctionnalités déjà branchées
 
-**Use Lovable**
+- Synchronisation relançable de tous les champions et tous les items du patch Data Dragon courant
+- URLs d'assets champions/items centralisées et refresh des images manquantes
+- Schéma Prisma étendu:
+  - `User`, `AuthProviderAccount`
+  - `Champion`, `Item`
+  - `Puzzle`, `PuzzleChoice`, `PuzzleScenario`, `PuzzleTag`
+  - `PuzzleAttempt`, `UserGlobalProgress`, `UserChampionProgress`
+  - `DailyChallenge`, `DailyChallengeCompletion`
+  - `PlayerProfile`, `ImportedMatch`, `GeneratedPuzzleRequest`
+  - `EmailReminderPreference`
+- Auth email/mot de passe avec hash bcrypt
+- Session persistante par cookie HTTP-only signé
+- Google OAuth préparé et branché côté backend
+- Riot OAuth scaffoldé côté backend, activable quand les endpoints/credentials sont disponibles
+- Sauvegarde des tentatives et calcul de progression globale/champion
+- Défi quotidien avec streak
+- Seed enrichi:
+  - sync catalogue complète
+  - puzzles manuels
+  - génération OTP d'un puzzle par champion importé
+- Frontend:
+  - landing orientée produit
+  - dashboard de progression
+  - mode général
+  - mode OTP par champion
+  - page auth
+  - page daily challenge
+  - puzzle view avec contexte de game, équipes et items ennemis
+- Job de rappel email prêt pour cron
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and start prompting.
+## Variables d'environnement
 
-Changes made via Lovable will be committed automatically to this repo.
+Copier `.env.example` vers `.env`.
 
-**Use your preferred IDE**
+Minimum recommandé:
 
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
+```env
+POSTGRES_DB=
+POSTGRES_USER=
+POSTGRES_PASSWORD=
+DATABASE_URL=
 
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
+PORT=3001
+CLIENT_URL=http://localhost:8080
+APP_URL=http://localhost:8080
+AUTH_SECRET=
+SESSION_COOKIE_NAME=summoner_build_lab_session
 
-Follow these steps:
+RIOT_API_KEY=
+RIOT_REGION=europe
+RIOT_PLATFORM=euw1
 
-```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=
+GOOGLE_REDIRECT_URI=http://localhost:3001/api/auth/google/callback
 
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
+RIOT_OAUTH_CLIENT_ID=
+RIOT_OAUTH_CLIENT_SECRET=
+RIOT_OAUTH_AUTHORIZE_URL=
+RIOT_OAUTH_TOKEN_URL=
+RIOT_OAUTH_USERINFO_URL=
+RIOT_OAUTH_REDIRECT_URI=http://localhost:3001/api/auth/riot/callback
 
-# Step 3: Install the necessary dependencies.
-npm i
+EMAIL_PROVIDER_API_KEY=
+EMAIL_FROM=
+SMTP_HOST=
+SMTP_PORT=
+SMTP_USER=
+SMTP_PASSWORD=
+SMTP_SECURE=false
+```
 
-# Step 4: Start the development server with auto-reloading and an instant preview.
+Règles:
+
+- ne jamais hardcoder la clé Riot
+- tout secret passe par `process.env`
+- aucune clé n'est loggée
+
+## Démarrage
+
+1. Installer les dépendances
+
+```bash
+npm install
+```
+
+2. Démarrer PostgreSQL
+
+```bash
+npm run db:up
+```
+
+3. Générer Prisma puis appliquer la migration
+
+```bash
+npm run prisma:generate
+npm run prisma:migrate -- --name platform_rebuild
+```
+
+4. Synchroniser le catalogue Riot/Data Dragon si besoin
+
+```bash
+npm run sync:all
+```
+
+5. Seeder la base
+
+```bash
+npm run prisma:seed
+```
+
+6. Lancer l'app
+
+```bash
 npm run dev
 ```
 
-**Edit a file directly in GitHub**
+Endpoints locaux:
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+- Frontend: `http://localhost:8080`
+- API: `http://localhost:3001/api`
+- PostgreSQL: `localhost:5433`
 
-**Use GitHub Codespaces**
+## Scripts utiles
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
+```bash
+npm run dev
+npm run dev:client
+npm run dev:server
+npm run build
 
-## What technologies are used for this project?
+npm run db:up
+npm run db:down
 
-This project is built with:
+npm run prisma:generate
+npm run prisma:migrate
+npm run prisma:studio
+npm run prisma:seed
 
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
+npm run sync:champions
+npm run sync:items
+npm run sync:assets
+npm run sync:all
 
-## How can I deploy this project?
+npm run jobs:daily-reminders
+```
 
-Simply open [Lovable](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and click on Share -> Publish.
+## Flux de données LoL
 
-## Can I connect a custom domain to my Lovable project?
+Catalogue:
 
-Yes, you can!
+- `server/src/lib/gameData/dataDragonClient.ts`
+- `server/src/services/riotSyncService.ts`
+- `scripts/syncChampions.ts`
+- `scripts/syncItems.ts`
+- `scripts/syncAssets.ts`
+- `scripts/syncAllGameData.ts`
 
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
+Le catalogue:
 
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
+- prend le patch Data Dragon le plus récent
+- upsert tous les champions
+- upsert tous les items
+- reconstruit les URLs d'images champions/items
+- permet de relancer la sync sans casser la cohérence
+
+Riot joueur/match:
+
+- `server/src/lib/riot/riotApiClient.ts`
+- `server/src/services/riotSyncService.ts`
+
+Prévu/branché:
+
+- récupération de compte Riot
+- import de matchs par `puuid`
+- stockage brut du match en base pour génération future de puzzles personnalisés
+
+## Auth
+
+Email/password:
+
+- `POST /api/auth/register`
+- `POST /api/auth/login`
+- `POST /api/auth/logout`
+- `GET /api/auth/me`
+
+OAuth:
+
+- Google prêt si `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` et `GOOGLE_REDIRECT_URI` sont configurés
+- Riot OAuth scaffoldé mais dépend d'une config réelle/approbation côté Riot
+
+## Daily challenge et emails
+
+Défi du jour:
+
+- généré/résolu via `server/src/services/dailyChallengeService.ts`
+- streak persistée dans `UserGlobalProgress`
+
+Emails:
+
+- `server/src/services/emailService.ts`
+- `scripts/sendDailyReminders.ts`
+
+Pour un vrai envoi planifié:
+
+- brancher SMTP ou votre provider
+- exécuter `npm run jobs:daily-reminders` via cron/GitHub Actions/worker planifié
+
+## Seed
+
+Le seed:
+
+- synchronise le catalogue complet
+- crée un compte dev
+- ajoute des puzzles manuels riches
+- génère ensuite un puzzle OTP par champion importé
+- crée des tentatives et un daily challenge de démonstration
+
+Compte dev seedé:
+
+- email: `demo@summonerbuildlab.dev`
+- mot de passe: `Password123!`
+
+À utiliser uniquement en local.
+
+## Vérifications réalisées
+
+- `npx prisma validate`
+- `npm run prisma:generate`
+- `npm run build`
+
+## Limites restantes
+
+- Riot OAuth dépend d'une configuration réelle côté Riot, donc le flux backend est préparé mais pas testable sans credentials/endpoints valides
+- Les rappels email utilisent un transport JSON fallback tant que SMTP/provider n'est pas configuré
+- La génération personnalisée par historique de matchs utilise aujourd'hui un fallback déterministe; le socle est prêt pour être enrichi par IA plus tard
+- Le bundle frontend dépasse encore l'avertissement Vite de 500 kB

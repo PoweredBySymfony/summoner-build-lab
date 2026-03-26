@@ -1,10 +1,14 @@
 import { createLovableConfig } from "lovable-agent-playwright-config/config";
 
 export default createLovableConfig({
-  // Add your custom playwright configuration overrides here
-  // Example:
-  // timeout: 60000,
-  // use: {
-  //   baseURL: 'http://localhost:3000',
-  // },
+  testDir: "./e2e",
+  use: {
+    baseURL: "http://127.0.0.1:4173",
+  },
+  webServer: {
+    command: "npm run dev:client -- --host 127.0.0.1 --port 4173",
+    port: 4173,
+    reuseExistingServer: true,
+    timeout: 120000,
+  },
 });

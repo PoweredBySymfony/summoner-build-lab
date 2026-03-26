@@ -1,0 +1,1 @@
+-- Placeholder migration kept to repair migration history after the file was removed locally.

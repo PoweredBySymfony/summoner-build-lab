@@ -3,7 +3,8 @@ import { fr } from "./translations/fr";
 import { en } from "./translations/en";
 
 type Language = "fr" | "en";
-type Translations = Record<string, any>;
+type TranslationNode = string | { [key: string]: TranslationNode };
+type Translations = Record<string, TranslationNode>;
 
 const translations: Record<Language, Translations> = { fr, en };
 
@@ -16,21 +17,18 @@ interface LanguageContextType {
 const LanguageContext = createContext<LanguageContextType | null>(null);
 
 export const LanguageProvider = ({ children }: { children: ReactNode }) => {
-  const [lang, setLangState] = useState<Language>(() => {
-    const stored = localStorage.getItem("itemforge-lang");
-    return (stored === "en" || stored === "fr") ? stored : "fr";
-  });
+  const [lang, setLangState] = useState<Language>("fr");
 
   const setLang = useCallback((newLang: Language) => {
-    setLangState(newLang);
-    localStorage.setItem("itemforge-lang", newLang);
+    setLangState(newLang === "en" ? "fr" : newLang);
+    localStorage.setItem("itemforge-lang", "fr");
   }, []);
 
   const t = useCallback((key: string): string => {
     const keys = key.split(".");
-    let value: any = translations[lang];
+    let value: TranslationNode | undefined = translations[lang];
     for (const k of keys) {
-      value = value?.[k];
+      value = typeof value === "object" && value !== null ? value[k] : undefined;
     }
     return typeof value === "string" ? value : key;
   }, [lang]);
