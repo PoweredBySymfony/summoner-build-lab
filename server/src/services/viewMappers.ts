@@ -1,5 +1,6 @@
 import { Champion, Item, Puzzle, PuzzleChoice, PuzzleDifficulty, PuzzleMode, Role } from "@prisma/client";
 import { resolveItemSlug } from "../lib/itemSlugAliases.js";
+import { getItemGroups } from "../lib/itemGroups.js";
 
 const difficultyLabel: Record<PuzzleDifficulty, string> = {
   BEGINNER: "debutant",
@@ -235,6 +236,7 @@ export const mapItemView = (item: Item) => ({
   sellPrice: item.goldSell,
   category: item.category,
   tags: Array.isArray(item.tags) ? item.tags : [],
+  itemGroups: getItemGroups(item),
   stats: item.stats,
   shortDescription: item.shortDescription ? translateGeneratedCopy(item.shortDescription) : item.shortDescription,
   fullDescription: item.fullDescription,

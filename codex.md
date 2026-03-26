@@ -37,7 +37,11 @@ Lire ce fichier au debut de chaque nouvelle conversation sur ce repo, puis le me
     - `src/lib/item-lab/types.ts`
     - `src/lib/item-lab/calculations.ts`
     - `src/lib/item-lab/BuildAnalysisService.ts`
+    - `src/lib/item-lab/InventoryValidationService.ts`
     - `src/lib/item-lab/storage.ts`
+  - enrichissement backend catalogue:
+    - `server/src/lib/itemGroups.ts`
+    - `server/src/services/viewMappers.ts`
 - Donnees:
   - le Lab consomme le catalogue existant via `useCatalog()`
   - champions:
@@ -45,6 +49,17 @@ Lire ce fichier au debut de chaque nouvelle conversation sur ce repo, puis le me
   - items:
     - bonus depuis `GameItem.stats`
     - tags reutilises pour les heuristiques produit
+    - source de verite actuelle pour l'elegibilite:
+      - `prisma/schema.prisma` / table `Item`
+      - sync Riot/Data Dragon dans `server/src/services/riotSyncService.ts`
+      - exposition front via `server/src/services/viewMappers.ts`
+      - enrichissement des groupes d'items dans `server/src/lib/itemGroups.ts`
+    - limites de la source patch actuelle:
+      - pas de groupes d'exclusivite explicites
+      - pas de restrictions par role/slot au niveau DB
+      - pas de metadonnee native pour les familles incompatibles
+    - contrat front expose maintenant:
+      - `GameItem.itemGroups: string[]`
 - Regles de calcul MVP:
   - niveau 1 a 18
   - jusqu'a 6 items par cote
@@ -57,6 +72,65 @@ Lire ce fichier au debut de chaque nouvelle conversation sur ce repo, puis le me
   - deltas:
     - chaque colonne garde l'etat precedent du setup
     - le panneau `Dernier changement` compare les stats precedentes aux stats courantes
+- Validation d'inventaire Lab:
+  - service central:
+    - `src/lib/item-lab/InventoryValidationService.ts`
+  - responsabilites:
+    - calculer les items eligibles par slot
+    - filtrer l'autocompletion du picker d'items
+    - refuser une selection invalide avant ecriture dans l'etat React
+    - valider globalement un build deja rempli et remonter les issues
+  - l'UI ne decide plus seule des restrictions; `SetupColumn.tsx` consomme la sortie du service et `Lab.tsx` garde une verification avant mutation
+  - contrats ajoutes dans `src/lib/item-lab/types.ts`:
+    - `InventoryBlockReason`
+    - `SlotItemValidation`
+    - `SetupInventoryValidation`
+  - strategie retenue:
+    - le backend derive les `itemGroups` depuis le catalogue patche et les descriptions Riot FR
+    - le frontend applique une regle unique:
+      - si un groupe exclusif est deja represente dans le build (hors slot en cours), les autres items de ce groupe sont bloques
+    - l'autocompletion du Lab n'affiche que les `allowedItems`
+    - toute tentative de contournement UI est revalidee dans `Lab.tsx` avant ecriture de l'etat
+- Regles d'itemisation actuellement portees par le service:
+  - doublons d'items complets interdits dans un meme setup
+  - items inactifs / starters / consommables / trinkets exclus du picker du Lab
+  - une seule paire de bottes par build via le groupe `Boots`
+  - bottes de 3e rang reservees au role `MID`
+  - slot 7 des `ADC` reserve strictement aux bottes
+  - un upgrade qui part d'un item deja present dans un autre slot est bloque hors du slot d'origine:
+    - exemple vise:
+      - upgrades de bottes de 3e rang
+      - toute evolution directe dont la base existe deja dans l'inventaire
+  - groupes d'items actuellement pris en charge cote catalogue/backend:
+    - `Boots`
+    - `Hydra`
+    - `Lifeline`
+    - `Manaflow`
+    - `Spellblade`
+    - `Annul`
+    - `Blight`
+    - `Eternity`
+    - `Immolate`
+    - `Quicksilver`
+    - `Stasis`
+    - `LastWhisper`
+    - `Fatality`
+  - exemples concrets de verrou produit:
+    - `Faux spectrale` bloque `Aube et crepuscule` car les deux occupent `Spellblade`
+    - `Rappel mortel` bloque `Salutations de Dominik` et `Rancune de Serylda` via `LastWhisper`
+  - hints UX exposes par le service:
+    - "Le 7e slot ADC est reserve aux bottes."
+    - "Les bottes de 3e rang sont reservees au role MID."
+    - "Certaines evolutions ne sont disponibles qu'en remplacement direct de leur base."
+- Modelisation retenue pour les incompatibilites:
+  - priorite a une couche derivee / documentee cote backend plutot qu'a des `if` disperses dans les composants
+  - `server/src/lib/itemGroups.ts` derive les groupes a partir de:
+    - `riotItemId` stables pour les familles connues
+    - regex sur `fullDescription` Riot FR pour les groupes explicites (`Lame enchantee`, `Lien vital`, `Flux de mana`, `Invalidation`, `Immolation`, etc.)
+    - signaux structurels deja syncs (`isBoots`, `buildsFrom`)
+  - les composants React ne codent plus eux-memes les groupes
+  - objectif futur:
+    - si le backoffice / la DB recoivent plus tard un vrai champ persiste `itemGroups`, `viewMappers.ts` devra prioriser cette metadonnee avant la derivation
 - Architecture heuristique V2:
   - `calculations.ts` garde:
     - calcul des stats champion par niveau
@@ -204,12 +278,23 @@ Lire ce fichier au debut de chaque nouvelle conversation sur ce repo, puis le me
   - `.cursor/agents/item-lab-matchup-analyst.md`
 - Tests:
   - `src/test/itemLabCalculations.test.ts` couvre les calculs de base et la synthese comparative
+  - `src/test/itemLabInventoryValidation.test.ts` couvre:
+    - slot 7 ADC reserve aux bottes
+    - bottes T3 MID-only
+    - verrou d'upgrade au slot de base
+    - exclusivite de groupe type `LastWhisper`
+    - exclusivite de groupe type `Spellblade`
+    - detection d'un build invalide
 - Limites actuelles du MVP:
   - pas de runes, passifs champions, buffs contextuels, ratios de sorts, resistances cibles detaillees ou simulation de combat
   - heuristiques de profils, contextes et archetypes volontairement simples et maintenables
   - les archetypes restent une lecture produit:
     - ils ne remplacent pas une vraie simulation de draft ou de teamfight
   - sauvegarde non synchronisee serveur pour l'instant
+  - les incompatibilites d'items ne sont pas encore hydratees par un vrai champ patch/backoffice dedie:
+    - les groupes sont derives cote backend, pas encore persistes en base
+    - la qualite de certains groupes depend de la stabilite des descriptions Riot FR et d'un mapping par `riotItemId`
+    - `Fatality` reste un groupe expose mais peu utile tant qu'un seul membre canonique est present dans le catalogue courant
 
 ## Commandes utiles
 

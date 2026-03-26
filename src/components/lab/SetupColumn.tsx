@@ -3,6 +3,7 @@ import { ArrowRight, ChevronDown, CircleX, Minus, Plus, RefreshCcw, Shield, Spar
 import type { ChampionView, GameItem } from "@/types/domain";
 import type { ItemLabSetup, LabRoleKey, SetupAnalysis } from "@/lib/item-lab/types";
 import { formatStatValue, getStatLabel } from "@/lib/item-lab/calculations";
+import { InventoryValidationService } from "@/lib/item-lab/InventoryValidationService";
 import { getChampionRoleOptions } from "@/lib/item-lab/roleConfig";
 import ChampionPortrait from "@/components/ChampionPortrait";
 import ItemIcon from "@/components/ItemIcon";
@@ -59,12 +60,38 @@ const SetupColumn = ({
   const [itemSearch, setItemSearch] = useState("");
   const [showAllWhy, setShowAllWhy] = useState(false);
 
-  const selectedItemIds = useMemo(() => new Set(setup.itemIds.filter((itemId): itemId is string => Boolean(itemId))), [setup.itemIds]);
-  const itemOptions = useMemo(() => {
-    const query = itemSearch.trim().toLowerCase();
-    return items.filter((item) => !query || item.name.toLowerCase().includes(query) || item.tags.some((tag) => tag.toLowerCase().includes(query)));
-  }, [items, itemSearch]);
   const roleOptions = useMemo(() => getChampionRoleOptions(analysis.champion), [analysis.champion]);
+  const slotValidations = useMemo(
+    () =>
+      setup.itemIds.map((_, slotIndex) =>
+        InventoryValidationService.getSlotItemValidation({
+          champion: analysis.champion,
+          setup,
+          catalog: items,
+          targetSlotIndex: slotIndex,
+        }),
+      ),
+    [analysis.champion, items, setup],
+  );
+  const activeSlotValidation = activeItemSlot !== null ? slotValidations[activeItemSlot] : null;
+  const itemOptions = useMemo(() => {
+    if (!activeSlotValidation) {
+      return [];
+    }
+    const query = itemSearch.trim().toLowerCase();
+    return activeSlotValidation.allowedItems.filter(
+      (item) => !query || item.name.toLowerCase().includes(query) || item.tags.some((tag) => tag.toLowerCase().includes(query)),
+    );
+  }, [activeSlotValidation, itemSearch]);
+  const buildValidation = useMemo(
+    () =>
+      InventoryValidationService.validateSetupInventory({
+        champion: analysis.champion,
+        setup,
+        catalog: items,
+      }),
+    [analysis.champion, items, setup],
+  );
 
   const visibleWhy = showAllWhy ? analysis.whyItChanges : analysis.whyItChanges.slice(0, 2);
   const primaryImpact = analysis.changedStats.filter((entry) => Math.abs(analysis.bonusStats[entry.key]) > 0.009).slice(0, 3);
@@ -208,6 +235,7 @@ const SetupColumn = ({
                 <div className={`grid gap-2 ${itemGridClass}`}>
                   {setup.itemIds.map((itemId, slotIndex) => {
                     const currentItem = itemId ? items.find((item) => item.id === itemId) ?? null : null;
+                    const slotValidation = slotValidations[slotIndex];
                     return (
                       <Popover key={`${side}-slot-${slotIndex}`} open={activeItemSlot === slotIndex} onOpenChange={(open) => setActiveItemSlot(open ? slotIndex : null)}>
                         <PopoverTrigger asChild>
@@ -246,20 +274,28 @@ const SetupColumn = ({
                               </Button>
                             ) : null}
                           </div>
+                          {slotValidation.hints.length > 0 ? (
+                            <div className="mb-3 space-y-2">
+                              {slotValidation.hints.map((hint) => (
+                                <div key={`${side}-${slotIndex}-${hint}`} className="rounded-xl border border-border/60 bg-background/35 px-3 py-2 text-xs text-muted-foreground">
+                                  {hint}
+                                </div>
+                              ))}
+                            </div>
+                          ) : null}
                           <Input value={itemSearch} onChange={(event) => setItemSearch(event.target.value)} placeholder="Chercher un item" className="mb-3" />
                           <div className="max-h-[340px] space-y-2 overflow-y-auto pr-1">
+                            {itemOptions.length === 0 ? (
+                              <div className="rounded-xl border border-dashed border-border/60 bg-background/30 px-3 py-3 text-sm text-muted-foreground">
+                                Aucun item eligible pour ce slot avec ce filtre.
+                              </div>
+                            ) : null}
                             {itemOptions.map((item) => {
-                              const duplicateBlocked = selectedItemIds.has(item.id) && item.id !== currentItem?.id;
                               return (
                                 <button
                                   key={`${side}-${slotIndex}-${item.id}`}
                                   type="button"
-                                  disabled={duplicateBlocked}
-                                  className={`flex w-full items-center gap-3 rounded-xl border px-3 py-2 text-left transition-colors ${
-                                    duplicateBlocked
-                                      ? "cursor-not-allowed border-border/40 bg-secondary/30 opacity-50"
-                                      : "border-border/60 bg-card/70 hover:border-primary/40"
-                                  }`}
+                                  className="flex w-full items-center gap-3 rounded-xl border border-border/60 bg-card/70 px-3 py-2 text-left transition-colors hover:border-primary/40"
                                   onClick={() => {
                                     onItemChange(slotIndex, item.id);
                                     setActiveItemSlot(null);
@@ -271,7 +307,6 @@ const SetupColumn = ({
                                     <p className="truncate text-sm font-medium text-foreground">{item.name}</p>
                                     <p className="truncate text-xs text-muted-foreground">{item.cost} or · {item.tags.slice(0, 3).join(" · ")}</p>
                                   </div>
-                                  {duplicateBlocked ? <span className="text-[11px] text-muted-foreground">Déjà pris</span> : null}
                                 </button>
                               );
                             })}
@@ -283,6 +318,12 @@ const SetupColumn = ({
                 </div>
               </div>
             </div>
+
+            {!buildValidation.isValid ? (
+              <div className="mt-4 rounded-2xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
+                {buildValidation.issues[0].itemName} n'est plus valide avec le role ou l'etat actuel du build. Remplace cet item pour revenir sur un setup legal.
+              </div>
+            ) : null}
 
             <div className="mt-4 grid gap-3 lg:grid-cols-2">
               <div className="rounded-2xl border border-border/60 bg-card/70 p-4">

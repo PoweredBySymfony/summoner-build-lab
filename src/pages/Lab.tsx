@@ -7,6 +7,7 @@ import SetupColumn from "@/components/lab/SetupColumn";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { analyzeSetup } from "@/lib/item-lab/calculations";
+import { InventoryValidationService } from "@/lib/item-lab/InventoryValidationService";
 import { buildComparisonExport, deleteSavedExperiment, getSavedExperiments, persistExperiment } from "@/lib/item-lab/storage";
 import { buildRoleAwareItemIds, getDefaultChampionRole, getRoleConfig, normalizeSetupForRole } from "@/lib/item-lab/roleConfig";
 import type { ItemLabSetup, LabMode, LabRoleKey, SavedLabExperiment } from "@/lib/item-lab/types";
@@ -108,6 +109,31 @@ const Lab = () => {
     : null;
 
   const normalizeNextSetup = (next: ItemLabSetup) => normalizeSetupForRole({ setup: next, champion: next.championId ? championIndex.get(next.championId) ?? null : null });
+  const resolveSelectionGuard = (setup: ItemLabSetup, slotIndex: number, itemId: string) => {
+    const champion = setup.championId ? championIndex.get(setup.championId) ?? null : null;
+    return InventoryValidationService.canSelectItem({
+      champion,
+      setup,
+      catalog: catalog.items,
+      targetSlotIndex: slotIndex,
+      itemId,
+    });
+  };
+  const buildItemSelectionUpdater =
+    (setup: ItemLabSetup, slotIndex: number, itemId: string) =>
+    (current: ItemLabSetup): ItemLabSetup => {
+      const guard = resolveSelectionGuard(setup, slotIndex, itemId);
+      if (!guard.allowed) {
+        const message = guard.reasons[0]?.message ?? "Cet item n'est pas disponible pour ce slot.";
+        toast.error(message);
+        return current;
+      }
+
+      return {
+        ...current,
+        itemIds: current.itemIds.map((entry, index) => (index === slotIndex ? itemId : entry)),
+      };
+    };
 
   const updateSetupA = (updater: (current: ItemLabSetup) => ItemLabSetup) => {
     setPreviousA(resolvedSetupA);
@@ -302,12 +328,7 @@ const Lab = () => {
             onChampionChange={(championId) => updateSetupA((current) => ({ ...current, championId }))}
             onRoleChange={(role) => updateSetupA((current) => ({ ...current, role }))}
             onLevelChange={(level) => updateSetupA((current) => ({ ...current, level }))}
-            onItemChange={(slotIndex, itemId) =>
-              updateSetupA((current) => ({
-                ...current,
-                itemIds: current.itemIds.map((entry, index) => (index === slotIndex ? itemId : entry)),
-              }))
-            }
+            onItemChange={(slotIndex, itemId) => updateSetupA(buildItemSelectionUpdater(resolvedSetupA, slotIndex, itemId))}
             onItemRemove={(slotIndex) =>
               updateSetupA((current) => ({
                 ...current,
@@ -328,12 +349,7 @@ const Lab = () => {
             onChampionChange={(championId) => updateSetupB((current) => ({ ...current, championId }))}
             onRoleChange={(role) => updateSetupB((current) => ({ ...current, role }))}
             onLevelChange={(level) => updateSetupB((current) => ({ ...current, level }))}
-            onItemChange={(slotIndex, itemId) =>
-              updateSetupB((current) => ({
-                ...current,
-                itemIds: current.itemIds.map((entry, index) => (index === slotIndex ? itemId : entry)),
-              }))
-            }
+            onItemChange={(slotIndex, itemId) => updateSetupB(buildItemSelectionUpdater(resolvedSetupB, slotIndex, itemId))}
             onItemRemove={(slotIndex) =>
               updateSetupB((current) => ({
                 ...current,

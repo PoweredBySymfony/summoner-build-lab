@@ -29,6 +29,7 @@ export interface GameItem {
   sellPrice?: number | null;
   category?: string | null;
   tags: string[];
+  itemGroups: string[];
   stats: Record<string, unknown>;
   shortDescription?: string | null;
   fullDescription?: string | null;

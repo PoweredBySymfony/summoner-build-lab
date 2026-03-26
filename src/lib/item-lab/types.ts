@@ -45,6 +45,54 @@ export interface RoleConfig {
   maxItems: number;
 }
 
+export type InventoryRuleClass =
+  | "standard"
+  | "boots"
+  | "tier2-boots"
+  | "tier3-boots"
+  | "starter"
+  | "consumable"
+  | "trinket";
+
+export type InventoryBlockReasonCode =
+  | "duplicate-item"
+  | "inactive-item"
+  | "starter-item"
+  | "consumable-item"
+  | "trinket-item"
+  | "role-locked"
+  | "slot-boots-only"
+  | "boots-conflict"
+  | "exclusive-group"
+  | "upgrade-slot-locked";
+
+export interface InventoryBlockReason {
+  code: InventoryBlockReasonCode;
+  message: string;
+}
+
+export interface BuildValidationIssue {
+  slotIndex: number;
+  itemId: string;
+  itemName: string;
+  reasons: InventoryBlockReason[];
+}
+
+export interface SlotItemValidation {
+  allowedItems: GameItem[];
+  blockedItems: Array<{
+    item: GameItem;
+    reasons: InventoryBlockReason[];
+  }>;
+  blockedReasonsByItemId: Record<string, InventoryBlockReason[]>;
+  hints: string[];
+}
+
+export interface SetupInventoryValidation {
+  isValid: boolean;
+  issues: BuildValidationIssue[];
+}
+
 export interface EnemyChampionSetup {
   championId: string;
   itemIds: Array<string | null>;
