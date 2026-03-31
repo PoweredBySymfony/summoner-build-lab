@@ -17,6 +17,14 @@ services:
       timeout: 5s
       retries: 5
       start_period: 10s
+  ml-api:
+    profiles: ["ml"]
+    build:
+      context: ./ml
+    container_name: summoner-build-lab-ml-api
+    restart: unless-stopped
+    ports:
+      - "8001:8001"
 
 volumes:
   summoner-build-lab-postgres-data:

@@ -21,6 +21,56 @@ Lire ce fichier au debut de chaque nouvelle conversation sur ce repo, puis le me
 - Backend: Express + TypeScript
 - DB: PostgreSQL + Prisma
 - Data jeu: Riot API + Data Dragon
+- ML local:
+  - une brique Python isolee doit vivre a la racine dans `ml/`
+  - aucun couplage direct avec `server/`, `src/` ou `prisma/`
+  - objectif V1:
+    - environnement CPU-first reproductible
+    - scripts locaux de lint / typecheck / test / train baseline / run api
+    - API FastAPI minimale de serving en stub
+    - structure dediee data / features / training / inference / artifacts
+  - toute extension ML doit rester optionnelle et ne pas casser le workflow Node existant
+  - fondation en place:
+    - config centrale: `ml/configs/base.yaml`
+    - bootstrap env:
+      - `ml/scripts/create_venv.py`
+      - `ml/scripts/install_deps.py`
+      - wrappers PowerShell:
+        - `ml/scripts/create_venv.ps1`
+        - `ml/scripts/install.ps1`
+    - task runner:
+      - `ml/scripts/tasks.py`
+      - commandes:
+        - `install`
+        - `lint`
+        - `typecheck`
+        - `test`
+        - `train-baseline`
+        - `run-api`
+    - serving:
+      - `ml/inference/api.py`
+      - endpoints:
+        - `GET /health`
+        - `GET /version`
+        - `POST /predict-next-item`
+    - entrainement stub:
+      - `ml/training/baseline.py`
+      - dataset tabulaire synthetique CPU-first
+      - artefact local `joblib` sous `ml/artifacts/models/`
+    - tests ML:
+      - `ml/tests/test_api.py`
+      - `ml/tests/test_training.py`
+    - docker optionnel:
+      - `ml/Dockerfile`
+      - service compose profile `ml`: `ml-api`
+    - skills projet ajoutes:
+      - `.agents/skills/python-ml-bootstrap/`
+      - `.agents/skills/python-ml-data-pipeline/`
+      - `.agents/skills/python-ml-fastapi-serving/`
+    - subagents Cursor ajoutes:
+      - `.cursor/agents/ml-bootstrapper.md`
+      - `.cursor/agents/ml-data-pipeline.md`
+      - `.cursor/agents/ml-fastapi-serving.md`
 
 ## Lab d'Items
 
