@@ -302,6 +302,7 @@ def build_analytic_dataset(config: AppConfig) -> DatasetBuildSummary:
                     "timestamp": event_timestamp,
                     "timestamp_minutes": round(event_timestamp / 60000, 2),
                     "patch": patch,
+                    "source_kind": str(record.get("sourceKind") or "unknown"),
                     "dd_version": catalog.dd_version,
                     "game_creation_at": str(record.get("gameCreationAt") or ""),
                     "champion_id": safe_int(record.get("targetChampionId")),
@@ -390,6 +391,20 @@ def build_analytic_dataset(config: AppConfig) -> DatasetBuildSummary:
             "test_rows": len(test_frame),
             "ranking_rows": len(ranking_dataset),
             "patches": sorted(str(value) for value in dataset["patch"].dropna().unique().tolist()),
+            "snapshots_by_patch": (
+                dataset["patch"].fillna("unknown").value_counts().sort_values(ascending=False).to_dict()
+            ),
+            "snapshots_by_role": (
+                dataset["role"].fillna("UNKNOWN").value_counts().sort_values(ascending=False).to_dict()
+            ),
+            "snapshots_by_champion": (
+                dataset["champion_slug"].fillna("unknown").value_counts().head(30).to_dict()
+            ),
+            "snapshots_by_source_kind": (
+                dataset["source_kind"].fillna("unknown").value_counts().sort_values(ascending=False).to_dict()
+                if "source_kind" in dataset.columns
+                else {}
+            ),
             "patch_catalogs": manifest.get("patchCatalogs", {}),
             "quality": quality_summary.to_report_payload(),
         },

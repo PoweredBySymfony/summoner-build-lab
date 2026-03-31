@@ -31,6 +31,8 @@ ml/data/interim/**
 !ml/data/interim/.gitkeep
 ml/data/processed/**
 !ml/data/processed/.gitkeep
+data/runtime/**
+!data/runtime/.gitkeep
 
 # Editor directories and files
 .vscode/*

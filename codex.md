@@ -1032,3 +1032,83 @@ Lire ce fichier au debut de chaque nouvelle conversation sur ce repo, puis le me
   - tout changement produit/UX non trivial qui risquerait d'etre oublie au tour suivant
 - Avant tout autocompact / compactage Codex, mettre a jour `codex.md` avec les informations produit ou techniques qui ne doivent pas etre oubliees.
 - Garder le fichier court, pratique, et oriente execution.
+
+## Ingestion pro ML - etat courant (2026-03-31)
+
+- Un pipeline pro recent existe maintenant pour enrichir `ImportedMatch` sans casser le flux joueur standard.
+- Source externe retenue pour la decouverte uniquement:
+  - Leaguepedia / Fandom `CargoExport`
+  - tables jointes: `TournamentPlayers`, `Players`, `Tournaments`
+  - usage limite a la seed list; les matchs et timelines restent 100% Riot API
+- Seed list versionnee:
+  - fichier: `data/pro-seeds/major-pros-recent.json`
+  - script: `npm run riot:prepare-pro-seeds`
+  - champs attendus par seed:
+    - `playerName`
+    - `team`
+    - `league`
+    - `competition`
+    - `role`
+    - `riotId`
+    - `riotIdCandidates`
+    - `puuid`
+    - `platformHint`
+    - `cluster`
+    - `source`
+    - `sourceTournamentDate`
+- Source de verite du stockage match:
+  - `ImportedMatch.sourceKind`
+  - `ImportedMatch.sourceMetadata`
+  - pour l'ingestion pro, `sourceKind = "PRO_SEED"`
+  - `sourceMetadata.seed` stocke la provenance joueur/equipe/league/competition pour audit et export ML
+- Invariant critique:
+  - `ImportedMatch` reste unique par `riotMatchId`
+  - un import pro ne doit jamais ecraser un match deja stocke pour un autre `targetPuuid`
+  - le code skippe maintenant ce cas avec `existing-match-different-target`
+  - le flux pro ne doit pas mettre a jour `PlayerProfile`; il ne faut pas polluer le profil d'un vrai user local avec des seeds pros
+- Scripts principaux:
+  - `npm run riot:prepare-pro-seeds`
+  - `npm run riot:import-pro -- --owner-user-id <userId> --target-matches 600 --count-per-seed 18`
+  - `npm run riot:report-pro -- --days 3650`
+  - `npm run ml:export-raw`
+  - `ml\\.venv\\Scripts\\python.exe ml\\scripts\\tasks.py build-dataset`
+  - `ml\\.venv\\Scripts\\python.exe ml\\scripts\\tasks.py train-baseline`
+- Checkpoint / reprise:
+  - checkpoint runtime: `data/runtime/pro-ingestion/checkpoint.json`
+  - report runtime: `data/runtime/pro-ingestion/report.json`
+  - le checkpoint est cumulatif et permet de reprendre sans rerespoudre tous les seeds ni redemander tous les match ids
+- Scheduling / rate limit:
+  - le client Riot respecte `Retry-After`
+  - le batch pro panache les seeds en round-robin inter-ligues avant dedup globale des match ids
+  - ne pas lancer plusieurs imports pro en parallele
+- Run reel local realise:
+  - cible atteinte: `600` matchs `PRO_SEED`
+  - timelines: `600 / 600`
+  - seeds source: `247`
+  - seeds resolus: `147`
+  - matchs uniques decouverts: `1989`
+  - repartition ligues observee:
+    - `World Championship`: `203`
+    - `First Stand`: `194`
+    - `League of Legends Championship of The Americas`: `87`
+    - `LoL Champions Korea`: `71`
+    - `Mid-Season Invitational`: `45`
+  - patches dominants:
+    - `16.6`: `404`
+    - `16.5`: `43`
+    - `16.1`: `42`
+- Limites connues:
+  - beaucoup de seeds n'ont pas de `SoloqueueIds` exploitables sur Leaguepedia
+  - certaines resolutions retournent `403` Riot selon le compte/route; c'est best effort et trace dans le report
+  - le checkpoint cumule aussi les echecs historiques; ne pas lire `topFailureReasons` comme "uniquement le dernier run"
+  - si on veut un report propre par run, vider ou archiver le checkpoint avant un nouveau batch complet
+- Integration ML verifiee sur le volume pro:
+  - `npm run ml:export-raw` a exporte `604` matchs avec timeline
+  - `build-dataset` produit `14091` snapshots et `523166` lignes ranking
+  - `train-baseline` ranking:
+    - `NDCG@3 ~= 0.4503`
+    - `MAP@3 ~= 0.4162`
+    - `top1 ~= 0.3126`
+    - `top3 ~= 0.5491`
+- Attention execution:
+  - ne pas lancer `ml:export-raw`, `build-dataset` et `train-baseline` en parallele si on veut mesurer le nouveau dataset; `build-dataset` doit demarrer apres la fin de l'export

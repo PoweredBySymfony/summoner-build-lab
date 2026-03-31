@@ -376,6 +376,8 @@ model ImportedMatch {
   riotMatchId         String    @unique
   patch               String?
   sourceRegion        String?
+  sourceKind          String?
+  sourceMetadata      Json?
   targetPuuid         String?
   targetGameName      String?
   targetTagLine       String?
@@ -396,6 +398,7 @@ model ImportedMatch {
   @@index([riotMatchId])
   @@index([patch])
   @@index([sourceRegion])
+  @@index([sourceKind])
   @@index([targetPuuid])
   @@index([targetChampionSlug])
   @@index([targetRole])

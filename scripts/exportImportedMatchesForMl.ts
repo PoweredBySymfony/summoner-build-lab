@@ -130,6 +130,8 @@ async function main() {
       "riotMatchId",
       "patch",
       "sourceRegion",
+      "sourceKind",
+      "sourceMetadata",
       "targetPuuid",
       "targetGameName",
       "targetTagLine",
@@ -213,6 +215,11 @@ async function main() {
           exportedAt: new Date().toISOString(),
           matchCount: matches.length,
           matchesWithTimeline: matches.filter((entry) => Boolean(entry.timelineData)).length,
+          sourceKindDistribution: matches.reduce<Record<string, number>>((accumulator, entry) => {
+            const key = String(entry.sourceKind ?? "unknown");
+            accumulator[key] = (accumulator[key] ?? 0) + 1;
+            return accumulator;
+          }, {}),
           rawMatchesPath: "imported_matches.jsonl",
           itemCatalogPath: latestCatalog.itemCatalogPath,
           championCatalogPath: latestCatalog.championCatalogPath,
