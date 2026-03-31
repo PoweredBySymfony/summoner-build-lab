@@ -30,6 +30,7 @@ def build_puzzle_seed(
     low_confidence = (
         confidence < active_config.puzzle.min_confidence
         or confidence_gap < active_config.puzzle.min_confidence_gap
+        or prediction.candidate_pool_size < (active_config.puzzle.distractor_count + 1)
         or len(distractors) < active_config.puzzle.distractor_count
     )
 

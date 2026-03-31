@@ -159,22 +159,19 @@ Lire ce fichier au debut de chaque nouvelle conversation sur ce repo, puis le me
         - `% roles UNKNOWN`
         - `candidate_pool_size` min / median / p95
     - baseline modele:
-      - entrainement:
+      - transition en cours vers learning-to-rank:
+        - dataset ranking-ready `1 snapshot = N candidats`
+        - futur entrainement principal:
+          - `ml/training/ranking.py`
+          - `XGBoost rank:ndcg`
+        - qid:
+          - `snapshot_id`
+        - metriques visees:
+          - `NDCG@k`
+          - `MAP@k`
+          - `top-k accuracy`
+      - baseline historique encore presente:
         - `ml/training/baseline.py`
-      - vectorisation:
-        - `ml/models/feature_builder.py`
-      - algo:
-        - `XGBoost` multiclasses
-        - fallback `RandomForest`
-      - metriques:
-        - top-1 accuracy
-        - top-3 accuracy
-        - MRR
-      - artefacts:
-        - `ml/artifacts/models/next-item-model.joblib`
-        - `ml/artifacts/models/next-item-model-metadata.json`
-        - `ml/artifacts/reports/next-item-evaluation.json`
-        - `ml/artifacts/reports/next-item-evaluation.md`
     - inference FastAPI:
       - endpoints:
         - `GET /health`
@@ -189,11 +186,12 @@ Lire ce fichier au debut de chaque nouvelle conversation sur ce repo, puis le me
         - prediction principale
         - top-k predictions avec score
         - version modele
+        - candidate pool explicite si fourni par le caller
       - prep puzzle:
         - seed avec bonne reponse
         - distracteurs plausibles
         - difficulte heuristique
-        - flag faible confiance
+        - flag faible confiance base sur gap de score + taille de pool
     - commandes de workflow ML:
       - `npm run ml:backfill-timelines`
       - `npm run ml:export-raw`

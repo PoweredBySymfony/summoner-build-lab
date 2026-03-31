@@ -51,7 +51,7 @@ def build_dataset() -> int:
 
 
 def train_baseline() -> int:
-    return _run([sys.executable, "-m", "training.baseline"])
+    return _run([sys.executable, "-m", "training.ranking"])
 
 
 def run_api() -> int:

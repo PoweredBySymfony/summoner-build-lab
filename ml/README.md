@@ -6,7 +6,7 @@ Brique ML Python locale pour construire une baseline `next item` exploitable a p
 
 - separer clairement la collecte Node/Prisma du pipeline ML Python
 - produire un dataset analytique patch-aware et time-aware a partir des timelines Riot
-- entrainer une baseline tabulaire CPU-first pour predire le prochain item
+- entrainer un modele learning-to-rank CPU-first pour predire le prochain item parmi un pool candidat
 - exposer une API FastAPI simple, consommable plus tard par le backend Node
 
 ## Structure
@@ -32,7 +32,7 @@ ml/
 1. Importer des matchs Riot enrichis dans le backend Node, avec timeline.
 2. Exporter les matchs importes vers `ml/data/raw`.
 3. Construire le dataset analytique Python.
-4. Entrainer la baseline `next item`.
+4. Entrainer le modele ranking `next item`.
 5. Lancer l'API FastAPI pour l'inference locale.
 
 ## Commandes exactes
@@ -66,7 +66,8 @@ Commandes de verification :
 
 - `GET /health`: etat du service, disponibilite du dataset et du modele
 - `GET /version`: version du module ML
-- `POST /predict-next-item`: prediction principale, top-k, confiance et version du modele
+- `POST /predict-next-item`: prediction principale, top-k trie, score et version du modele
+- le payload peut fournir `candidate_pool`, sinon le service reconstruit un pool candidat patch-aware cote Python
 
 ## Docker optionnel
 
@@ -84,7 +85,9 @@ Le compose monte maintenant `ml/artifacts`, `ml/configs` et `ml/data` pour que l
 - export brut Node -> `ml/data/raw`
 - dataset analytique `1 ligne = 1 decision d'achat`
 - splits train / validation / test temporels
-- baseline multiclasses `next item` avec `XGBoost` et fallback `RandomForest`
+- dataset ranking-ready `1 snapshot = N candidats`
+- modele `XGBoost rank:ndcg`
+- metriques `NDCG@k`, `MAP@k`, `top-k accuracy`
 - rapport d'evaluation humain + metrics JSON
 - service FastAPI de prediction
 - fonction preparatoire de seed puzzle a partir des predictions du modele
@@ -93,6 +96,6 @@ Le compose monte maintenant `ml/artifacts`, `ml/configs` et `ml/data` pour que l
 
 - la reconstruction de `gold_available` repose sur le dernier frame timeline disponible avant l'achat, donc reste une approximation
 - les features d'equipe sont volontairement agregees et simples
-- pas de candidate pool patch-frozen complet tant qu'un catalogue historise par patch n'est pas stocke
+- le candidate pool V1 reste gouverne par des regles simples de plausibilite, pas par une simulation complete de shop
 - pas d'orchestration automatique entre import Node et pipeline Python
 - pas encore d'integration directe dans le generateur de puzzles Node

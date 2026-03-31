@@ -267,45 +267,92 @@ def make_raw_export(tmp_path: Path) -> AppConfig:
 
 def write_split_dataset(config: AppConfig) -> None:
     config.paths.processed_data_dir.mkdir(parents=True, exist_ok=True)
-    rows = []
-    labels = ["boots", "kraken-slayer", "health-potion"]
+    candidate_items = {
+        "boots": {
+            "item_cost": 300,
+            "item_category": "boots",
+            "item_is_boots": True,
+            "item_is_legendary": False,
+            "item_builds_from_count": 0,
+            "item_builds_into_count": 0,
+            "item_tags": ["Boots"],
+        },
+        "long-sword": {
+            "item_cost": 350,
+            "item_category": "fighter",
+            "item_is_boots": False,
+            "item_is_legendary": False,
+            "item_builds_from_count": 0,
+            "item_builds_into_count": 1,
+            "item_tags": ["Damage"],
+        },
+        "kraken-slayer": {
+            "item_cost": 3000,
+            "item_category": "crit",
+            "item_is_boots": False,
+            "item_is_legendary": True,
+            "item_builds_from_count": 1,
+            "item_builds_into_count": 0,
+            "item_tags": ["Damage", "AttackSpeed"],
+        },
+    }
+    analytic_rows: list[dict[str, object]] = []
+    ranking_rows: list[dict[str, object]] = []
+    labels = ["boots", "long-sword", "kraken-slayer"]
     for index in range(30):
         label = labels[index % len(labels)]
-        rows.append(
-            {
-                "match_id": f"EUW1_{index}",
-                "timestamp": 60000 + index * 1000,
-                "timestamp_minutes": 1.0 + index / 60.0,
-                "patch": "15.6",
-                "game_creation_at": f"2026-03-{(index % 28) + 1:02d}T10:00:00+00:00",
-                "champion_id": 222,
-                "champion_slug": "jinx",
-                "role": "ADC",
-                "gold_available": 800 + index * 10,
-                "level": 4 + (index % 6),
-                "kills": index % 4,
-                "deaths": index % 3,
-                "assists": index % 5,
-                "cs": 20 + index * 3,
-                "current_items": ["boots"] if index % 2 == 0 else ["health-potion"],
-                "current_item_count": 1,
-                "candidate_next_item": label,
-                "actual_next_item": label,
-                "ally_frontline_count": 1,
-                "ally_magic_damage_count": 1,
-                "ally_physical_damage_count": 2,
-                "ally_support_count": 1,
-                "enemy_frontline_count": 2,
-                "enemy_magic_damage_count": 1,
-                "enemy_physical_damage_count": 2,
-                "enemy_support_count": 1,
-            }
-        )
-    frame = pd.DataFrame(rows)
-    frame.iloc[:18].to_parquet(config.paths.train_dataset_path, index=False)
-    frame.iloc[18:24].to_parquet(config.paths.validation_dataset_path, index=False)
-    frame.iloc[24:].to_parquet(config.paths.test_dataset_path, index=False)
-    frame.to_parquet(config.paths.analytic_dataset_path, index=False)
+        snapshot_id = f"snapshot-{index}"
+        analytic_row = {
+            "snapshot_id": snapshot_id,
+            "match_id": f"EUW1_{index}",
+            "timestamp": 60000 + index * 1000,
+            "timestamp_minutes": 1.0 + index / 60.0,
+            "patch": "15.6",
+            "dd_version": "15.6.1",
+            "game_creation_at": f"2026-03-{(index % 28) + 1:02d}T10:00:00+00:00",
+            "champion_id": 222,
+            "champion_slug": "jinx",
+            "role": "ADC",
+            "gold_available": 4000,
+            "level": 4 + (index % 6),
+            "kills": index % 4,
+            "deaths": index % 3,
+            "assists": index % 5,
+            "cs": 20 + index * 3,
+            "current_items": ["boots"] if index % 2 == 0 else [],
+            "current_item_count": 1 if index % 2 == 0 else 0,
+            "candidate_pool": ["boots", "long-sword", "kraken-slayer"],
+            "candidate_pool_size": 3,
+            "actual_next_item": label,
+            "actual_item_in_candidate_pool": True,
+            "actual_item_cost": candidate_items[label]["item_cost"],
+            "ally_frontline_count": 1,
+            "ally_magic_damage_count": 1,
+            "ally_physical_damage_count": 2,
+            "ally_support_count": 1,
+            "enemy_frontline_count": 2,
+            "enemy_magic_damage_count": 1,
+            "enemy_physical_damage_count": 2,
+            "enemy_support_count": 1,
+        }
+        analytic_rows.append(analytic_row)
+        for candidate_item_slug, item_features in candidate_items.items():
+            ranking_rows.append(
+                {
+                    **analytic_row,
+                    "candidate_item_slug": candidate_item_slug,
+                    "label": int(candidate_item_slug == label),
+                    **item_features,
+                }
+            )
+
+    analytic_frame = pd.DataFrame(analytic_rows)
+    ranking_frame = pd.DataFrame(ranking_rows)
+    analytic_frame.iloc[:18].to_parquet(config.paths.train_dataset_path, index=False)
+    analytic_frame.iloc[18:24].to_parquet(config.paths.validation_dataset_path, index=False)
+    analytic_frame.iloc[24:].to_parquet(config.paths.test_dataset_path, index=False)
+    analytic_frame.to_parquet(config.paths.analytic_dataset_path, index=False)
+    ranking_frame.to_parquet(config.paths.ranking_dataset_path, index=False)
 
 
 def test_build_analytic_dataset_creates_snapshots(tmp_path: Path) -> None:
@@ -321,7 +368,10 @@ def test_build_analytic_dataset_creates_snapshots(tmp_path: Path) -> None:
     assert dataset["candidate_pool_size"].tolist() == [2, 1]
     assert dataset["actual_item_in_candidate_pool"].tolist() == [True, False]
     ranking_dataset = pd.read_parquet(config.paths.ranking_dataset_path)
+    assert "snapshot_id" in ranking_dataset.columns
     assert set(ranking_dataset["candidate_item_slug"].tolist()) == {"boots", "long-sword"}
+    assert "item_cost" in ranking_dataset.columns
+    assert "label" in ranking_dataset.columns
     report = json.loads(config.paths.dataset_report_path.read_text(encoding="utf-8"))
     assert report["quality"]["gold_incoherent_ratio"] == 0.5
     assert report["quality"]["candidate_pool_median"] == 1.5
@@ -333,15 +383,15 @@ def test_train_baseline_creates_model_and_reports(tmp_path: Path) -> None:
 
     summary = train_baseline(config)
 
-    assert summary.unique_labels == 3
+    assert summary.unique_candidate_items == 3
     assert Path(summary.model_path).exists()
     assert Path(summary.metadata_path).exists()
     assert Path(summary.evaluation_report_path).exists()
-    assert 0.0 <= summary.top1_accuracy <= 1.0
+    assert 0.0 <= summary.ndcg_at_k <= 1.0
 
 
 def test_predict_next_item_endpoint_with_trained_model(tmp_path: Path) -> None:
-    config = make_config(tmp_path)
+    config = make_raw_export(tmp_path)
     write_split_dataset(config)
     train_baseline(config)
 
@@ -375,6 +425,7 @@ def test_predict_next_item_endpoint_with_trained_model(tmp_path: Path) -> None:
             "cs": 92,
             "timestamp_minutes": 12.5,
             "current_items": ["boots"],
+            "candidate_pool": ["long-sword", "kraken-slayer"],
             "ally_frontline_count": 1,
             "ally_magic_damage_count": 1,
             "ally_physical_damage_count": 2,
@@ -391,7 +442,11 @@ def test_predict_next_item_endpoint_with_trained_model(tmp_path: Path) -> None:
     assert payload["model_ready"] is True
     assert payload["predicted_item_slug"] is not None
     assert payload["model_version"] == "0.2.0"
+    assert payload["candidate_pool_size"] == 2
     assert len(payload["top_k_predictions"]) >= 1
+    assert {entry["item_slug"] for entry in payload["top_k_predictions"]}.issubset(
+        {"long-sword", "kraken-slayer"}
+    )
 
     puzzle_seed = build_puzzle_seed(
         PredictionOutput(
@@ -405,8 +460,10 @@ def test_predict_next_item_endpoint_with_trained_model(tmp_path: Path) -> None:
                 RankedPrediction(item_slug="guardian-angel", score=0.05),
             ],
             model_version="0.2.0",
+            candidate_pool_size=2,
         ),
         config=config,
     )
     assert puzzle_seed.good_answer == "boots"
     assert len(puzzle_seed.distractors) == 3
+    assert puzzle_seed.low_confidence is True

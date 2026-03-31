@@ -15,6 +15,7 @@ class PredictNextItemRequest(BaseModel):
     cs: int = 0
     timestamp_minutes: float = 0.0
     current_items: list[str] = Field(default_factory=list)
+    candidate_pool: list[str] = Field(default_factory=list)
     ally_frontline_count: int = 0
     ally_magic_damage_count: int = 0
     ally_physical_damage_count: int = 0
@@ -34,6 +35,7 @@ class PredictNextItemResponse(BaseModel):
     model_ready: bool
     predicted_item_slug: str | None = None
     confidence: float | None = None
+    candidate_pool_size: int = 0
     top_k_predictions: list[RankedPredictionResponse] = Field(default_factory=list)
     model_version: str | None = None
     message: str

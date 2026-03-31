@@ -40,10 +40,10 @@ def predict_next_item_endpoint(payload: PredictNextItemRequest) -> PredictNextIt
     prediction = predict_next_item(payload.model_dump())
     if not prediction.model_ready:
         return PredictNextItemResponse(
-            model_ready=False,
-            message=(
+        model_ready=False,
+        message=(
                 "Model artifact is not available yet. "
-                "Build the dataset and train the baseline first."
+                "Build the dataset and train the ranking model first."
             ),
         )
 
@@ -51,10 +51,11 @@ def predict_next_item_endpoint(payload: PredictNextItemRequest) -> PredictNextIt
         model_ready=True,
         predicted_item_slug=prediction.predicted_item_slug,
         confidence=prediction.confidence,
+        candidate_pool_size=prediction.candidate_pool_size,
         top_k_predictions=[
             RankedPredictionResponse(item_slug=item.item_slug, score=item.score)
             for item in prediction.top_predictions
         ],
         model_version=prediction.model_version,
-        message="Prediction generated from the local next-item baseline.",
+        message="Prediction generated from the local next-item ranking model.",
     )
