@@ -136,6 +136,31 @@ export interface GeneratedPuzzleSeriesPayload {
   slugs: string[];
 }
 
+export type GeneratedMatchPuzzleResponse =
+  | {
+      generationStatus: "completed";
+      requestId: string;
+      slug: string;
+      slugs: string[];
+      sourceType: string;
+      published: boolean;
+      lowConfidence: boolean;
+      draft: boolean;
+      message?: string;
+    }
+  | {
+      generationStatus: "no_viable_snapshot_found";
+      requestId: string;
+      slug: null;
+      slugs: [];
+      sourceType: string;
+      published: boolean;
+      lowConfidence: boolean;
+      draft: boolean;
+      retrySuggested: boolean;
+      message: string;
+    };
+
 export interface CurrentUser {
   id: string;
   email: string;

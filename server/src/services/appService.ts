@@ -146,6 +146,42 @@ export const appService = {
     };
   },
 
+  async getGeneratedPuzzleRequestById(requestId: string, viewer: { id: string; isAdmin: boolean }) {
+    const requestRecord = await prisma.generatedPuzzleRequest.findUnique({
+      where: { id: requestId },
+      include: {
+        resultPuzzle: true,
+      },
+    });
+
+    if (!requestRecord) {
+      throw new HttpError(404, "Requete de generation introuvable.");
+    }
+
+    if (
+      !canAccessGeneratedDraft({
+        ownerId: requestRecord.userId,
+        viewerId: viewer.id,
+        viewerIsAdmin: viewer.isAdmin,
+      })
+    ) {
+      throw new HttpError(403, "Acces refuse a cette requete de generation.");
+    }
+
+    const puzzle = requestRecord.resultPuzzle
+      ? await this.getPuzzleDetail(requestRecord.resultPuzzle.slug, viewer)
+      : null;
+
+    return {
+      requestId: requestRecord.id,
+      status: requestRecord.status.toLowerCase(),
+      createdAt: requestRecord.createdAt,
+      updatedAt: requestRecord.updatedAt,
+      parameters: requestRecord.parameters,
+      puzzle,
+    };
+  },
+
   async getDashboard(userId: string) {
     const [progress, dailyChallenge] = await Promise.all([progressService.getOverview(userId), dailyChallengeService.getOrCreateToday()]);
 

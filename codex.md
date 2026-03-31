@@ -322,10 +322,78 @@ Lire ce fichier au debut de chaque nouvelle conversation sur ce repo, puis le me
           - un output ML techniquement valide mais peu credible peut maintenant etre refuse en `422`
           - exemple reel bloque:
             - `charme-feerique` sur un profil ADC physique
+      - orchestration multi-snapshot match-based (2026-03-31):
+        - le flow produit standard `POST /generated-puzzles/match` n'est plus mono-snapshot
+        - nouveau principe:
+          - extraire plusieurs snapshots d'achat depuis la timeline du match importe
+          - scorer ces snapshots
+          - tenter la generation ML + filtres metier sur chacun
+          - retenir le meilleur snapshot publiable si un existe
+        - extraction:
+          - source:
+            - `server/src/services/mlPuzzleGenerationService.ts`
+          - candidats:
+            - evenements `ITEM_PURCHASED`
+            - filtrage snapshots trop precoces / trop tardifs
+            - deduplication des snapshots quasi identiques
+            - limite pratique:
+              - max `8` snapshots candidats
+        - orchestration:
+          - pour chaque snapshot:
+            - appel `POST /predict-next-item`
+            - evaluation `lowConfidence`
+            - application des regles metier backend
+            - resolution des choix
+            - calcul d'un `qualityScore`
+          - selection:
+            - priorite aux tentatives viables non low-confidence
+            - si admin/test et `ML_ALLOW_LOW_CONFIDENCE_DRAFTS` actif:
+              - un draft low-confidence peut encore etre retenu s'il reste credible
+            - si aucune tentative viable:
+              - pas de `422` brut au client standard
+        - nouveau contrat de reponse produit:
+          - succes:
+            - `generationStatus: "completed"`
+            - payload habituel avec `requestId`, `slug`, `slugs`, `sourceType`, `published`, `lowConfidence`, `draft`
+          - aucun snapshot viable:
+            - `generationStatus: "no_viable_snapshot_found"`
+            - `retrySuggested: true`
+            - `message` utilisateur propre
+            - `slug: null`
+            - `slugs: []`
+        - observabilite:
+          - logs structures par tentative:
+            - `requestId`
+            - `importedMatchId`
+            - `snapshotIndex`
+            - `snapshotMinute`
+            - `patch`
+            - `goldAvailable`
+            - `rawCandidatePoolSize`
+            - `filteredCandidatePoolSize`
+            - `goodAnswer`
+            - `rejectionReasons`
+            - `qualityScore`
+          - log final:
+            - `selected-snapshot` ou `no-viable-snapshot`
+          - persistence:
+            - `GeneratedPuzzleRequest.parameters` stocke maintenant:
+              - `generationStatus`
+              - `selectedSnapshot`
+              - `attemptsSummary`
+        - debug consultable:
+          - endpoint owner/admin:
+            - `GET /api/generated-puzzles/requests/:requestId`
+          - endpoint draft detail si puzzle cree:
+            - `GET /api/generated-puzzles/requests/:requestId/draft`
+        - effet produit:
+          - le client ne doit plus afficher une erreur technique brute quand un snapshot individuel echoue
+          - le frontend `PlayerProfile` affiche un message metier si aucun snapshot viable n'est trouve
       - tests Node associes:
         - `src/test/mlPuzzle.test.ts`
         - `src/test/mlPuzzleChoiceResolution.test.ts`
         - `src/test/mlPuzzleBusinessRules.test.ts`
+        - `src/test/mlPuzzleOrchestration.test.ts`
         - couvre:
           - fallback si `ML_API_URL` absent
           - mapping du payload ML
@@ -340,6 +408,9 @@ Lire ce fichier au debut de chaque nouvelle conversation sur ce repo, puis le me
           - filtrage gold anti-reponse triviale
           - pool candidat minimal
           - variation / ordre des choix
+          - choix du meilleur snapshot
+          - comportement multi-snapshot sans solution viable
+          - compatibilite draft admin/test dans l'orchestrateur
   - ingestion Riot industrialisee:
     - client Riot:
       - `server/src/lib/riot/riotApiClient.ts`

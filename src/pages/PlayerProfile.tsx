@@ -1,5 +1,5 @@
 import { AlertCircle, BarChart3, Crosshair, Eye, Sparkles, Swords, Trophy } from "lucide-react";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { RiotIdSearch } from "@/components/RiotIdSearch";
 import { useCurrentUser, useGenerateMatchPuzzleSeries, useImportRecentMatches, usePlayerSearch } from "@/api/hooks";
@@ -14,6 +14,7 @@ const PlayerProfile = () => {
   const { data, isLoading, error } = usePlayerSearch(riotId);
   const importRecentMatches = useImportRecentMatches();
   const generateMatchSeries = useGenerateMatchPuzzleSeries();
+  const [generationMessage, setGenerationMessage] = useState<string | null>(null);
 
   useEffect(() => {
     if (!data) {
@@ -63,20 +64,31 @@ const PlayerProfile = () => {
                       type="button"
                       className="inline-flex min-h-11 items-center gap-2 rounded-2xl bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground transition hover:opacity-90"
                       onClick={async () => {
+                        setGenerationMessage(null);
                         const imported = await importRecentMatches.mutateAsync({ puuid: data.profile.puuid, count: 1 });
                         if (!imported[0]) {
                           return;
                         }
 
                         const series = await generateMatchSeries.mutateAsync({ importedMatchId: imported[0].id });
-                        savePuzzleSeries(series.slugs);
-                        navigate(`/training/${series.slug}`);
+                        if (series.generationStatus === "completed") {
+                          savePuzzleSeries(series.slugs);
+                          navigate(`/training/${series.slug}`);
+                          return;
+                        }
+
+                        setGenerationMessage(series.message);
                       }}
                       disabled={importRecentMatches.isPending || generateMatchSeries.isPending}
                     >
                       <Sparkles className="h-4 w-4" />
                       Generer une serie depuis la derniere partie
                     </button>
+                  </div>
+                ) : null}
+                {generationMessage ? (
+                  <div className="mt-4 rounded-2xl border border-border/60 bg-background/60 px-4 py-3 text-sm text-muted-foreground">
+                    {generationMessage}
                   </div>
                 ) : null}
               </div>

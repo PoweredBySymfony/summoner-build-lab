@@ -11,6 +11,7 @@ import type {
   DailyChallengePayload,
   DashboardPayload,
   GameItem,
+  GeneratedMatchPuzzleResponse,
   GeneratedPuzzleSeriesPayload,
   PlayerAutocompleteSuggestion,
   PlayerSearchPayload,
@@ -153,7 +154,7 @@ export const useImportRecentMatches = () =>
 export const useGenerateMatchPuzzleSeries = () => {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (payload: { importedMatchId: string }) => apiFetch<GeneratedPuzzleSeriesPayload>("/generated-puzzles/match", {
+    mutationFn: (payload: { importedMatchId: string }) => apiFetch<GeneratedMatchPuzzleResponse>("/generated-puzzles/match", {
       method: "POST",
       body: JSON.stringify(payload),
     }),

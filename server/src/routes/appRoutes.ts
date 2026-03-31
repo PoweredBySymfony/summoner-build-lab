@@ -318,6 +318,16 @@ router.get("/generated-puzzles/requests/:requestId/draft", requireAuth, async (r
   }
 });
 
+router.get("/generated-puzzles/requests/:requestId", requireAuth, async (request, response, next) => {
+  try {
+    response.json(
+      await appService.getGeneratedPuzzleRequestById(String(request.params.requestId), request.user!),
+    );
+  } catch (error) {
+    next(error);
+  }
+});
+
 router.get("/riot/account/:gameName/:tagLine", requireAuth, async (request, response, next) => {
   try {
     response.json(await riotSyncService.getAccountProfile(String(request.params.gameName), String(request.params.tagLine)));
