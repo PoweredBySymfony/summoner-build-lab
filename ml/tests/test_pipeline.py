@@ -36,6 +36,7 @@ def make_config(tmp_path: Path) -> AppConfig:
             item_catalog_path=tmp_path / "raw" / "item_catalog.json",
             champion_catalog_path=tmp_path / "raw" / "champion_catalog.json",
             export_manifest_path=tmp_path / "raw" / "manifest.json",
+            ranking_dataset_path=tmp_path / "processed" / "ranking.parquet",
             analytic_dataset_path=tmp_path / "processed" / "analytic.parquet",
             train_dataset_path=tmp_path / "processed" / "train.parquet",
             validation_dataset_path=tmp_path / "processed" / "validation.parquet",
@@ -52,6 +53,10 @@ def make_config(tmp_path: Path) -> AppConfig:
             min_rows=1,
             min_unique_labels=1,
             min_train_label_frequency=1,
+            max_missing_actual_item_ratio=0.5,
+            max_gold_incoherent_ratio=0.6,
+            max_unknown_role_ratio=0.5,
+            min_candidate_pool_median=1,
         ),
         training=TrainingConfig(
             random_seed=7,
@@ -82,9 +87,66 @@ def make_raw_export(tmp_path: Path) -> AppConfig:
     write_json(
         config.paths.item_catalog_path,
         [
-            {"riotItemId": 1001, "slug": "boots", "name": "Boots"},
-            {"riotItemId": 2003, "slug": "health-potion", "name": "Health Potion"},
-            {"riotItemId": 6672, "slug": "kraken-slayer", "name": "Kraken Slayer"},
+            {
+                "riotItemId": 1001,
+                "slug": "boots",
+                "name": "Boots",
+                "goldTotal": 300,
+                "isBoots": True,
+                "isLegendary": False,
+                "isConsumable": False,
+                "isStarter": False,
+                "isActive": True,
+                "tags": ["Boots"],
+                "buildsFrom": [],
+                "buildsInto": [],
+                "mapAvailability": {"11": True},
+            },
+            {
+                "riotItemId": 2003,
+                "slug": "health-potion",
+                "name": "Health Potion",
+                "goldTotal": 50,
+                "isBoots": False,
+                "isLegendary": False,
+                "isConsumable": True,
+                "isStarter": False,
+                "isActive": True,
+                "tags": ["Consumable"],
+                "buildsFrom": [],
+                "buildsInto": [],
+                "mapAvailability": {"11": True},
+            },
+            {
+                "riotItemId": 6672,
+                "slug": "kraken-slayer",
+                "name": "Kraken Slayer",
+                "goldTotal": 3000,
+                "isBoots": False,
+                "isLegendary": True,
+                "isConsumable": False,
+                "isStarter": False,
+                "isActive": True,
+                "tags": ["Damage", "AttackSpeed"],
+                "buildsFrom": [1036],
+                "buildsInto": [],
+                "mapAvailability": {"11": True},
+            },
+            {
+                "riotItemId": 1036,
+                "slug": "long-sword",
+                "name": "Long Sword",
+                "goldTotal": 350,
+                "isBoots": False,
+                "isLegendary": False,
+                "isConsumable": False,
+                "isStarter": False,
+                "isActive": True,
+                "tags": ["Damage"],
+                "buildsFrom": [],
+                "buildsInto": [6672],
+                "mapAvailability": {"11": True},
+            },
         ],
     )
     write_json(
@@ -98,8 +160,24 @@ def make_raw_export(tmp_path: Path) -> AppConfig:
         "exportedAt": "2026-03-31T10:00:00Z",
         "matchCount": 1,
         "matchesWithTimeline": 1,
+        "latestDataDragonVersion": "15.6.1",
+        "patchCatalogs": {
+            "15.6": {
+                "itemCatalogPath": "catalogs/15.6/item_catalog.json",
+                "championCatalogPath": "catalogs/15.6/champion_catalog.json",
+                "ddVersion": "15.6.1",
+            }
+        },
     }
     write_json(config.paths.export_manifest_path, manifest)
+    write_json(
+        tmp_path / "raw" / "catalogs" / "15.6" / "item_catalog.json",
+        json.loads(config.paths.item_catalog_path.read_text(encoding="utf-8")),
+    )
+    write_json(
+        tmp_path / "raw" / "catalogs" / "15.6" / "champion_catalog.json",
+        json.loads(config.paths.champion_catalog_path.read_text(encoding="utf-8")),
+    )
 
     match_record = {
         "riotMatchId": "EUW1_1",
@@ -237,8 +315,16 @@ def test_build_analytic_dataset_creates_snapshots(tmp_path: Path) -> None:
     assert summary.matches_seen == 1
     assert summary.matches_with_timeline == 1
     assert summary.snapshots_written == 2
+    assert summary.ranking_rows_written >= 2
     dataset = pd.read_parquet(config.paths.analytic_dataset_path)
     assert dataset["actual_next_item"].tolist() == ["boots", "kraken-slayer"]
+    assert dataset["candidate_pool_size"].tolist() == [2, 1]
+    assert dataset["actual_item_in_candidate_pool"].tolist() == [True, False]
+    ranking_dataset = pd.read_parquet(config.paths.ranking_dataset_path)
+    assert set(ranking_dataset["candidate_item_slug"].tolist()) == {"boots", "long-sword"}
+    report = json.loads(config.paths.dataset_report_path.read_text(encoding="utf-8"))
+    assert report["quality"]["gold_incoherent_ratio"] == 0.5
+    assert report["quality"]["candidate_pool_median"] == 1.5
 
 
 def test_train_baseline_creates_model_and_reports(tmp_path: Path) -> None:

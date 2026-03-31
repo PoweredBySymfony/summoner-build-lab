@@ -12,6 +12,7 @@ paths:
   item_catalog_path: data/raw/item_catalog.json
   champion_catalog_path: data/raw/champion_catalog.json
   export_manifest_path: data/raw/manifest.json
+  ranking_dataset_path: data/processed/next_item_ranking_ready.parquet
   analytic_dataset_path: data/processed/next_item_analytic_dataset.parquet
   train_dataset_path: data/processed/next_item_train.parquet
   validation_dataset_path: data/processed/next_item_validation.parquet
@@ -28,6 +29,10 @@ dataset:
   min_rows: 20
   min_unique_labels: 2
   min_train_label_frequency: 2
+  max_missing_actual_item_ratio: 0.25
+  max_gold_incoherent_ratio: 0.65
+  max_unknown_role_ratio: 0.2
+  min_candidate_pool_median: 3
 
 training:
   random_seed: 42

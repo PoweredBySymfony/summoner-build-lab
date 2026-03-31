@@ -31,6 +31,7 @@ class PathsConfig(BaseModel):
     item_catalog_path: Path
     champion_catalog_path: Path
     export_manifest_path: Path
+    ranking_dataset_path: Path
     analytic_dataset_path: Path
     train_dataset_path: Path
     validation_dataset_path: Path
@@ -50,6 +51,10 @@ class DatasetConfig(BaseModel):
     min_rows: int
     min_unique_labels: int
     min_train_label_frequency: int
+    max_missing_actual_item_ratio: float
+    max_gold_incoherent_ratio: float
+    max_unknown_role_ratio: float
+    min_candidate_pool_median: float
 
 
 class TrainingConfig(BaseModel):

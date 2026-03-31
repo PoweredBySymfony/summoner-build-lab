@@ -110,9 +110,27 @@ Lire ce fichier au debut de chaque nouvelle conversation sur ce repo, puis le me
         - `ml/data/raw/item_catalog.json`
         - `ml/data/raw/champion_catalog.json`
         - `ml/data/raw/manifest.json`
+        - catalogues patch-aware sous `ml/data/raw/catalogs/<patch>/`
+      - manifest enrichi:
+        - `patchCatalogs[patch] -> { itemCatalogPath, championCatalogPath, ddVersion }`
+      - export item patch-aware:
+        - `goldTotal`
+        - `goldBase`
+        - `goldSell`
+        - `isBoots`
+        - `isLegendary`
+        - `isConsumable`
+        - `isStarter`
+        - `isActive`
+        - `tags`
+        - `buildsFrom`
+        - `buildsInto`
+        - `mapAvailability`
     - dataset analytique Python:
       - builder:
         - `ml/features/analytics.py`
+      - quality gates:
+        - `ml/features/quality.py`
       - granularite:
         - 1 ligne = 1 achat `ITEM_PURCHASED` du joueur cible
       - colonnes cle:
@@ -120,13 +138,26 @@ Lire ce fichier au debut de chaque nouvelle conversation sur ce repo, puis le me
         - or dispo approx via timeline frame precedent
         - niveau / KDA / CS
         - inventaire courant
-        - `candidate_next_item`
+        - `candidate_pool`
+        - `candidate_pool_size`
         - `actual_next_item`
         - agregats ally/enemy simples
       - sorties:
         - parquet complet
+        - parquet ranking-ready optionnel par snapshot/candidat
         - splits `train` / `validation` / `test`
-        - rapport dataset JSON
+        - rapport dataset JSON avec gates qualite
+      - candidate pool V1:
+        - charge le catalogue correspondant au patch du match via `manifest.json`
+        - garde les items actifs Summoner's Rift
+        - retire les items deja possedes
+        - retire consommables / starters / trinkets
+        - filtre par cout quand `gold_available > 0`
+      - gates dataset suivis:
+        - `% actual_next_item absent du catalogue patch`
+        - `% gold_available incoherent vs cout de l'item achete`
+        - `% roles UNKNOWN`
+        - `candidate_pool_size` min / median / p95
     - baseline modele:
       - entrainement:
         - `ml/training/baseline.py`
