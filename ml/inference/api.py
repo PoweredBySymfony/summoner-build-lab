@@ -3,9 +3,14 @@ from __future__ import annotations
 from fastapi import FastAPI
 
 from inference.config import get_config
-from inference.schemas import PredictNextItemRequest, PredictNextItemResponse
+from inference.schemas import (
+    PredictNextItemRequest,
+    PredictNextItemResponse,
+    RankedPredictionResponse,
+)
+from inference.service import predict_next_item
 
-app = FastAPI(title="Summoner Build Lab ML", version="0.1.0")
+app = FastAPI(title="Summoner Build Lab ML", version="0.2.0")
 
 
 @app.get("/health")
@@ -16,6 +21,7 @@ def health() -> dict[str, object]:
         "service": config.project.name,
         "environment": config.project.environment,
         "model_ready": config.paths.baseline_model_path.exists(),
+        "dataset_ready": config.paths.analytic_dataset_path.exists(),
     }
 
 
@@ -30,15 +36,25 @@ def version() -> dict[str, str]:
 
 
 @app.post("/predict-next-item", response_model=PredictNextItemResponse)
-def predict_next_item(payload: PredictNextItemRequest) -> PredictNextItemResponse:
-    config = get_config()
-    model_ready = config.paths.baseline_model_path.exists()
+def predict_next_item_endpoint(payload: PredictNextItemRequest) -> PredictNextItemResponse:
+    prediction = predict_next_item(payload.model_dump())
+    if not prediction.model_ready:
+        return PredictNextItemResponse(
+            model_ready=False,
+            message=(
+                "Model artifact is not available yet. "
+                "Build the dataset and train the baseline first."
+            ),
+        )
+
     return PredictNextItemResponse(
-        model_ready=model_ready,
-        ranked_candidates=payload.candidate_item_ids,
-        message=(
-            "Stub only: no League of Legends business model is wired yet."
-            if not model_ready
-            else "Baseline artifact detected, but prediction logic is still intentionally stubbed."
-        ),
+        model_ready=True,
+        predicted_item_slug=prediction.predicted_item_slug,
+        confidence=prediction.confidence,
+        top_k_predictions=[
+            RankedPredictionResponse(item_slug=item.item_slug, score=item.score)
+            for item in prediction.top_predictions
+        ],
+        model_version=prediction.model_version,
+        message="Prediction generated from the local next-item baseline.",
     )

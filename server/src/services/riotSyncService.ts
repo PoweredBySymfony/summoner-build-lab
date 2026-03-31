@@ -81,6 +81,56 @@ function normalizeRiotId(gameName: string, tagLine: string) {
   return `${gameName.trim().toLowerCase()}#${tagLine.trim().toUpperCase()}`;
 }
 
+function extractPatchFromVersion(gameVersion: string | undefined) {
+  return gameVersion?.split(".").slice(0, 2).join(".");
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function shouldRetryRiotImport(error: unknown) {
+  return (
+    error instanceof HttpError &&
+    (error.status === 429 || error.status === 502 || error.status === 503 || error.status === 504)
+  );
+}
+
+function normalizeParticipantRole(value: unknown): Role | null {
+  const normalized = String(value ?? "")
+    .trim()
+    .toUpperCase();
+
+  switch (normalized) {
+    case "TOP":
+      return Role.TOP;
+    case "JUNGLE":
+      return Role.JUNGLE;
+    case "MIDDLE":
+    case "MID":
+      return Role.MID;
+    case "BOTTOM":
+    case "BOT":
+    case "ADC":
+    case "CARRY":
+      return Role.ADC;
+    case "UTILITY":
+    case "SUPPORT":
+      return Role.SUPPORT;
+    default:
+      return null;
+  }
+}
+
+function resolveParticipantRole(participant: Record<string, unknown> | undefined) {
+  return (
+    normalizeParticipantRole(participant?.teamPosition) ??
+    normalizeParticipantRole(participant?.individualPosition) ??
+    normalizeParticipantRole(participant?.role) ??
+    normalizeParticipantRole(participant?.lane)
+  );
+}
+
 function isPurchasableCatalogItem(
   riotItemId: number,
   item: {
@@ -300,6 +350,35 @@ async function buildUniqueItemSlug(riotItemId: number, name: string) {
   });
 
   return existing ? `${base}-${riotItemId}` : base;
+}
+
+async function fetchMatchBundleWithRetry(matchId: string, region: RiotRegion, maxAttempts = 3) {
+  let lastError: unknown = null;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      const [match, timeline] = await Promise.all([
+        riotApiClient.getMatchByIdOnRegion(matchId, region),
+        riotApiClient.getMatchTimelineByIdOnRegion(matchId, region),
+      ]);
+
+      return { match, timeline };
+    } catch (error) {
+      lastError = error;
+      if (!shouldRetryRiotImport(error) || attempt === maxAttempts) {
+        throw error;
+      }
+
+      const backoffMs = attempt * 500;
+      console.warn(
+        `[riot-sync] retrying match bundle fetch for ${matchId} in ${backoffMs}ms after transient error`,
+        error,
+      );
+      await sleep(backoffMs);
+    }
+  }
+
+  throw lastError ?? new HttpError(500, "Unable to fetch Riot match bundle.");
 }
 
 export const riotSyncService = {
@@ -558,13 +637,35 @@ export const riotSyncService = {
     }
 
     const ids = await riotApiClient.getMatchIdsByPuuidOnRegion(puuid, region, count);
-    const matches = await Promise.all(ids.map((matchId) => riotApiClient.getMatchByIdOnRegion(matchId, region)));
-
     const imported = [];
-    for (const match of matches) {
+    console.info(`[riot-sync] importing ${ids.length} matches for ${puuid} from ${region}`);
+
+    for (const matchId of ids) {
+      let match: Record<string, unknown>;
+      let timeline: Record<string, unknown> | null = null;
+
+      try {
+        const fetched = await fetchMatchBundleWithRetry(matchId, region);
+        match = fetched.match;
+        timeline = fetched.timeline;
+      } catch (error) {
+        console.warn(`[riot-sync] timeline fetch failed for ${matchId}, falling back to match-only import`, error);
+        match = await riotApiClient.getMatchByIdOnRegion(matchId, region);
+      }
+
       const metadata = match.metadata as { matchId?: string; participants?: string[] };
-      const info = match.info as { gameVersion?: string; participants?: Array<Record<string, unknown>> };
+      const info = match.info as {
+        gameVersion?: string;
+        gameCreation?: number;
+        gameDuration?: number;
+        participants?: Array<Record<string, unknown>>;
+      };
       const participant = info.participants?.find((entry) => entry.puuid === puuid);
+      if (!participant) {
+        console.warn(`[riot-sync] target participant missing in match ${metadata.matchId ?? matchId}, skipping`);
+        continue;
+      }
+
       await Promise.all(
         (info.participants ?? [])
           .filter((entry) => typeof entry.puuid === "string" && typeof entry.riotIdGameName === "string" && typeof entry.riotIdTagline === "string")
@@ -574,27 +675,73 @@ export const riotSyncService = {
             tagLine: String(entry.riotIdTagline),
           })),
       );
+
       const championSlug = await resolveChampionSlugFromParticipant(participant);
+      const targetRole = resolveParticipantRole(participant);
+      const riotMatchId = metadata.matchId ?? crypto.randomUUID();
+      const patch = extractPatchFromVersion(info.gameVersion);
+      const gameCreationAt = info.gameCreation ? new Date(info.gameCreation) : null;
+      const matchPayload: Prisma.InputJsonObject = {
+        raw: match as Prisma.InputJsonObject,
+        metadata: {
+          riotMatchId,
+          patch,
+          sourceRegion: region,
+          targetPuuid: puuid,
+          targetGameName: indexed?.gameName ?? null,
+          targetTagLine: indexed?.tagLine ?? null,
+          targetChampionId: Number(participant.championId) || null,
+          targetChampionSlug: championSlug,
+          targetRole,
+          gameCreationAt: gameCreationAt?.toISOString() ?? null,
+          gameDurationSeconds: clampNumber(info.gameDuration) || null,
+        } as Prisma.InputJsonObject,
+      };
+      const timelinePayload = timeline
+        ? ({ raw: timeline as Prisma.InputJsonObject } as Prisma.InputJsonObject)
+        : null;
+
       const created = await prisma.importedMatch.upsert({
-        where: { riotMatchId: metadata.matchId ?? crypto.randomUUID() },
+        where: { riotMatchId },
         update: {
-          patch: info.gameVersion?.split(".").slice(0, 2).join("."),
-          matchData: {
-            raw: match,
-            playerChampionSlug: championSlug,
-          } as Prisma.InputJsonValue,
+          patch,
+          sourceRegion: region,
+          targetPuuid: puuid,
+          targetGameName: indexed?.gameName ?? null,
+          targetTagLine: indexed?.tagLine ?? null,
+          targetChampionId: Number(participant.championId) || null,
+          targetChampionSlug: championSlug,
+          targetRole,
+          gameCreationAt,
+          gameDurationSeconds: clampNumber(info.gameDuration) || null,
+          timelineFetchedAt: timeline ? new Date() : null,
+          timelineMissingReason: timeline ? null : "timeline-unavailable-during-import",
+          matchData: matchPayload,
+          timelineData: timelinePayload,
         },
         create: {
           userId,
-          riotMatchId: metadata.matchId ?? crypto.randomUUID(),
-          patch: info.gameVersion?.split(".").slice(0, 2).join("."),
-          matchData: {
-            raw: match,
-            playerChampionSlug: championSlug,
-          } as Prisma.InputJsonValue,
+          riotMatchId,
+          patch,
+          sourceRegion: region,
+          targetPuuid: puuid,
+          targetGameName: indexed?.gameName ?? null,
+          targetTagLine: indexed?.tagLine ?? null,
+          targetChampionId: Number(participant.championId) || null,
+          targetChampionSlug: championSlug,
+          targetRole,
+          gameCreationAt,
+          gameDurationSeconds: clampNumber(info.gameDuration) || null,
+          timelineFetchedAt: timeline ? new Date() : null,
+          timelineMissingReason: timeline ? null : "timeline-unavailable-during-import",
+          matchData: matchPayload,
+          timelineData: timelinePayload,
         },
       });
       imported.push(created);
+      console.info(
+        `[riot-sync] imported ${riotMatchId} patch=${patch ?? "unknown"} timeline=${timeline ? "yes" : "no"} champion=${championSlug}`,
+      );
     }
 
     await prisma.playerProfile.upsert({

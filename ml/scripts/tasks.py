@@ -46,6 +46,10 @@ def test() -> int:
     return _run([sys.executable, "-m", "pytest"])
 
 
+def build_dataset() -> int:
+    return _run([sys.executable, "-m", "features.analytics"])
+
+
 def train_baseline() -> int:
     return _run([sys.executable, "-m", "training.baseline"])
 
@@ -73,6 +77,7 @@ COMMANDS = {
     "lint": lint,
     "typecheck": typecheck,
     "test": test,
+    "build-dataset": build_dataset,
     "train-baseline": train_baseline,
     "run-api": run_api,
 }

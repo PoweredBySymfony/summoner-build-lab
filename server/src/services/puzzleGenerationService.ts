@@ -885,7 +885,8 @@ export const puzzleGenerationService = {
     }
 
     const matchData = match.matchData as Prisma.JsonObject;
-    const championSlug = String(matchData.playerChampionSlug ?? "");
+    const metadata = matchData.metadata as Prisma.JsonObject | undefined;
+    const championSlug = String(match.targetChampionSlug ?? metadata?.targetChampionSlug ?? matchData.playerChampionSlug ?? "");
     const champion = await prisma.champion.findUnique({ where: { slug: championSlug } });
     if (!champion) {
       throw new HttpError(400, "La partie importée ne référence pas un champion connu.");

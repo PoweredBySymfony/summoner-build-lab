@@ -63,6 +63,10 @@ Lire ce fichier au debut de chaque nouvelle conversation sur ce repo, puis le me
     - docker optionnel:
       - `ml/Dockerfile`
       - service compose profile `ml`: `ml-api`
+      - volumes montes:
+        - `ml/artifacts`
+        - `ml/configs`
+        - `ml/data`
     - skills projet ajoutes:
       - `.agents/skills/python-ml-bootstrap/`
       - `.agents/skills/python-ml-data-pipeline/`
@@ -71,6 +75,104 @@ Lire ce fichier au debut de chaque nouvelle conversation sur ce repo, puis le me
       - `.cursor/agents/ml-bootstrapper.md`
       - `.cursor/agents/ml-data-pipeline.md`
       - `.cursor/agents/ml-fastapi-serving.md`
+  - phase 1 next-item en place:
+    - collecte enrichie cote backend:
+      - `ImportedMatch` stocke maintenant en plus:
+        - `sourceRegion`
+        - `targetPuuid`
+        - `targetGameName`
+        - `targetTagLine`
+        - `targetChampionId`
+        - `targetChampionSlug`
+        - `targetRole`
+        - `gameCreationAt`
+        - `gameDurationSeconds`
+        - `timelineFetchedAt`
+        - `timelineMissingReason`
+        - `timelineData`
+      - migration Prisma:
+        - `prisma/migrations/20260331110000_imported_match_ml_phase1/`
+      - `server/src/lib/riot/riotApiClient.ts` supporte:
+        - `getMatchTimelineByIdOnRegion()`
+      - `server/src/services/riotSyncService.ts`:
+        - importe maintenant match + timeline
+        - enrichit les metadata ML de la partie importee
+        - ajoute logs de progression / fallback / retry minimal
+      - script de backfill:
+        - `scripts/backfillImportedMatchTimelines.ts`
+        - commande: `npm run ml:backfill-timelines`
+    - export brut vers Python:
+      - script:
+        - `scripts/exportImportedMatchesForMl.ts`
+      - commande:
+        - `npm run ml:export-raw`
+      - sorties:
+        - `ml/data/raw/imported_matches.jsonl`
+        - `ml/data/raw/item_catalog.json`
+        - `ml/data/raw/champion_catalog.json`
+        - `ml/data/raw/manifest.json`
+    - dataset analytique Python:
+      - builder:
+        - `ml/features/analytics.py`
+      - granularite:
+        - 1 ligne = 1 achat `ITEM_PURCHASED` du joueur cible
+      - colonnes cle:
+        - match id / timestamp / patch / champion / role
+        - or dispo approx via timeline frame precedent
+        - niveau / KDA / CS
+        - inventaire courant
+        - `candidate_next_item`
+        - `actual_next_item`
+        - agregats ally/enemy simples
+      - sorties:
+        - parquet complet
+        - splits `train` / `validation` / `test`
+        - rapport dataset JSON
+    - baseline modele:
+      - entrainement:
+        - `ml/training/baseline.py`
+      - vectorisation:
+        - `ml/models/feature_builder.py`
+      - algo:
+        - `XGBoost` multiclasses
+        - fallback `RandomForest`
+      - metriques:
+        - top-1 accuracy
+        - top-3 accuracy
+        - MRR
+      - artefacts:
+        - `ml/artifacts/models/next-item-model.joblib`
+        - `ml/artifacts/models/next-item-model-metadata.json`
+        - `ml/artifacts/reports/next-item-evaluation.json`
+        - `ml/artifacts/reports/next-item-evaluation.md`
+    - inference FastAPI:
+      - endpoints:
+        - `GET /health`
+        - `GET /version`
+        - `POST /predict-next-item`
+      - fichiers:
+        - `ml/inference/api.py`
+        - `ml/inference/schemas.py`
+        - `ml/inference/service.py`
+        - `ml/inference/puzzle_prep.py`
+      - reponse prediction:
+        - prediction principale
+        - top-k predictions avec score
+        - version modele
+      - prep puzzle:
+        - seed avec bonne reponse
+        - distracteurs plausibles
+        - difficulte heuristique
+        - flag faible confiance
+    - commandes de workflow ML:
+      - `npm run ml:backfill-timelines`
+      - `npm run ml:export-raw`
+      - `python scripts/create_venv.py`
+      - `python scripts/install_deps.py`
+      - `python scripts/tasks.py build-dataset`
+      - `python scripts/tasks.py train-baseline`
+      - `python scripts/tasks.py run-api`
+      - `python scripts/tasks.py test`
 
 ## Lab d'Items
 

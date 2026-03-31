@@ -25,6 +25,10 @@ services:
     restart: unless-stopped
     ports:
       - "8001:8001"
+    volumes:
+      - ./ml/artifacts:/app/artifacts
+      - ./ml/configs:/app/configs:ro
+      - ./ml/data:/app/data
 
 volumes:
   summoner-build-lab-postgres-data:

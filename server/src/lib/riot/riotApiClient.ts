@@ -148,6 +148,13 @@ export class RiotApiClient {
     });
   }
 
+  getMatchTimelineByIdOnRegion(matchId: string, region: RiotRegion) {
+    return this.request<Record<string, unknown>>(
+      `/lol/match/v5/matches/${encodeURIComponent(matchId)}/timeline`,
+      { region },
+    );
+  }
+
   getRegionForPlatform(platform: RiotPlatform) {
     return PLATFORM_TO_REGION[platform];
   }
