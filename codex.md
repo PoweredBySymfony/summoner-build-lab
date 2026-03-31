@@ -1112,3 +1112,29 @@ Lire ce fichier au debut de chaque nouvelle conversation sur ce repo, puis le me
     - `top3 ~= 0.5491`
 - Attention execution:
   - ne pas lancer `ml:export-raw`, `build-dataset` et `train-baseline` en parallele si on veut mesurer le nouveau dataset; `build-dataset` doit demarrer apres la fin de l'export
+
+## Scenarios ML - reconstruction des items d'equipe (2026-03-31)
+
+- Le scenario d'un puzzle `AI_GENERATED` doit maintenant reconstruire les inventaires allies + ennemis au timestamp exact du snapshot retenu.
+- Cause racine du placeholder `Pas de snapshot d'items.`:
+  - `server/src/services/mlPuzzleGenerationService.ts` construisait `allyTeam` / `enemyTeam` avec `items: []`
+  - seule l'inventaire du joueur cible etait reconstruit pour le payload ML
+  - les autres participants n'etaient jamais rejoues sur la timeline
+- Regle de reconstruction:
+  - rejouer les events `ITEM_PURCHASED`, `ITEM_SOLD`, `ITEM_DESTROYED`, `ITEM_UNDO`
+  - s'arreter au timestamp exact du snapshot selectionne
+  - construire l'index `riotItemId -> slug` a partir des events items de tous les participants du match, pas seulement du joueur cible
+  - mapper `riotItemId -> slug` via l'index DB des items
+  - stocker l'inventaire complet cote backend
+  - limiter l'affichage frontend a `6` items max par participant
+- Helper dedie:
+  - `server/src/lib/ml/scenarioInventory.ts`
+  - sortie: `inventories`, `eventsApplied`, `participantsCovered`
+- Observabilite:
+  - log backend sur chaque snapshot reconstruit:
+    - minute du snapshot
+    - nombre de participants couverts
+    - nombre d'events items appliques
+- Test de garde:
+  - `src/test/scenarioInventory.test.ts`
+  - couvre achat / vente / destruction / undo

@@ -18,6 +18,7 @@ import {
   type MlPuzzleSeed,
   type MlPuzzleSnapshot,
 } from "../lib/ml/mlPuzzle.js";
+import { collectTimelineItemIds, reconstructInventoriesAtTimestamp } from "../lib/ml/scenarioInventory.js";
 import {
   buildChoiceSignatureForHistory,
   buildMlPuzzleBusinessRules,
@@ -40,6 +41,10 @@ type ScenarioMember = {
   championSlug: string;
   role: Role | null;
   items: string[];
+};
+
+type ScenarioMemberDraft = ScenarioMember & {
+  participantId: number;
 };
 
 type ScenarioSnapshot = {
@@ -463,27 +468,7 @@ async function buildSnapshotCandidatesFromImportedMatch(
     ]),
   );
 
-  const itemIdsSeen = new Set<number>();
-  for (const frame of frames) {
-    const events = Array.isArray(frame.events) ? (frame.events as Array<Record<string, unknown>>) : [];
-    for (const event of events) {
-      if (safeInt(event.participantId) !== participantId) {
-        continue;
-      }
-      const itemId = safeInt(event.itemId);
-      const beforeId = safeInt(event.beforeId);
-      const afterId = safeInt(event.afterId);
-      if (itemId > 0) {
-        itemIdsSeen.add(itemId);
-      }
-      if (beforeId > 0) {
-        itemIdsSeen.add(beforeId);
-      }
-      if (afterId > 0) {
-        itemIdsSeen.add(afterId);
-      }
-    }
-  }
+  const itemIdsSeen = collectTimelineItemIds(frames as Array<Record<string, unknown>>);
 
   const itemRows = itemIdsSeen.size
     ? await prisma.item.findMany({
@@ -498,8 +483,8 @@ async function buildSnapshotCandidatesFromImportedMatch(
     : [];
   const itemSlugIndex = new Map(itemRows.map((item) => [item.riotItemId, item.slug]));
 
-  const allyTeam: ScenarioMember[] = [];
-  const enemyTeam: ScenarioMember[] = [];
+  const allyTeamDraft: ScenarioMemberDraft[] = [];
+  const enemyTeamDraft: ScenarioMemberDraft[] = [];
   let allyFrontlineCount = 0;
   let allyMagicDamageCount = 0;
   let allyPhysicalDamageCount = 0;
@@ -517,19 +502,20 @@ async function buildSnapshotCandidatesFromImportedMatch(
 
     const profile = buildChampionProfile(champion.tags);
     const member = {
+      participantId: safeInt(participant.participantId),
       championSlug: champion.slug,
       role: resolveParticipantRole(participant),
       items: [],
     };
 
     if (safeInt(participant.teamId) === ownTeamId) {
-      allyTeam.push(member);
+      allyTeamDraft.push(member);
       allyFrontlineCount += profile.frontline;
       allyMagicDamageCount += profile.magic;
       allyPhysicalDamageCount += profile.physical;
       allySupportCount += profile.support;
     } else {
-      enemyTeam.push(member);
+      enemyTeamDraft.push(member);
       enemyFrontlineCount += profile.frontline;
       enemyMagicDamageCount += profile.magic;
       enemyPhysicalDamageCount += profile.physical;
@@ -579,6 +565,26 @@ async function buildSnapshotCandidatesFromImportedMatch(
         const currentBuild = inventory
           .map((value) => itemSlugIndex.get(value))
           .filter((value): value is string => Boolean(value));
+        const reconstructedInventories = reconstructInventoriesAtTimestamp({
+          frames: sortedFrames,
+          upToTimestamp: safeInt(event.timestamp),
+          participantIds: [
+            ...allyTeamDraft.map((member) => member.participantId),
+            ...enemyTeamDraft.map((member) => member.participantId),
+          ],
+          itemSlugIndex,
+        });
+        console.info(
+          `[ml-puzzle] reconstructed team inventories snapshotMinute=${(safeInt(event.timestamp) / 60000).toFixed(2)} participants=${reconstructedInventories.participantsCovered} eventsApplied=${reconstructedInventories.eventsApplied}`,
+        );
+        const allyTeam = allyTeamDraft.map(({ participantId: _participantId, ...member }) => ({
+          ...member,
+          items: reconstructedInventories.inventories.get(_participantId) ?? [],
+        }));
+        const enemyTeam = enemyTeamDraft.map(({ participantId: _participantId, ...member }) => ({
+          ...member,
+          items: reconstructedInventories.inventories.get(_participantId) ?? [],
+        }));
         const snapshot = {
           patch: importedMatch.patch ?? "unknown",
           championSlug: importedMatch.targetChampionSlug ?? "",

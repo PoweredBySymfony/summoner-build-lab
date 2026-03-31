@@ -46,7 +46,7 @@ const renderItem = (
 const TeamRow = ({ entry }: { entry: TeamEntry }) => {
   const champion = isChampionView(entry) ? entry : entry.champion;
   const role = isChampionView(entry) ? undefined : entry.role;
-  const items = isChampionView(entry) ? [] : entry.items ?? [];
+  const items = (isChampionView(entry) ? [] : entry.items ?? []).slice(0, 6);
 
   return (
     <div className="grid grid-cols-[170px_1fr] items-center gap-3 rounded-2xl border border-border/60 bg-background/60 px-3 py-3">
