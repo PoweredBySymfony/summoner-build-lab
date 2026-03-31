@@ -11,11 +11,24 @@ import {
 import { env } from "../config/env.js";
 import {
   buildBackendPuzzleSeed,
+  isLowConfidenceDraftAllowed,
   isMlGenerationConfigured,
   mapSnapshotToMlPayload,
+  type MlPuzzleSeed,
   type MlPredictNextItemResponse,
   type MlPuzzleSnapshot,
 } from "../lib/ml/mlPuzzle.js";
+import {
+  buildChoiceSignatureForHistory,
+  buildMlPuzzleBusinessRules,
+  shuffleResolvedChoices,
+} from "../lib/ml/puzzleBusinessRules.js";
+import {
+  resolveMlChoiceItemRef,
+  resolveMlPuzzleChoices,
+  toChoiceDebugPayload,
+  type MlChoiceItem,
+} from "../lib/ml/puzzleChoiceResolution.js";
 import { prisma } from "../lib/prisma.js";
 import { slugify } from "../lib/slug.js";
 import { resolveItemSlug } from "../lib/itemSlugAliases.js";
@@ -99,6 +112,34 @@ function isMlConfigured() {
   });
 }
 
+function buildMlRequestMetadata(input: {
+  snapshot: MlPuzzleSnapshot;
+  prediction: MlPredictNextItemResponse;
+  seed: MlPuzzleSeed;
+  forcedDraft: boolean;
+  payload: Record<string, unknown>;
+  businessRules?: Prisma.InputJsonValue;
+}): Prisma.InputJsonValue {
+  return {
+    payload: input.payload as Prisma.InputJsonValue,
+    prediction: input.prediction as Prisma.InputJsonValue,
+    seed: input.seed as Prisma.InputJsonValue,
+    draft: {
+      forced: input.forcedDraft,
+      lowConfidence: input.seed.lowConfidence,
+    } as Prisma.InputJsonValue,
+    metrics: {
+      confidenceScore: input.seed.confidenceScore,
+      confidenceGap: input.seed.confidenceGap,
+      candidatePoolSize: input.seed.candidatePoolSize,
+      modelVersion: input.prediction.model_version,
+      predictedItemSlug: input.prediction.predicted_item_slug,
+      snapshotTimestampMinutes: input.snapshot.timestampMinutes,
+    } as Prisma.InputJsonValue,
+    businessRules: input.businessRules,
+  } as Prisma.InputJsonValue;
+}
+
 async function postPrediction(payload: object): Promise<MlPredictNextItemResponse> {
   if (!env.ML_API_URL) {
     throw new HttpError(503, "ML_API_URL is not configured.");
@@ -150,6 +191,80 @@ async function getItemsBySlugs(slugs: string[]) {
     },
   });
   return new Map(items.map((item) => [item.slug, item]));
+}
+
+async function getPatchChoiceItems(patch: string) {
+  const items = await prisma.item.findMany({
+    where: {
+      isActive: true,
+      patch: {
+        startsWith: patch,
+      },
+    },
+      select: {
+        id: true,
+        slug: true,
+        name: true,
+        riotItemId: true,
+        goldTotal: true,
+        patch: true,
+        category: true,
+        tags: true,
+      isBoots: true,
+      isLegendary: true,
+      isConsumable: true,
+      isStarter: true,
+      isTrinket: true,
+      isActive: true,
+    },
+  });
+
+  return items.map(
+    (item): MlChoiceItem => ({
+      ...item,
+      tags: Array.isArray(item.tags) ? item.tags.map((tag) => String(tag)) : [],
+    }),
+  );
+}
+
+async function getPreviousChoiceSignatures(input: {
+  importedMatchId: string;
+  userId: string;
+}) {
+  const requests = await prisma.generatedPuzzleRequest.findMany({
+    where: {
+      importedMatchId: input.importedMatchId,
+      userId: input.userId,
+      status: GeneratedPuzzleRequestStatus.COMPLETED,
+      resultPuzzleId: { not: null },
+    },
+    select: {
+      resultPuzzle: {
+        select: {
+          sourceType: true,
+          choices: {
+            select: {
+              item: {
+                select: {
+                  slug: true,
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  });
+
+  return requests
+    .filter((requestRecord) => requestRecord.resultPuzzle?.sourceType === PuzzleSourceType.AI_GENERATED)
+    .map((requestRecord) =>
+      requestRecord.resultPuzzle?.choices
+        .map((choice) => choice.item?.slug)
+        .filter((slug): slug is string => Boolean(slug)) ?? [],
+    )
+    .filter((slugs) => slugs.length === 4)
+    .map((slugs) => [...slugs].sort().join("|"));
 }
 
 async function buildSnapshotFromImportedMatch(
@@ -381,8 +496,9 @@ async function createAiGeneratedPuzzle(input: {
   importedMatchId: string;
   snapshot: MlPuzzleSnapshot;
   scenario: { currentBuild: string[]; allyTeam: ScenarioMember[]; enemyTeam: ScenarioMember[] };
-  seed: ReturnType<typeof buildBackendPuzzleSeed>;
+  seed: MlPuzzleSeed;
   prediction: MlPredictNextItemResponse;
+  forcedDraft: boolean;
 }) {
   const champion = await prisma.champion.findUnique({
     where: { slug: input.snapshot.championSlug },
@@ -391,16 +507,147 @@ async function createAiGeneratedPuzzle(input: {
     throw new HttpError(400, "Champion not found for AI-generated puzzle.");
   }
 
-  const choiceSlugs = [input.seed.goodAnswer, ...input.seed.distractors].filter(
-    (value): value is string => Boolean(value),
-  );
-  const itemIndex = await getItemsBySlugs(choiceSlugs);
-  if (choiceSlugs.length !== 4 || choiceSlugs.some((slug) => !itemIndex.has(resolveItemSlug(slug)))) {
-    throw new HttpError(500, "Unable to resolve AI-generated puzzle choices.");
+  const patchChoiceItems = await getPatchChoiceItems(input.snapshot.patch);
+  const resolvedGoodAnswer = resolveMlChoiceItemRef(input.seed.goodAnswer, patchChoiceItems);
+  if (!resolvedGoodAnswer) {
+    const debugPayload = {
+      patch: input.snapshot.patch,
+      goodAnswer: input.seed.goodAnswer,
+      candidatePoolSize: input.prediction.candidate_pool_size,
+      reason: "good-answer-unresolved-before-business-rules",
+    };
+    console.error("[ml-puzzle] choice-resolution-failed", JSON.stringify(debugPayload));
+    throw new HttpError(
+      422,
+      "ML output could not resolve the predicted item against the current patch catalog.",
+      debugPayload,
+    );
   }
+
+  const rankedResolvedItems = input.prediction.top_k_predictions
+    .map((entry) => resolveMlChoiceItemRef(entry.item_slug, patchChoiceItems))
+    .filter((item): item is MlChoiceItem => Boolean(item));
+  const previousChoiceSignatures = await getPreviousChoiceSignatures({
+    importedMatchId: input.importedMatchId,
+    userId: input.userId,
+  });
+  const variationSeed = `${input.importedMatchId}:${input.userId}:${Date.now()}`;
+  const championTags = Array.isArray(champion.tags) ? champion.tags.map((tag) => String(tag)) : [];
+  const businessRules = buildMlPuzzleBusinessRules({
+    snapshot: input.snapshot,
+    championTags,
+    goodAnswer: resolvedGoodAnswer,
+    rankedCandidates: rankedResolvedItems,
+    availableItems: patchChoiceItems,
+    previousChoiceSignatures,
+    variationSeed,
+  });
+  if (businessRules.debug.goodAnswerViolations.length > 0) {
+    const debugPayload = {
+      patch: input.snapshot.patch,
+      goodAnswer: resolvedGoodAnswer.slug,
+      candidatePoolSize: input.prediction.candidate_pool_size,
+      businessRules: businessRules.debug,
+      reason: "good-answer-failed-business-rules",
+    };
+    console.error("[ml-puzzle] choice-resolution-failed", JSON.stringify(debugPayload));
+    throw new HttpError(
+      422,
+      "La prediction ML principale n'est pas assez credible pour construire un puzzle exploitable.",
+      debugPayload,
+    );
+  }
+  if (businessRules.debug.candidatePoolSizeAfterFallback < 6) {
+    const debugPayload = {
+      patch: input.snapshot.patch,
+      goodAnswer: resolvedGoodAnswer.slug,
+      candidatePoolSize: input.prediction.candidate_pool_size,
+      businessRules: businessRules.debug,
+      reason: "candidate-pool-too-small-after-business-rules",
+    };
+    console.error("[ml-puzzle] choice-resolution-failed", JSON.stringify(debugPayload));
+    throw new HttpError(
+      422,
+      "Le pool candidat reste trop faible apres filtrage metier pour creer un puzzle credible.",
+      debugPayload,
+    );
+  }
+  const choiceResolutionInput = {
+    patch: input.snapshot.patch,
+    currentItemSlugs: input.snapshot.currentItems,
+    goodAnswer: input.seed.goodAnswer,
+    distractors: businessRules.debug.selectedDistractors,
+    rankedItemSlugs: businessRules.distractorCandidates.map((item) => item.slug),
+    availableItems: [resolvedGoodAnswer, ...businessRules.distractorCandidates],
+    fallbackItems: businessRules.distractorCandidates,
+  };
+
+  let resolvedChoices: ReturnType<typeof resolveMlPuzzleChoices>;
+  try {
+    resolvedChoices = resolveMlPuzzleChoices(choiceResolutionInput);
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    const debugPayload = {
+      patch: input.snapshot.patch,
+      goodAnswer: input.seed.goodAnswer,
+        distractors: input.seed.distractors,
+        candidatePoolSize: input.prediction.candidate_pool_size,
+        rankedItemSlugs: input.prediction.top_k_predictions.map((entry) => entry.item_slug),
+        currentItems: input.snapshot.currentItems,
+        businessRules: businessRules.debug,
+        reason,
+      };
+      console.error("[ml-puzzle] choice-resolution-failed", JSON.stringify(debugPayload));
+      throw new HttpError(
+        422,
+      "ML output could not be converted into 1 valid answer and 3 valid distractors.",
+      debugPayload,
+    );
+  }
+
+  console.info(
+    "[ml-puzzle] choice-resolution",
+    JSON.stringify({
+        patch: input.snapshot.patch,
+        candidatePoolSize: input.prediction.candidate_pool_size,
+        goodAnswer: input.seed.goodAnswer,
+        distractors: input.seed.distractors,
+        businessRules: businessRules.debug,
+        ...toChoiceDebugPayload(resolvedChoices),
+      }),
+    );
+
+  const choiceSignature = buildChoiceSignatureForHistory(
+    resolvedChoices.goodAnswer.slug,
+    resolvedChoices.distractors.map((item) => item.slug),
+  );
+  const orderedChoices = shuffleResolvedChoices(
+    resolvedChoices.goodAnswer,
+    resolvedChoices.distractors,
+    variationSeed,
+  );
+  const choiceSlugs = [
+    resolvedChoices.goodAnswer.slug,
+    ...resolvedChoices.distractors.map((item) => item.slug),
+  ];
+  const itemIndex = await getItemsBySlugs(choiceSlugs);
 
   const title = `${champion.name} AI item puzzle`;
   const slug = slugify(`${champion.slug}-ai-generated-${Date.now()}`);
+  const metadataSummary = [
+    `lowConfidence=${input.seed.lowConfidence}`,
+    `forcedDraft=${input.forcedDraft}`,
+    `confidence=${input.seed.confidenceScore.toFixed(4)}`,
+    `gap=${input.seed.confidenceGap.toFixed(4)}`,
+    `candidatePoolSize=${input.seed.candidatePoolSize}`,
+    `snapshotMinute=${input.snapshot.timestampMinutes.toFixed(2)}`,
+    `modelVersion=${input.prediction.model_version ?? "unknown"}`,
+    `candidatePoolAfterChampion=${businessRules.debug.candidatePoolSizeAfterChampion}`,
+    `candidatePoolAfterGold=${businessRules.debug.candidatePoolSizeAfterGold}`,
+    `candidatePoolAfterFallback=${businessRules.debug.candidatePoolSizeAfterFallback}`,
+    `variationSeed=${variationSeed}`,
+    `choiceSignature=${choiceSignature}`,
+  ].join(" | ");
   const puzzle = await prisma.puzzle.create({
     data: {
       title,
@@ -414,32 +661,36 @@ async function createAiGeneratedPuzzle(input: {
             ? PuzzleDifficulty.INTERMEDIATE
             : PuzzleDifficulty.ADVANCED,
       patch: input.snapshot.patch,
-      description: `Puzzle genere par le service ML pour ${champion.name}.`,
-      shortPrompt: `Le modele propose le prochain item le plus coherent pour ${champion.name}.`,
+      description: input.seed.lowConfidence
+        ? `Brouillon genere par le service ML pour ${champion.name}, a revoir avant toute publication.`
+        : `Puzzle genere par le service ML pour ${champion.name}.`,
+      shortPrompt: input.seed.lowConfidence
+        ? `Brouillon ML faible confiance pour ${champion.name}.`
+        : `Le modele propose le prochain item le plus coherent pour ${champion.name}.`,
       situation: `Tu joues ${champion.name} vers ${input.snapshot.timestampMinutes.toFixed(1)} minutes avec ${input.snapshot.goldAvailable} gold disponible.`,
       question: "Quel est le meilleur prochain achat dans cette situation ?",
       explanation: `La prediction ML privilegie ${itemIndex.get(resolveItemSlug(input.seed.goodAnswer!))?.name ?? input.seed.goodAnswer}.`,
       role: input.snapshot.role,
       championId: champion.id,
-      isPublished: false,
-      isDailyEligible: false,
-      choices: {
-        create: choiceSlugs.map((choiceSlug, index) => {
-          const item = itemIndex.get(resolveItemSlug(choiceSlug))!;
-          return {
-            label: item.name,
-            choiceType: item.isBoots ? PuzzleChoiceType.BOOTS : PuzzleChoiceType.ITEM,
-            itemId: item.id,
-            explanation:
-              choiceSlug === input.seed.goodAnswer
-                ? "Choix principal du modele ranking."
-                : "Distracteur plausible propose pour revue manuelle.",
-            isCorrect: choiceSlug === input.seed.goodAnswer,
-            displayOrder: index + 1,
-          };
-        }),
-      },
-      scenario: {
+        isPublished: false,
+        isDailyEligible: false,
+        choices: {
+          create: orderedChoices.map(({ item: resolvedItem, isCorrect }, index) => {
+            const item = itemIndex.get(resolveItemSlug(resolvedItem.slug))!;
+            return {
+              label: item.name,
+              choiceType: item.isBoots ? PuzzleChoiceType.BOOTS : PuzzleChoiceType.ITEM,
+              itemId: item.id,
+              explanation:
+                isCorrect
+                  ? "Choix principal du modele ranking."
+                  : "Distracteur plausible propose pour revue manuelle.",
+              isCorrect,
+              displayOrder: index + 1,
+            };
+          }),
+        },
+        scenario: {
         create: {
           playerChampionId: champion.id,
           playerRole: input.snapshot.role ?? Role.FLEX,
@@ -449,15 +700,24 @@ async function createAiGeneratedPuzzle(input: {
           kills: input.snapshot.kills,
           deaths: input.snapshot.deaths,
           assists: input.snapshot.assists,
-          cs: input.snapshot.cs,
-          currentBuild: input.scenario.currentBuild as Prisma.InputJsonValue,
-          allyTeam: input.scenario.allyTeam as Prisma.InputJsonValue,
-          enemyTeam: input.scenario.enemyTeam as Prisma.InputJsonValue,
-          notes: `ML candidate pool size=${input.prediction.candidate_pool_size}. Model version=${input.prediction.model_version ?? "unknown"}.`,
+            cs: input.snapshot.cs,
+            currentBuild: input.scenario.currentBuild as Prisma.InputJsonValue,
+            allyTeam: input.scenario.allyTeam as Prisma.InputJsonValue,
+            enemyTeam: input.scenario.enemyTeam as Prisma.InputJsonValue,
+            objectiveState: businessRules.objectiveState as Prisma.InputJsonValue,
+            damageProfile: businessRules.damageProfile as Prisma.InputJsonValue,
+            mapState: businessRules.mapState as Prisma.InputJsonValue,
+            notes: `${businessRules.notes} ${metadataSummary}`,
+          },
         },
-      },
-      tags: {
-        create: ["ai-generated", "ml", "next-item"].map((tag) => ({
+        tags: {
+        create: [
+          "ai-generated",
+          "ml",
+          "next-item",
+          "ml-draft",
+          ...(input.seed.lowConfidence ? ["low-confidence"] : []),
+        ].map((tag) => ({
           tag: {
             connectOrCreate: {
               where: { slug: slugify(tag) },
@@ -469,7 +729,12 @@ async function createAiGeneratedPuzzle(input: {
     },
   });
 
-  return puzzle;
+  return {
+    puzzle,
+    businessRules,
+    choiceSignature,
+    variationSeed,
+  };
 }
 
 async function markRequestFailed(
@@ -494,7 +759,14 @@ export const mlPuzzleGenerationService = {
     return isMlConfigured();
   },
 
-  async generateFromImportedMatch(importedMatchId: string, userId: string) {
+  async generateFromImportedMatch(
+    importedMatchId: string,
+    userId: string,
+    options?: {
+      forceDraftOnLowConfidence?: boolean;
+      actorIsAdmin?: boolean;
+    },
+  ) {
     if (!isMlConfigured()) {
       throw new HttpError(503, "ML puzzle generation is not configured.");
     }
@@ -521,52 +793,90 @@ export const mlPuzzleGenerationService = {
       const payload = mapSnapshotToMlPayload(snapshot);
       const prediction = await postPrediction(payload);
       const seed = buildBackendPuzzleSeed(prediction);
+      const allowLowConfidenceDraft = isLowConfidenceDraftAllowed({
+        isAdmin: Boolean(options?.actorIsAdmin),
+        envEnabled: env.ML_ALLOW_LOW_CONFIDENCE_DRAFTS,
+        forceDraftOnLowConfidence: options?.forceDraftOnLowConfidence,
+      });
 
       if (seed.lowConfidence) {
         console.warn(
           `[ml-puzzle] low confidence for importedMatchId=${importedMatchId} confidence=${prediction.confidence ?? "n/a"}`,
         );
-        await markRequestFailed(request.id, "low-confidence", {
-          payload,
+        const lowConfidenceMetadata = buildMlRequestMetadata({
+          snapshot,
           prediction,
           seed,
-        } as Prisma.InputJsonValue);
-        throw new HttpError(422, "ML prediction was too ambiguous to create a publishable puzzle.");
+          forcedDraft: allowLowConfidenceDraft && seed.lowConfidence,
+          payload,
+        });
+        if (!allowLowConfidenceDraft) {
+          await markRequestFailed(request.id, "low-confidence", lowConfidenceMetadata as Prisma.InputJsonValue);
+          throw new HttpError(
+            422,
+            "Le modele ML manque de confiance pour creer un puzzle publiable. Relance en mode brouillon admin si tu veux conserver ce resultat pour revue.",
+            {
+              requestId: request.id,
+              lowConfidence: true,
+              confidenceScore: seed.confidenceScore,
+              confidenceGap: seed.confidenceGap,
+              candidatePoolSize: seed.candidatePoolSize,
+            },
+          );
+        }
       }
 
-      const puzzle = await createAiGeneratedPuzzle({
+      const generation = await createAiGeneratedPuzzle({
         userId,
         importedMatchId,
         snapshot,
         scenario,
         seed,
         prediction,
+        forcedDraft: allowLowConfidenceDraft && seed.lowConfidence,
+      });
+      const requestMetadata = buildMlRequestMetadata({
+        snapshot,
+        prediction,
+        seed,
+        forcedDraft: allowLowConfidenceDraft && seed.lowConfidence,
+        payload,
+        businessRules: {
+          ...generation.businessRules.debug,
+          choiceSignature: generation.choiceSignature,
+          variationSeed: generation.variationSeed,
+        } as Prisma.InputJsonValue,
       });
 
       await prisma.generatedPuzzleRequest.update({
         where: { id: request.id },
         data: {
           status: GeneratedPuzzleRequestStatus.COMPLETED,
-          resultPuzzleId: puzzle.id,
-          parameters: {
-            payload,
-            prediction,
-            seed,
-          },
+          resultPuzzleId: generation.puzzle.id,
+          parameters: requestMetadata,
         },
       });
 
       return {
-        slug: puzzle.slug,
-        slugs: [puzzle.slug],
+        requestId: request.id,
+        slug: generation.puzzle.slug,
+        slugs: [generation.puzzle.slug],
         sourceType: "ai_generated",
         published: false,
+        lowConfidence: seed.lowConfidence,
+        draft: true,
       };
     } catch (error) {
-      if (!(error instanceof HttpError && error.status === 422)) {
+      const alreadyHandledLowConfidence =
+        error instanceof HttpError &&
+        error.status === 422 &&
+        error.message.includes("Relance en mode brouillon admin");
+
+      if (!alreadyHandledLowConfidence) {
         await markRequestFailed(
           request.id,
           error instanceof Error ? error.message : String(error),
+          error instanceof HttpError ? (error.details as Prisma.InputJsonValue | undefined) : undefined,
         );
       }
       throw error;

@@ -879,9 +879,16 @@ export const puzzleGenerationService = {
     return buildChampionSeries(championId, userId, undefined, 5);
   },
 
-  async generateMatchBasedPuzzle(importedMatchId: string, userId: string) {
+  async generateMatchBasedPuzzle(
+    importedMatchId: string,
+    userId: string,
+    options?: {
+      forceDraftOnLowConfidence?: boolean;
+      actorIsAdmin?: boolean;
+    },
+  ) {
     if (mlPuzzleGenerationService.isConfigured()) {
-      return mlPuzzleGenerationService.generateFromImportedMatch(importedMatchId, userId);
+      return mlPuzzleGenerationService.generateFromImportedMatch(importedMatchId, userId, options);
     }
 
     const match = await prisma.importedMatch.findUnique({ where: { id: importedMatchId } });

@@ -65,6 +65,9 @@ export type MlPuzzleSeed = {
   distractors: string[];
   difficulty: "easy" | "medium" | "hard";
   lowConfidence: boolean;
+  confidenceScore: number;
+  confidenceGap: number;
+  candidatePoolSize: number;
 };
 
 const DEFAULT_MIN_CONFIDENCE = 0.35;
@@ -76,6 +79,26 @@ export function isMlGenerationConfigured(input: {
   apiUrl?: string | null;
 }) {
   return input.enabled && Boolean(input.apiUrl?.trim());
+}
+
+export function isLowConfidenceDraftAllowed(input: {
+  isAdmin: boolean;
+  envEnabled: boolean;
+  forceDraftOnLowConfidence?: boolean;
+}) {
+  if (!input.isAdmin) {
+    return false;
+  }
+
+  return input.envEnabled || Boolean(input.forceDraftOnLowConfidence);
+}
+
+export function canAccessGeneratedDraft(input: {
+  ownerId: string;
+  viewerId: string;
+  viewerIsAdmin: boolean;
+}) {
+  return input.viewerIsAdmin || input.ownerId === input.viewerId;
 }
 
 export function mapSnapshotToMlPayload(snapshot: MlPuzzleSnapshot): MlPredictNextItemRequest {
@@ -142,5 +165,8 @@ export function buildBackendPuzzleSeed(
     distractors,
     difficulty,
     lowConfidence,
+    confidenceScore: confidence,
+    confidenceGap,
+    candidatePoolSize: prediction.candidate_pool_size,
   };
 }

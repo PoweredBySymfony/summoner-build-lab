@@ -24,6 +24,7 @@ const envSchema = z.object({
   ML_API_URL: z.string().optional(),
   ML_API_TIMEOUT_MS: z.coerce.number().default(4000),
   ML_API_RETRY_COUNT: z.coerce.number().default(1),
+  ML_ALLOW_LOW_CONFIDENCE_DRAFTS: z.coerce.boolean().default(false),
   GOOGLE_CLIENT_ID: z.string().optional(),
   GOOGLE_CLIENT_SECRET: z.string().optional(),
   GOOGLE_REDIRECT_URI: z.string().optional(),

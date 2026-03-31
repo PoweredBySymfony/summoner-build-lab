@@ -207,6 +207,7 @@ Lire ce fichier au debut de chaque nouvelle conversation sur ce repo, puis le me
         - `ML_API_URL`
         - `ML_API_TIMEOUT_MS`
         - `ML_API_RETRY_COUNT`
+        - `ML_ALLOW_LOW_CONFIDENCE_DRAFTS`
       - backend service dedie:
         - `server/src/services/mlPuzzleGenerationService.ts`
       - helper ML backend pur:
@@ -218,8 +219,18 @@ Lire ce fichier au debut de chaque nouvelle conversation sur ce repo, puis le me
           - appelle `POST /predict-next-item`
           - construit un seed puzzle cote backend
           - si `lowConfidence`:
-            - ne publie rien
-            - marque la `GeneratedPuzzleRequest` en `FAILED`
+            - mode normal:
+              - ne publie rien
+              - marque la `GeneratedPuzzleRequest` en `FAILED`
+              - renvoie `422` avec message explicite
+            - mode test/admin:
+              - seulement pour admin
+              - active via `ML_ALLOW_LOW_CONFIDENCE_DRAFTS=true` ou `forceDraftOnLowConfidence=true`
+              - cree quand meme un puzzle `AI_GENERATED` en brouillon
+              - garde `isPublished=false`
+              - garde `isDailyEligible=false`
+              - marque le puzzle via tags `ml-draft` et `low-confidence`
+              - marque la `GeneratedPuzzleRequest` en `COMPLETED`
           - sinon:
             - cree un puzzle `sourceType=AI_GENERATED`
             - laisse `isPublished=false` pour revue manuelle
@@ -235,12 +246,100 @@ Lire ce fichier au debut de chaque nouvelle conversation sur ce repo, puis le me
         - UI admin:
           - `src/pages/Admin.tsx`
           - file de revue visible dans l'onglet puzzles avec bouton `Publier`
+      - consultation des drafts ML:
+        - `GET /api/generated-puzzles/requests/:requestId/draft`
+        - accessible au proprietaire de la request et aux admins
+        - `GET /api/puzzles/:slug` autorise aussi la lecture d'un brouillon `AI_GENERATED` pour son proprietaire/admin
+      - metadonnees stockees dans `GeneratedPuzzleRequest.parameters`:
+        - `lowConfidence`
+        - `confidenceScore`
+        - `confidenceGap`
+        - `candidatePoolSize`
+        - `snapshotTimestampMinutes`
+        - payload et prediction bruts
+      - contrat canonique items ML -> backend:
+        - format attendu en priorite:
+          - `Item.slug` canonique de l'application
+        - backend tolere aussi:
+          - alias EN -> FR via `server/src/lib/itemSlugAliases.ts`
+          - IDs numeriques `riotItemId` stringifies si besoin futur
+        - resolution centralisee:
+          - `server/src/lib/ml/puzzleChoiceResolution.ts`
+        - comportement:
+          - le `goodAnswer` doit etre resolvable absolument
+          - les distracteurs ML invalides / dupliques sont filtres
+          - si moins de 3 distracteurs valides restent, le backend complete via fallback sur items actifs du patch courant
+          - si on ne peut toujours pas obtenir `1 bonne reponse + 3 distracteurs`, on renvoie une erreur metier explicite avec details
+      - bug racine corrige (2026-03-31):
+        - le flow pouvait echouer sur `Unable to resolve AI-generated puzzle choices.`
+        - cause principale:
+          - certains outputs ML donnaient moins de 4 choix exploitables
+          - exemple reel:
+            - `candidate_pool_size = 3`
+            - distracteurs dupliques / introuvables comme `lance-noire-de-kalista(-3600)`
+          - le backend exigeait 4 choix strictement resolus sans fallback
+        - correctif:
+          - logs structures `choice-resolution`
+          - fallback de distracteurs depuis la table `Item` patch courante
+          - erreurs explicites avec details si le contrat reste impossible a satisfaire
+      - garde-fous credibilite produit ajoutes (2026-03-31):
+        - nouvelle couche backend pure:
+          - `server/src/lib/ml/puzzleBusinessRules.ts`
+        - objectif:
+          - ameliorer la qualite percue des puzzles `AI_GENERATED` sans modifier le modele ML
+        - regles metier appliquees avant creation du puzzle:
+          - filtrage champion -> types d'items autorises selon `role` + tags Riot du champion
+          - exclusion des items incoherents avec le plan du champion:
+            - exemple vise:
+              - AP pur sur ADC physique
+          - filtrage gold:
+            - fenetre min/max derivee de `goldAvailable`
+            - exclusion des items trop cheap (reponse triviale)
+            - exclusion des items trop chers
+          - exclusion des items deja possedes dans le snapshot
+          - renforcement du pool candidat:
+            - cible minimale:
+              - `6` candidats credibles
+            - fallback progressif si le filtrage strict devient trop petit
+          - la bonne reponse ML elle-meme est maintenant validee:
+            - si elle est incoherente ou hors fenetre gold, on refuse la generation avec une erreur metier explicite
+        - variation:
+          - chaque generation match-based utilise maintenant un `variationSeed`
+          - le backend evite de reutiliser exactement la meme signature de choix quand des alternatives existent deja pour la meme partie/utilisateur
+          - l'ordre d'affichage des 4 choix est melange et ne laisse plus systematiquement la bonne reponse en premiere position
+        - observabilite:
+          - logs structures enrichis avec:
+            - taille du pool avant/apres filtrage
+            - motifs de filtrage
+            - fenetre gold appliquee
+            - signature de choix
+            - seed de variation
+          - ces metadonnees sont aussi stockees dans `GeneratedPuzzleRequest.parameters.businessRules`
+        - enrichissement scenario:
+          - les puzzles ML remplissent maintenant `objectiveState`, `damageProfile` et `mapState`
+          - `Training` peut donc afficher un objectif simple genere depuis l'etat de partie sans changer le modele
+        - comportement produit:
+          - un output ML techniquement valide mais peu credible peut maintenant etre refuse en `422`
+          - exemple reel bloque:
+            - `charme-feerique` sur un profil ADC physique
       - tests Node associes:
         - `src/test/mlPuzzle.test.ts`
+        - `src/test/mlPuzzleChoiceResolution.test.ts`
+        - `src/test/mlPuzzleBusinessRules.test.ts`
         - couvre:
           - fallback si `ML_API_URL` absent
           - mapping du payload ML
           - refus de publication en cas de faible confiance
+          - activation reservee admin du mode draft low-confidence
+          - controle d'acces owner/admin sur les drafts
+          - resolution d'une seed ML valide
+          - distracteur introuvable
+          - bonne reponse introuvable
+          - collisions / doublons
+          - filtrage items incoherents
+          - filtrage gold anti-reponse triviale
+          - pool candidat minimal
+          - variation / ordre des choix
   - ingestion Riot industrialisee:
     - client Riot:
       - `server/src/lib/riot/riotApiClient.ts`

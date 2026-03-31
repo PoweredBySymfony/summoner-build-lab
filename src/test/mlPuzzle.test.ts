@@ -3,7 +3,9 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildBackendPuzzleSeed,
+  canAccessGeneratedDraft,
   isMlGenerationConfigured,
+  isLowConfidenceDraftAllowed,
   mapSnapshotToMlPayload,
 } from "../../server/src/lib/ml/mlPuzzle";
 
@@ -80,5 +82,58 @@ describe("mlPuzzle", () => {
 
     expect(seed.lowConfidence).toBe(true);
     expect(seed.goodAnswer).toBe("coiffe-de-rabadon");
+    expect(seed.candidatePoolSize).toBe(3);
+    expect(seed.confidenceGap).toBeCloseTo(0.03);
+  });
+
+  it("keeps low-confidence rejection in normal mode", () => {
+    expect(
+      isLowConfidenceDraftAllowed({
+        isAdmin: false,
+        envEnabled: true,
+        forceDraftOnLowConfidence: true,
+      }),
+    ).toBe(false);
+  });
+
+  it("allows low-confidence drafts only for admins in explicit test mode", () => {
+    expect(
+      isLowConfidenceDraftAllowed({
+        isAdmin: true,
+        envEnabled: false,
+        forceDraftOnLowConfidence: true,
+      }),
+    ).toBe(true);
+    expect(
+      isLowConfidenceDraftAllowed({
+        isAdmin: true,
+        envEnabled: true,
+        forceDraftOnLowConfidence: false,
+      }),
+    ).toBe(true);
+  });
+
+  it("allows the owner or an admin to consult a generated draft", () => {
+    expect(
+      canAccessGeneratedDraft({
+        ownerId: "owner-1",
+        viewerId: "owner-1",
+        viewerIsAdmin: false,
+      }),
+    ).toBe(true);
+    expect(
+      canAccessGeneratedDraft({
+        ownerId: "owner-1",
+        viewerId: "admin-1",
+        viewerIsAdmin: true,
+      }),
+    ).toBe(true);
+    expect(
+      canAccessGeneratedDraft({
+        ownerId: "owner-1",
+        viewerId: "other-1",
+        viewerIsAdmin: false,
+      }),
+    ).toBe(false);
   });
 });

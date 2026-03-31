@@ -1,7 +1,11 @@
+import { PuzzleSourceType } from "@prisma/client";
 import { catalogRepository } from "../repositories/catalogRepository.js";
+import { canAccessGeneratedDraft } from "../lib/ml/mlPuzzle.js";
 import { buildChampionViewIndex } from "../lib/championIndex.js";
 import { buildItemViewIndex } from "../lib/itemIndex.js";
+import { prisma } from "../lib/prisma.js";
 import { puzzleRepository } from "../repositories/puzzleRepository.js";
+import { HttpError } from "../utils/http.js";
 import { dailyChallengeService } from "./dailyChallengeService.js";
 import { progressService } from "./progressService.js";
 import { mapChampionView, mapItemView, mapPuzzleDetailView, mapPuzzleListView } from "./viewMappers.js";
@@ -59,20 +63,87 @@ export const appService = {
     return puzzles.map(mapPuzzleListView);
   },
 
-  async getPuzzleDetail(slug: string) {
+  async getPuzzleDetail(slug: string, viewer?: { id: string; isAdmin: boolean } | null) {
     const [puzzle, champions, items] = await Promise.all([
       puzzleRepository.findBySlug(slug),
       catalogRepository.listChampions(),
       catalogRepository.listItems(),
     ]);
 
-    if (!puzzle || !puzzle.isPublished) {
+    if (!puzzle) {
       return null;
+    }
+
+    if (!puzzle.isPublished) {
+      if (!viewer || puzzle.sourceType !== PuzzleSourceType.AI_GENERATED) {
+        return null;
+      }
+
+      const ownerRequest = await prisma.generatedPuzzleRequest.findFirst({
+        where: {
+          resultPuzzleId: puzzle.id,
+        },
+        select: {
+          userId: true,
+        },
+      });
+
+      if (
+        !ownerRequest ||
+        !canAccessGeneratedDraft({
+          ownerId: ownerRequest.userId,
+          viewerId: viewer.id,
+          viewerIsAdmin: viewer.isAdmin,
+        })
+      ) {
+        return null;
+      }
     }
 
     const championIndex = buildChampionViewIndex(champions);
     const itemIndex = buildItemViewIndex(items);
     return mapPuzzleDetailView(puzzle, championIndex, itemIndex);
+  },
+
+  async getGeneratedPuzzleDraftByRequestId(requestId: string, viewer: { id: string; isAdmin: boolean }) {
+    const requestRecord = await prisma.generatedPuzzleRequest.findUnique({
+      where: { id: requestId },
+      include: {
+        resultPuzzle: true,
+      },
+    });
+
+    if (!requestRecord) {
+      throw new HttpError(404, "Requete de generation introuvable.");
+    }
+
+    if (
+      !canAccessGeneratedDraft({
+        ownerId: requestRecord.userId,
+        viewerId: viewer.id,
+        viewerIsAdmin: viewer.isAdmin,
+      })
+    ) {
+      throw new HttpError(403, "Acces refuse a ce brouillon ML.");
+    }
+
+    if (!requestRecord.resultPuzzleId || !requestRecord.resultPuzzle || requestRecord.resultPuzzle.sourceType !== PuzzleSourceType.AI_GENERATED) {
+      throw new HttpError(404, "Aucun brouillon ML n'est disponible pour cette requete.");
+    }
+
+    const puzzle = await this.getPuzzleDetail(requestRecord.resultPuzzle.slug, viewer);
+    if (!puzzle) {
+      throw new HttpError(404, "Brouillon ML introuvable.");
+    }
+
+    return {
+      requestId: requestRecord.id,
+      status: requestRecord.status.toLowerCase(),
+      createdAt: requestRecord.createdAt,
+      updatedAt: requestRecord.updatedAt,
+      parameters: requestRecord.parameters,
+      puzzle,
+    };
   },
 
   async getDashboard(userId: string) {

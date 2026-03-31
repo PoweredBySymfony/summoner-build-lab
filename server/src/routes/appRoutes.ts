@@ -172,7 +172,7 @@ router.get("/puzzles", async (request, response, next) => {
 
 router.get("/puzzles/:slug", async (request, response, next) => {
   try {
-    const puzzle = await appService.getPuzzleDetail(request.params.slug);
+    const puzzle = await appService.getPuzzleDetail(request.params.slug, request.user);
     if (!puzzle) {
       throw new HttpError(404, "Puzzle introuvable.");
     }
@@ -289,8 +289,30 @@ router.post("/generated-puzzles/champion", requireAuth, async (request, response
 
 router.post("/generated-puzzles/match", requireAuth, async (request, response, next) => {
   try {
-    const payload = z.object({ importedMatchId: z.string().min(1) }).parse(request.body);
-    response.status(201).json(await puzzleGenerationService.generateMatchBasedPuzzle(payload.importedMatchId, request.user!.id));
+    const payload = z.object({
+      importedMatchId: z.string().min(1),
+      forceDraftOnLowConfidence: z.boolean().optional(),
+    }).parse(request.body);
+    if (payload.forceDraftOnLowConfidence && !request.user!.isAdmin) {
+      throw new HttpError(403, "Le mode brouillon low-confidence est reserve aux administrateurs.");
+    }
+
+    response.status(201).json(
+      await puzzleGenerationService.generateMatchBasedPuzzle(payload.importedMatchId, request.user!.id, {
+        forceDraftOnLowConfidence: payload.forceDraftOnLowConfidence,
+        actorIsAdmin: request.user!.isAdmin,
+      }),
+    );
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get("/generated-puzzles/requests/:requestId/draft", requireAuth, async (request, response, next) => {
+  try {
+    response.json(
+      await appService.getGeneratedPuzzleDraftByRequestId(String(request.params.requestId), request.user!),
+    );
   } catch (error) {
     next(error);
   }
