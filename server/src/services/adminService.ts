@@ -1,4 +1,4 @@
-import { Prisma, PuzzleDifficulty, PuzzleMode, Role } from "@prisma/client";
+import { Prisma, PuzzleDifficulty, PuzzleMode, PuzzleSourceType, Role } from "@prisma/client";
 import { catalogRepository, standardSummonersRiftItemWhere } from "../repositories/catalogRepository.js";
 import { buildChampionViewIndex } from "../lib/championIndex.js";
 import { buildItemViewIndex } from "../lib/itemIndex.js";
@@ -76,6 +76,16 @@ export const adminService = {
 
   async listPuzzles() {
     const puzzles = await puzzleRepository.listAll();
+    return puzzles.map(mapPuzzleListView);
+  },
+
+  async listAiGeneratedPuzzles() {
+    const puzzles = await puzzleRepository.listAll({
+      where: {
+        sourceType: PuzzleSourceType.AI_GENERATED,
+        isPublished: false,
+      },
+    });
     return puzzles.map(mapPuzzleListView);
   },
 
@@ -267,6 +277,19 @@ export const adminService = {
       explanation: payload.explanation.trim(),
       isPublished: payload.isPublished,
       isDailyEligible: payload.isDailyEligible,
+    });
+
+    return this.getPuzzleDetail(id);
+  },
+
+  async publishPuzzle(id: string) {
+    const puzzle = await puzzleRepository.findById(id);
+    if (!puzzle) {
+      throw new HttpError(404, "Puzzle introuvable.");
+    }
+
+    await puzzleRepository.updatePuzzle(id, {
+      isPublished: true,
     });
 
     return this.getPuzzleDetail(id);

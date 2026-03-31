@@ -201,6 +201,46 @@ Lire ce fichier au debut de chaque nouvelle conversation sur ce repo, puis le me
       - `python scripts/tasks.py train-baseline`
       - `python scripts/tasks.py run-api`
       - `python scripts/tasks.py test`
+    - integration backend Node -> ML:
+      - variables env:
+        - `ML_ENABLED`
+        - `ML_API_URL`
+        - `ML_API_TIMEOUT_MS`
+        - `ML_API_RETRY_COUNT`
+      - backend service dedie:
+        - `server/src/services/mlPuzzleGenerationService.ts`
+      - helper ML backend pur:
+        - `server/src/lib/ml/mlPuzzle.ts`
+      - flux de generation match:
+        - `server/src/services/puzzleGenerationService.ts`
+        - si ML est active et configuree:
+          - construit un snapshot a partir de `ImportedMatch`
+          - appelle `POST /predict-next-item`
+          - construit un seed puzzle cote backend
+          - si `lowConfidence`:
+            - ne publie rien
+            - marque la `GeneratedPuzzleRequest` en `FAILED`
+          - sinon:
+            - cree un puzzle `sourceType=AI_GENERATED`
+            - laisse `isPublished=false` pour revue manuelle
+            - marque la `GeneratedPuzzleRequest` en `COMPLETED`
+        - si ML n'est pas configuree:
+          - fallback explicite vers la generation template existante
+      - garde-fous admin:
+        - route backoffice:
+          - `GET /admin/puzzles/ai-generated`
+          - liste les puzzles `AI_GENERATED` non publies
+        - publication manuelle:
+          - `POST /admin/puzzles/:id/publish`
+        - UI admin:
+          - `src/pages/Admin.tsx`
+          - file de revue visible dans l'onglet puzzles avec bouton `Publier`
+      - tests Node associes:
+        - `src/test/mlPuzzle.test.ts`
+        - couvre:
+          - fallback si `ML_API_URL` absent
+          - mapping du payload ML
+          - refus de publication en cas de faible confiance
   - ingestion Riot industrialisee:
     - client Riot:
       - `server/src/lib/riot/riotApiClient.ts`

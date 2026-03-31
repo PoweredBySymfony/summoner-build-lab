@@ -2,6 +2,7 @@ import { GeneratedPuzzleRequestStatus, GeneratedPuzzleRequestType, Prisma, Puzzl
 import { resolveItemSlug } from "../lib/itemSlugAliases.js";
 import { prisma } from "../lib/prisma.js";
 import { slugify } from "../lib/slug.js";
+import { mlPuzzleGenerationService } from "./mlPuzzleGenerationService.js";
 import { HttpError } from "../utils/http.js";
 
 type ChampionArchetype = "marksman" | "mage" | "fighter" | "tank" | "support";
@@ -879,6 +880,10 @@ export const puzzleGenerationService = {
   },
 
   async generateMatchBasedPuzzle(importedMatchId: string, userId: string) {
+    if (mlPuzzleGenerationService.isConfigured()) {
+      return mlPuzzleGenerationService.generateFromImportedMatch(importedMatchId, userId);
+    }
+
     const match = await prisma.importedMatch.findUnique({ where: { id: importedMatchId } });
     if (!match) {
       throw new HttpError(404, "Partie importée introuvable.");
@@ -892,6 +897,7 @@ export const puzzleGenerationService = {
       throw new HttpError(400, "La partie importée ne référence pas un champion connu.");
     }
 
+    console.info(`[puzzle-generation] ML disabled or unconfigured, fallback to template series for importedMatchId=${importedMatchId}`);
     return buildChampionSeries(champion.id, userId, importedMatchId, 5);
   },
 };

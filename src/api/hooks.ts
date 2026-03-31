@@ -208,6 +208,13 @@ export const useAdminPuzzles = (enabled = true) =>
     enabled,
   });
 
+export const useAdminAiGeneratedPuzzles = (enabled = true) =>
+  useQuery({
+    queryKey: ["admin", "puzzles", "ai-generated"],
+    queryFn: () => apiFetch<PuzzleListItem[]>("/admin/puzzles/ai-generated"),
+    enabled,
+  });
+
 export const useAdminPuzzleDetail = (id: string | null, enabled = true) =>
   useQuery({
     queryKey: ["admin", "puzzle", id],
@@ -264,7 +271,23 @@ export const useAdminUpdatePuzzle = () => {
       }),
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: ["admin", "puzzles"] });
+      queryClient.invalidateQueries({ queryKey: ["admin", "puzzles", "ai-generated"] });
       queryClient.invalidateQueries({ queryKey: ["admin", "puzzle", variables.id] });
+      queryClient.invalidateQueries({ queryKey: ["puzzles"] });
+      queryClient.invalidateQueries({ queryKey: ["daily-challenge"] });
+      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+    },
+  });
+};
+
+export const useAdminPublishPuzzle = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => apiFetch<PuzzleDetail>(`/admin/puzzles/${id}/publish`, { method: "POST" }),
+    onSuccess: (_data, id) => {
+      queryClient.invalidateQueries({ queryKey: ["admin", "puzzles"] });
+      queryClient.invalidateQueries({ queryKey: ["admin", "puzzles", "ai-generated"] });
+      queryClient.invalidateQueries({ queryKey: ["admin", "puzzle", id] });
       queryClient.invalidateQueries({ queryKey: ["puzzles"] });
       queryClient.invalidateQueries({ queryKey: ["daily-challenge"] });
       queryClient.invalidateQueries({ queryKey: ["dashboard"] });
@@ -319,6 +342,7 @@ export const useAdminDeletePuzzle = () => {
     mutationFn: (id: string) => apiFetch<{ deleted: boolean }>(`/admin/puzzles/${id}`, { method: "DELETE" }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["admin", "puzzles"] });
+      queryClient.invalidateQueries({ queryKey: ["admin", "puzzles", "ai-generated"] });
       queryClient.invalidateQueries({ queryKey: ["puzzles"] });
       queryClient.invalidateQueries({ queryKey: ["daily-challenge"] });
       queryClient.invalidateQueries({ queryKey: ["dashboard"] });
