@@ -3,6 +3,7 @@ import { env } from "../config/env.js";
 import { prisma } from "../lib/prisma.js";
 import { dataDragonClient } from "../lib/gameData/dataDragonClient.js";
 import { riotApiClient } from "../lib/riot/riotApiClient.js";
+import { type RiotImportInput, type RiotImportMatchSummary, type RiotImportRunSummary } from "../lib/riot/riotBatch.js";
 import { RIOT_REGIONS, getPlatformSearchOrder, type RiotPlatform, type RiotRegion } from "../lib/riot/routing.js";
 import { slugify } from "../lib/slug.js";
 import { HttpError } from "../utils/http.js";
@@ -381,6 +382,232 @@ async function fetchMatchBundleWithRetry(matchId: string, region: RiotRegion, ma
   throw lastError ?? new HttpError(500, "Unable to fetch Riot match bundle.");
 }
 
+type ResolvedImportIdentity = {
+  puuid: string;
+  gameName: string | null;
+  tagLine: string | null;
+  region: RiotRegion;
+  platform: RiotPlatform;
+};
+
+async function resolveImportIdentityInternal(input: RiotImportInput): Promise<ResolvedImportIdentity> {
+  if (input.type === "riot-id") {
+    const resolved = await resolveLeagueIdentity(input.gameName, input.tagLine);
+    return {
+      puuid: resolved.account.puuid,
+      gameName: resolved.account.gameName,
+      tagLine: resolved.account.tagLine,
+      region: resolved.region,
+      platform: resolved.platform,
+    };
+  }
+
+  let indexed = await prisma.riotAccountIndex.findUnique({
+    where: { puuid: input.puuid },
+  });
+
+  if ((!indexed?.region || !indexed?.platform) && indexed?.gameName && indexed?.tagLine) {
+    await resolveLeagueIdentity(indexed.gameName, indexed.tagLine);
+    indexed = await prisma.riotAccountIndex.findUnique({ where: { puuid: input.puuid } });
+  }
+
+  if (indexed?.region && indexed?.platform) {
+    return {
+      puuid: indexed.puuid,
+      gameName: indexed.gameName,
+      tagLine: indexed.tagLine,
+      region: indexed.region as RiotRegion,
+      platform: indexed.platform as RiotPlatform,
+    };
+  }
+
+  const resolved = await resolvePlatformForPuuid(input.puuid, indexed?.tagLine, indexed?.platform);
+  if (indexed?.gameName && indexed?.tagLine) {
+    await upsertIndexedAccount({
+      puuid: input.puuid,
+      gameName: indexed.gameName,
+      tagLine: indexed.tagLine,
+      platform: resolved.platform,
+      region: resolved.region,
+      profileIconId: resolved.summoner.profileIconId ?? null,
+      summonerLevel: resolved.summoner.summonerLevel ?? null,
+    });
+  }
+
+  return {
+    puuid: input.puuid,
+    gameName: indexed?.gameName ?? null,
+    tagLine: indexed?.tagLine ?? null,
+    region: resolved.region,
+    platform: resolved.platform,
+  };
+}
+
+async function importRecentMatchesInternal(userId: string, puuid: string, count = 5): Promise<RiotImportRunSummary> {
+  let indexed = await prisma.riotAccountIndex.findUnique({ where: { puuid } });
+
+  if ((!indexed?.region || !indexed?.platform) && indexed?.gameName && indexed?.tagLine) {
+    await resolveLeagueIdentity(indexed.gameName, indexed.tagLine);
+    indexed = await prisma.riotAccountIndex.findUnique({ where: { puuid } });
+  }
+
+  const region = indexed?.region as RiotRegion | undefined;
+  if (!region) {
+    throw new HttpError(400, "Unable to determine Riot region for this player. Open the profile first.");
+  }
+
+  const ids = await riotApiClient.getMatchIdsByPuuidOnRegion(puuid, region, count);
+  const imported = [];
+  const matches: RiotImportMatchSummary[] = [];
+  let skippedMatchCount = 0;
+  console.info(`[riot-sync] importing ${ids.length} matches for ${puuid} from ${region}`);
+
+  for (const matchId of ids) {
+    let match: Record<string, unknown>;
+    let timeline: Record<string, unknown> | null = null;
+    let timelineMissingReason: string | null = null;
+
+    try {
+      const fetched = await fetchMatchBundleWithRetry(matchId, region);
+      match = fetched.match;
+      timeline = fetched.timeline;
+    } catch (error) {
+      timelineMissingReason = error instanceof HttpError ? `timeline-fetch-${error.status}` : "timeline-fetch-error";
+      console.warn(`[riot-sync] timeline fetch failed for ${matchId}, falling back to match-only import`, error);
+      match = await riotApiClient.getMatchByIdOnRegion(matchId, region);
+    }
+
+    const metadata = match.metadata as { matchId?: string; participants?: string[] };
+    const info = match.info as {
+      gameVersion?: string;
+      gameCreation?: number;
+      gameDuration?: number;
+      participants?: Array<Record<string, unknown>>;
+    };
+    const participant = info.participants?.find((entry) => entry.puuid === puuid);
+    if (!participant) {
+      skippedMatchCount += 1;
+      const riotMatchId = metadata.matchId ?? matchId;
+      console.warn(`[riot-sync] target participant missing in match ${riotMatchId}, skipping`);
+      matches.push({
+        riotMatchId,
+        timelineAvailable: Boolean(timeline),
+        timelineMissingReason: timeline ? null : "target-participant-missing",
+      });
+      continue;
+    }
+
+    await Promise.all(
+      (info.participants ?? [])
+        .filter((entry) => typeof entry.puuid === "string" && typeof entry.riotIdGameName === "string" && typeof entry.riotIdTagline === "string")
+        .map((entry) => upsertIndexedAccount({
+          puuid: String(entry.puuid),
+          gameName: String(entry.riotIdGameName),
+          tagLine: String(entry.riotIdTagline),
+        })),
+    );
+
+    const championSlug = await resolveChampionSlugFromParticipant(participant);
+    const targetRole = resolveParticipantRole(participant);
+    const riotMatchId = metadata.matchId ?? crypto.randomUUID();
+    const patch = extractPatchFromVersion(info.gameVersion);
+    const gameCreationAt = info.gameCreation ? new Date(info.gameCreation) : null;
+    const matchPayload: Prisma.InputJsonObject = {
+      raw: match as Prisma.InputJsonObject,
+      metadata: {
+        riotMatchId,
+        patch,
+        sourceRegion: region,
+        targetPuuid: puuid,
+        targetGameName: indexed?.gameName ?? null,
+        targetTagLine: indexed?.tagLine ?? null,
+        targetChampionId: Number(participant.championId) || null,
+        targetChampionSlug: championSlug,
+        targetRole,
+        gameCreationAt: gameCreationAt?.toISOString() ?? null,
+        gameDurationSeconds: clampNumber(info.gameDuration) || null,
+      } as Prisma.InputJsonObject,
+    };
+    const timelinePayload = timeline
+      ? ({ raw: timeline as Prisma.InputJsonObject } as Prisma.InputJsonObject)
+      : null;
+    const resolvedTimelineMissingReason = timeline ? null : (timelineMissingReason ?? "timeline-unavailable-during-import");
+
+    const created = await prisma.importedMatch.upsert({
+      where: { riotMatchId },
+      update: {
+        patch,
+        sourceRegion: region,
+        targetPuuid: puuid,
+        targetGameName: indexed?.gameName ?? null,
+        targetTagLine: indexed?.tagLine ?? null,
+        targetChampionId: Number(participant.championId) || null,
+        targetChampionSlug: championSlug,
+        targetRole,
+        gameCreationAt,
+        gameDurationSeconds: clampNumber(info.gameDuration) || null,
+        timelineFetchedAt: timeline ? new Date() : null,
+        timelineMissingReason: resolvedTimelineMissingReason,
+        matchData: matchPayload,
+        timelineData: timelinePayload,
+      },
+      create: {
+        userId,
+        riotMatchId,
+        patch,
+        sourceRegion: region,
+        targetPuuid: puuid,
+        targetGameName: indexed?.gameName ?? null,
+        targetTagLine: indexed?.tagLine ?? null,
+        targetChampionId: Number(participant.championId) || null,
+        targetChampionSlug: championSlug,
+        targetRole,
+        gameCreationAt,
+        gameDurationSeconds: clampNumber(info.gameDuration) || null,
+        timelineFetchedAt: timeline ? new Date() : null,
+        timelineMissingReason: resolvedTimelineMissingReason,
+        matchData: matchPayload,
+        timelineData: timelinePayload,
+      },
+    });
+    imported.push(created);
+    matches.push({
+      riotMatchId,
+      timelineAvailable: Boolean(timeline),
+      timelineMissingReason: resolvedTimelineMissingReason,
+    });
+    console.info(
+      `[riot-sync] imported ${riotMatchId} patch=${patch ?? "unknown"} timeline=${timeline ? "yes" : "no"} champion=${championSlug}`,
+    );
+  }
+
+  await prisma.playerProfile.upsert({
+    where: { userId },
+    update: {
+      riotPuuid: puuid,
+      riotGameName: indexed?.gameName,
+      riotTagLine: indexed?.tagLine,
+      lastSyncAt: new Date(),
+      region: region,
+    },
+    create: {
+      userId,
+      riotPuuid: puuid,
+      riotGameName: indexed?.gameName,
+      riotTagLine: indexed?.tagLine,
+      lastSyncAt: new Date(),
+      region: region,
+    },
+  });
+
+  return {
+    requestedMatchCount: ids.length,
+    importedMatchCount: imported.length,
+    skippedMatchCount,
+    matches,
+  };
+}
+
 export const riotSyncService = {
   async syncChampions(version?: string) {
     const resolvedVersion = version ?? (await dataDragonClient.getLatestVersion());
@@ -624,146 +851,27 @@ export const riotSyncService = {
   },
 
   async importRecentMatches(userId: string, puuid: string, count = 5) {
-    let indexed = await prisma.riotAccountIndex.findUnique({ where: { puuid } });
-
-    if ((!indexed?.region || !indexed?.platform) && indexed?.gameName && indexed?.tagLine) {
-      await resolveLeagueIdentity(indexed.gameName, indexed.tagLine);
-      indexed = await prisma.riotAccountIndex.findUnique({ where: { puuid } });
-    }
-
-    const region = indexed?.region as RiotRegion | undefined;
-    if (!region) {
-      throw new HttpError(400, "Unable to determine Riot region for this player. Open the profile first.");
-    }
-
-    const ids = await riotApiClient.getMatchIdsByPuuidOnRegion(puuid, region, count);
-    const imported = [];
-    console.info(`[riot-sync] importing ${ids.length} matches for ${puuid} from ${region}`);
-
-    for (const matchId of ids) {
-      let match: Record<string, unknown>;
-      let timeline: Record<string, unknown> | null = null;
-
-      try {
-        const fetched = await fetchMatchBundleWithRetry(matchId, region);
-        match = fetched.match;
-        timeline = fetched.timeline;
-      } catch (error) {
-        console.warn(`[riot-sync] timeline fetch failed for ${matchId}, falling back to match-only import`, error);
-        match = await riotApiClient.getMatchByIdOnRegion(matchId, region);
-      }
-
-      const metadata = match.metadata as { matchId?: string; participants?: string[] };
-      const info = match.info as {
-        gameVersion?: string;
-        gameCreation?: number;
-        gameDuration?: number;
-        participants?: Array<Record<string, unknown>>;
-      };
-      const participant = info.participants?.find((entry) => entry.puuid === puuid);
-      if (!participant) {
-        console.warn(`[riot-sync] target participant missing in match ${metadata.matchId ?? matchId}, skipping`);
-        continue;
-      }
-
-      await Promise.all(
-        (info.participants ?? [])
-          .filter((entry) => typeof entry.puuid === "string" && typeof entry.riotIdGameName === "string" && typeof entry.riotIdTagline === "string")
-          .map((entry) => upsertIndexedAccount({
-            puuid: String(entry.puuid),
-            gameName: String(entry.riotIdGameName),
-            tagLine: String(entry.riotIdTagline),
-          })),
-      );
-
-      const championSlug = await resolveChampionSlugFromParticipant(participant);
-      const targetRole = resolveParticipantRole(participant);
-      const riotMatchId = metadata.matchId ?? crypto.randomUUID();
-      const patch = extractPatchFromVersion(info.gameVersion);
-      const gameCreationAt = info.gameCreation ? new Date(info.gameCreation) : null;
-      const matchPayload: Prisma.InputJsonObject = {
-        raw: match as Prisma.InputJsonObject,
-        metadata: {
-          riotMatchId,
-          patch,
-          sourceRegion: region,
-          targetPuuid: puuid,
-          targetGameName: indexed?.gameName ?? null,
-          targetTagLine: indexed?.tagLine ?? null,
-          targetChampionId: Number(participant.championId) || null,
-          targetChampionSlug: championSlug,
-          targetRole,
-          gameCreationAt: gameCreationAt?.toISOString() ?? null,
-          gameDurationSeconds: clampNumber(info.gameDuration) || null,
-        } as Prisma.InputJsonObject,
-      };
-      const timelinePayload = timeline
-        ? ({ raw: timeline as Prisma.InputJsonObject } as Prisma.InputJsonObject)
-        : null;
-
-      const created = await prisma.importedMatch.upsert({
-        where: { riotMatchId },
-        update: {
-          patch,
-          sourceRegion: region,
-          targetPuuid: puuid,
-          targetGameName: indexed?.gameName ?? null,
-          targetTagLine: indexed?.tagLine ?? null,
-          targetChampionId: Number(participant.championId) || null,
-          targetChampionSlug: championSlug,
-          targetRole,
-          gameCreationAt,
-          gameDurationSeconds: clampNumber(info.gameDuration) || null,
-          timelineFetchedAt: timeline ? new Date() : null,
-          timelineMissingReason: timeline ? null : "timeline-unavailable-during-import",
-          matchData: matchPayload,
-          timelineData: timelinePayload,
+    const result = await importRecentMatchesInternal(userId, puuid, count);
+    return prisma.importedMatch.findMany({
+      where: {
+        riotMatchId: {
+          in: result.matches
+            .filter((match) => match.timelineMissingReason !== "target-participant-missing")
+            .map((match) => match.riotMatchId),
         },
-        create: {
-          userId,
-          riotMatchId,
-          patch,
-          sourceRegion: region,
-          targetPuuid: puuid,
-          targetGameName: indexed?.gameName ?? null,
-          targetTagLine: indexed?.tagLine ?? null,
-          targetChampionId: Number(participant.championId) || null,
-          targetChampionSlug: championSlug,
-          targetRole,
-          gameCreationAt,
-          gameDurationSeconds: clampNumber(info.gameDuration) || null,
-          timelineFetchedAt: timeline ? new Date() : null,
-          timelineMissingReason: timeline ? null : "timeline-unavailable-during-import",
-          matchData: matchPayload,
-          timelineData: timelinePayload,
-        },
-      });
-      imported.push(created);
-      console.info(
-        `[riot-sync] imported ${riotMatchId} patch=${patch ?? "unknown"} timeline=${timeline ? "yes" : "no"} champion=${championSlug}`,
-      );
-    }
-
-    await prisma.playerProfile.upsert({
-      where: { userId },
-      update: {
-        riotPuuid: puuid,
-        riotGameName: indexed?.gameName,
-        riotTagLine: indexed?.tagLine,
-        lastSyncAt: new Date(),
-        region: region,
       },
-      create: {
-        userId,
-        riotPuuid: puuid,
-        riotGameName: indexed?.gameName,
-        riotTagLine: indexed?.tagLine,
-        lastSyncAt: new Date(),
-        region: region,
+      orderBy: {
+        createdAt: "desc",
       },
     });
+  },
 
-    return imported;
+  async importRecentMatchesDetailed(userId: string, puuid: string, count = 5) {
+    return importRecentMatchesInternal(userId, puuid, count);
+  },
+
+  async resolveImportIdentity(input: RiotImportInput) {
+    return resolveImportIdentityInternal(input);
   },
 
   async getPublicPlayerProfile(gameName: string, tagLine: string, count = 5) {

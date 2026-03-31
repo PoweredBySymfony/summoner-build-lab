@@ -25,6 +25,8 @@
     "sync:items": "tsx scripts/syncItems.ts",
     "sync:assets": "tsx scripts/syncAssets.ts",
     "sync:all": "tsx scripts/syncAllGameData.ts",
+    "riot:import-batch": "tsx scripts/importRiotMatchesBatch.ts",
+    "riot:ingestion-report": "tsx scripts/reportRiotIngestion.ts",
     "ml:backfill-timelines": "tsx scripts/backfillImportedMatchTimelines.ts",
     "ml:export-raw": "tsx scripts/exportImportedMatchesForMl.ts",
     "backfill:legacy-scenarios": "tsx scripts/backfillLegacyScenarioSnapshots.ts",

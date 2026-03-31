@@ -1,6 +1,7 @@
 import { env } from "../../config/env.js";
 import { HttpError } from "../../utils/http.js";
 import { PLATFORM_TO_REGION, type RiotPlatform, type RiotRegion } from "./routing.js";
+import { RiotRequestScheduler, resolveRetryAfterMs } from "./riotRequestScheduler.js";
 
 type RequestOptions = {
   query?: Record<string, string | number | undefined>;
@@ -11,11 +12,29 @@ type RequestOptions = {
 
 type QueueEntry<T> = () => Promise<T>;
 
+type RiotApiClientMetrics = {
+  totalRequests: number;
+  successfulRequests: number;
+  rateLimitResponses: number;
+  retryAfterFallbacks: number;
+  totalBackoffMs: number;
+};
+
+const DEFAULT_RATE_LIMIT_BACKOFF_MS = 5_000;
+
 export class RiotApiClient {
   private readonly region = env.RIOT_REGION;
   private readonly platform = env.RIOT_PLATFORM;
-  private readonly baseDelayMs = 120;
-  private queue = Promise.resolve();
+  private readonly baseDelayMs = Math.max(0, env.RIOT_API_BASE_DELAY_MS);
+  private readonly concurrency = Math.max(1, env.RIOT_API_CONCURRENCY);
+  private readonly schedulers = new Map<string, RiotRequestScheduler>();
+  private readonly metrics: RiotApiClientMetrics = {
+    totalRequests: 0,
+    successfulRequests: 0,
+    rateLimitResponses: 0,
+    retryAfterFallbacks: 0,
+    totalBackoffMs: 0,
+  };
 
   private ensureConfigured() {
     if (!env.RIOT_API_KEY) {
@@ -37,19 +56,39 @@ export class RiotApiClient {
     return url;
   }
 
-  private schedule<T>(task: QueueEntry<T>) {
-    const run = this.queue.then(async () => {
-      await new Promise((resolve) => setTimeout(resolve, this.baseDelayMs));
-      return task();
+  private getScheduler(scopeKey: string) {
+    const existing = this.schedulers.get(scopeKey);
+    if (existing) {
+      return existing;
+    }
+
+    const scheduler = new RiotRequestScheduler({
+      baseDelayMs: this.baseDelayMs,
+      concurrency: this.concurrency,
     });
-    this.queue = run.then(() => undefined, () => undefined);
-    return run;
+    this.schedulers.set(scopeKey, scheduler);
+    return scheduler;
+  }
+
+  private getScopeKey(path: string, options: RequestOptions) {
+    const isRegional = path.startsWith("/riot") || path.startsWith("/lol/match");
+    return isRegional ? `region:${options.region ?? this.region}` : `platform:${options.platform ?? this.platform}`;
+  }
+
+  private schedule<T>(scopeKey: string, task: QueueEntry<T>) {
+    return this.getScheduler(scopeKey).schedule(task);
+  }
+
+  getMetricsSnapshot() {
+    return { ...this.metrics };
   }
 
   async request<T>(path: string, options: RequestOptions = {}): Promise<T> {
     this.ensureConfigured();
+    const scopeKey = this.getScopeKey(path, options);
 
-    return this.schedule(async () => {
+    return this.schedule(scopeKey, async () => {
+      this.metrics.totalRequests += 1;
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), options.timeoutMs ?? 8000);
 
@@ -63,9 +102,14 @@ export class RiotApiClient {
 
         if (!response.ok) {
           const retryAfter = response.headers.get("Retry-After");
+          const retryAfterSeconds = retryAfter && Number.isFinite(Number(retryAfter)) ? Number(retryAfter) : undefined;
+          const retryAfterMs = response.status === 429
+            ? resolveRetryAfterMs(retryAfter, DEFAULT_RATE_LIMIT_BACKOFF_MS)
+            : undefined;
           const details = {
             statusText: response.statusText,
-            retryAfterSeconds: retryAfter ? Number(retryAfter) : undefined,
+            retryAfterSeconds,
+            retryAfterMs,
           };
 
           switch (response.status) {
@@ -76,12 +120,19 @@ export class RiotApiClient {
             case 404:
               throw new HttpError(404, "Riot resource not found.", details);
             case 429:
+              this.metrics.rateLimitResponses += 1;
+              if (!retryAfter) {
+                this.metrics.retryAfterFallbacks += 1;
+              }
+              this.metrics.totalBackoffMs += retryAfterMs ?? DEFAULT_RATE_LIMIT_BACKOFF_MS;
+              this.getScheduler(scopeKey).defer(retryAfterMs ?? DEFAULT_RATE_LIMIT_BACKOFF_MS);
               throw new HttpError(429, "Riot API rate limit exceeded.", details);
             default:
               throw new HttpError(response.status, "Riot API request failed.", details);
           }
         }
 
+        this.metrics.successfulRequests += 1;
         return (await response.json()) as T;
       } catch (error) {
         if (error instanceof HttpError) {

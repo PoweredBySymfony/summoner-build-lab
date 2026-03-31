@@ -18,6 +18,8 @@ const envSchema = z.object({
   RIOT_API_KEY: z.string().optional(),
   RIOT_REGION: z.string().default("europe"),
   RIOT_PLATFORM: z.string().default("euw1"),
+  RIOT_API_BASE_DELAY_MS: z.coerce.number().default(120),
+  RIOT_API_CONCURRENCY: z.coerce.number().default(1),
   GOOGLE_CLIENT_ID: z.string().optional(),
   GOOGLE_CLIENT_SECRET: z.string().optional(),
   GOOGLE_REDIRECT_URI: z.string().optional(),

@@ -58,8 +58,7 @@ Lire ce fichier au debut de chaque nouvelle conversation sur ce repo, puis le me
       - dataset tabulaire synthetique CPU-first
       - artefact local `joblib` sous `ml/artifacts/models/`
     - tests ML:
-      - `ml/tests/test_api.py`
-      - `ml/tests/test_training.py`
+      - `ml/tests/test_pipeline.py`
     - docker optionnel:
       - `ml/Dockerfile`
       - service compose profile `ml`: `ml-api`
@@ -173,6 +172,66 @@ Lire ce fichier au debut de chaque nouvelle conversation sur ce repo, puis le me
       - `python scripts/tasks.py train-baseline`
       - `python scripts/tasks.py run-api`
       - `python scripts/tasks.py test`
+  - ingestion Riot industrialisee:
+    - client Riot:
+      - `server/src/lib/riot/riotApiClient.ts`
+      - scheduler par scope region/platform
+      - concurrence configurable via:
+        - `RIOT_API_BASE_DELAY_MS`
+        - `RIOT_API_CONCURRENCY`
+      - mode sequentiel par defaut: `RIOT_API_CONCURRENCY=1`
+      - sur `429`:
+        - lecture de `Retry-After`
+        - fallback a `5000ms` si header absent/invalide
+        - pause de la queue avant les requetes suivantes
+      - metriques exposees:
+        - total requests
+        - successful requests
+        - 429 count
+        - retry-after fallback count
+        - total backoff ms
+    - orchestration batch:
+      - helper:
+        - `server/src/lib/riot/riotBatch.ts`
+      - script:
+        - `scripts/importRiotMatchesBatch.ts`
+      - entrees supportees:
+        - liste de Riot IDs `gameName#tagLine`
+        - liste de PUUIDs
+        - fichier texte via `--input`
+      - comportement:
+        - idempotent via `upsert` sur `ImportedMatch.riotMatchId`
+        - reprise-safe: le script continue cible par cible et peut etre relance sans dupliquer les matchs
+        - journalise:
+          - total targets
+          - successful / failed targets
+          - requested / imported matches
+          - timeline ok count
+          - timeline missing reasons
+          - 429 count
+          - average ms per match
+      - resolution identite:
+        - Riot ID via les helpers existants de `riotSyncService`
+        - PUUID via `RiotAccountIndex` puis fallback de resolution plateforme/region
+        - si aucun `PlayerProfile` n'est rattache, fournir `--user-id`
+    - reporting d'ingestion:
+      - script:
+        - `scripts/reportRiotIngestion.ts`
+      - commande:
+        - `npm run riot:ingestion-report -- --days 1`
+      - sortie:
+        - `% matches avec timeline`
+        - distribution patches
+        - top reasons de `timelineMissingReason`
+        - age min/max des games importees
+    - commandes Node dediees:
+      - `npm run riot:import-batch -- --user-id <userId> --count 20 --input .\\targets.txt`
+      - `npm run riot:import-batch -- --user-id <userId> --count 20 --riot-id Faker#KR --puuid <puuid>`
+      - `npm run riot:ingestion-report -- --days 1`
+    - tests Node ingestion:
+      - `src/test/riotRequestScheduler.test.ts`
+      - `src/test/riotBatch.test.ts`
+      - `src/test/riotIngestionSchema.test.ts`
 
 ## Lab d'Items
 
