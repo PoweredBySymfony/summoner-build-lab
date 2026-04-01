@@ -1,6 +1,11 @@
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import path from "node:path";
+
 import { PLATFORM_TO_REGION, type RiotPlatform, type RiotRegion } from "./routing.js";
 
 const LEAGUEPEDIA_CARGO_EXPORT_URL = "https://lol.fandom.com/wiki/Special:CargoExport";
+export const DEFAULT_SEEDS_CACHE_PATH = path.join("data", "runtime", "seeds-cache.json");
+export const DEFAULT_LEAGUEPEDIA_USER_AGENT = "summoner-build-lab/seed-prep (leaguepedia opt-in; local operator)";
 
 export type ProSeedSourceDefinition = {
   key: string;
@@ -25,6 +30,29 @@ export type ProPlayerSeed = {
   source: string;
   sourceUrl: string;
   sourceTournamentDate: string | null;
+};
+
+export type ProSeedFile = {
+  version: 1;
+  generatedAt: string;
+  source: string;
+  sources?: unknown;
+  playerCount: number;
+  players: ProPlayerSeed[];
+};
+
+type SeedsCacheFile = {
+  version: 1;
+  updatedAt: string;
+  leaguepedia: Record<
+    string,
+    {
+      fetchedAt: string;
+      sourceUrl: string;
+      sources: ProSeedSourceDefinition[];
+      players: ProPlayerSeed[];
+    }
+  >;
 };
 
 type LeaguepediaTournamentPlayerRow = {
@@ -232,8 +260,59 @@ function buildWhereClause(sources: ProSeedSourceDefinition[]) {
   return `(${tournamentClauses.join(" OR ")}) AND TournamentPlayers.Role IN ("Top","Jungle","Mid","Bot","Support")`;
 }
 
+function buildLeaguepediaCacheKey(sources: ProSeedSourceDefinition[]) {
+  return Buffer.from(JSON.stringify(sources)).toString("base64url");
+}
+
+async function loadSeedsCache(cachePath: string) {
+  try {
+    const raw = await readFile(cachePath, "utf-8");
+    const parsed = JSON.parse(raw) as Partial<SeedsCacheFile>;
+    return {
+      version: 1,
+      updatedAt: parsed.updatedAt ?? new Date(0).toISOString(),
+      leaguepedia: parsed.leaguepedia ?? {},
+    } satisfies SeedsCacheFile;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return {
+        version: 1,
+        updatedAt: new Date(0).toISOString(),
+        leaguepedia: {},
+      } satisfies SeedsCacheFile;
+    }
+    throw error;
+  }
+}
+
+async function saveSeedsCache(cachePath: string, cache: SeedsCacheFile) {
+  await mkdir(path.dirname(cachePath), { recursive: true });
+  await writeFile(cachePath, JSON.stringify(cache, null, 2), "utf-8");
+}
+
+export async function loadProPlayerSeedFile(filePath: string) {
+  try {
+    const raw = await readFile(filePath, "utf-8");
+    const parsed = JSON.parse(raw) as ProSeedFile | ProPlayerSeed[];
+    if (Array.isArray(parsed)) {
+      return parsed;
+    }
+    return Array.isArray(parsed.players) ? parsed.players : [];
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return [];
+    }
+    throw error;
+  }
+}
+
 export async function fetchRecentProPlayerSeeds(
   sources: ProSeedSourceDefinition[] = DEFAULT_PRO_SEED_SOURCES,
+  options?: {
+    cachePath?: string;
+    forceRefresh?: boolean;
+    userAgent?: string;
+  },
 ): Promise<ProPlayerSeed[]> {
   const url = encodeCargoQuery({
     tables: "TournamentPlayers,Players,Tournaments",
@@ -256,7 +335,23 @@ export async function fetchRecentProPlayerSeeds(
     format: "json",
   });
 
-  const response = await fetch(url);
+  const cachePath = options?.cachePath ? path.resolve(options.cachePath) : null;
+  const cacheKey = buildLeaguepediaCacheKey(sources);
+
+  if (cachePath && !options?.forceRefresh) {
+    const cache = await loadSeedsCache(cachePath);
+    const cached = cache.leaguepedia[cacheKey];
+    if (cached) {
+      console.info(`[pro-seeds] leaguepedia-cache-hit path=${cachePath}`);
+      return cached.players;
+    }
+  }
+
+  const response = await fetch(url, {
+    headers: {
+      "User-Agent": options?.userAgent ?? DEFAULT_LEAGUEPEDIA_USER_AGENT,
+    },
+  });
   if (!response.ok) {
     throw new Error(`Leaguepedia CargoExport request failed (${response.status}).`);
   }
@@ -305,7 +400,7 @@ export async function fetchRecentProPlayerSeeds(
     }
   }
 
-  return [...deduped.values()].sort((left, right) => {
+  const players = [...deduped.values()].sort((left, right) => {
     return (
       left.league.localeCompare(right.league) ||
       left.team.localeCompare(right.team) ||
@@ -313,4 +408,19 @@ export async function fetchRecentProPlayerSeeds(
       left.playerName.localeCompare(right.playerName)
     );
   });
+
+  if (cachePath) {
+    const cache = await loadSeedsCache(cachePath);
+    cache.leaguepedia[cacheKey] = {
+      fetchedAt: new Date().toISOString(),
+      sourceUrl: url,
+      sources,
+      players,
+    };
+    cache.updatedAt = new Date().toISOString();
+    await saveSeedsCache(cachePath, cache);
+    console.info(`[pro-seeds] leaguepedia-cache-write path=${cachePath}`);
+  }
+
+  return players;
 }

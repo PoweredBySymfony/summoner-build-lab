@@ -1386,6 +1386,7 @@ Lire ce fichier au debut de chaque nouvelle conversation sur ce repo, puis le me
     - `sourceTournamentDate`
 - Sources code:
   - seed sourcing: `server/src/lib/riot/competitiveSeeds.ts`
+  - source pro opt-in + cache: `server/src/lib/riot/proSeeds.ts`
   - import batch: `scripts/importCompetitiveMatches.ts`
   - reporting: `scripts/reportCompetitiveIngestion.ts`
   - scoring / checkpoint / policy: `server/src/lib/riot/competitiveIngestion.ts`
@@ -1394,6 +1395,37 @@ Lire ce fichier au debut de chaque nouvelle conversation sur ce repo, puis le me
   - `npm run riot:prepare-competitive-seeds`
   - `npm run riot:import-competitive`
   - `npm run riot:report-competitive`
+- Sourcing pro / elite, etape 3:
+  - chemin safe par defaut:
+    - elite ladder Riot seulement
+    - seeds manuels: `data/seeds/pro-curated-2026.json`
+    - Leaguepedia desactive par defaut
+  - Leaguepedia est maintenant derriere un opt-in explicite:
+    - `scripts/prepareCompetitiveSeeds.ts --enable-leaguepedia`
+    - `scripts/prepareProPlayerSeeds.ts --enable-leaguepedia`
+  - cache local Leaguepedia:
+    - `data/runtime/seeds-cache.json`
+    - cle de cache basee sur les sources CargoExport
+  - user-agent Leaguepedia explicite:
+    - `summoner-build-lab/seed-prep (leaguepedia opt-in; local operator)`
+  - manifest manuel pro:
+    - `data/seeds/pro-curated-2026.json`
+    - format identique a `ProPlayerSeed[]` / `players`
+  - par defaut, le manifest competitif fusionne:
+    - curated pro file
+    - elite ladder `KR` + `EUW`
+  - fallback elite renforce:
+    - `DEFAULT_ELITE_SEED_PLATFORMS = ["kr", "euw1"]`
+    - `DEFAULT_ELITE_SEED_OPTIONS.maxEntriesPerTier = 75`
+  - le scoring garde la priorite pro:
+    - `LCK > LPL > LEC > First Stand > MSI > Worlds > autres`
+    - les seeds `elite` restent en dessous des seeds `pro` cote `priorityScore`, mais assurent le volume
+  - validateur de quality au seed prep:
+    - `% resolved seeds` = seeds avec `puuid` ou `riotId`
+    - `% seeds with riotIdCandidates non vides`
+    - distribution par ligue
+    - distribution par region
+    - le rapport quality est ecrit dans `competitive-seeds-2026.json` sous `quality`
 - Politique par defaut:
   - policy versionnee: `data/config/competitive-ingestion-policy-2026.json`
   - mode operationnel: `recent_preferred_with_controlled_fallback`

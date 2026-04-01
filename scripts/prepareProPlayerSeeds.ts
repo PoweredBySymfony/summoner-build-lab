@@ -1,16 +1,28 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-import { fetchRecentProPlayerSeeds, DEFAULT_PRO_SEED_SOURCES, type ProSeedSourceDefinition } from "../server/src/lib/riot/proSeeds.js";
+import {
+  DEFAULT_LEAGUEPEDIA_USER_AGENT,
+  DEFAULT_PRO_SEED_SOURCES,
+  DEFAULT_SEEDS_CACHE_PATH,
+  fetchRecentProPlayerSeeds,
+  type ProSeedSourceDefinition,
+} from "../server/src/lib/riot/proSeeds.js";
 
 type CliOptions = {
   outputPath: string;
   since?: string;
+  enableLeaguepedia: boolean;
+  seedsCachePath: string;
+  leaguepediaUserAgent: string;
 };
 
 function parseArgs(argv: string[]): CliOptions {
   const options: CliOptions = {
     outputPath: path.join("data", "pro-seeds", "major-pros-recent.json"),
+    enableLeaguepedia: false,
+    seedsCachePath: DEFAULT_SEEDS_CACHE_PATH,
+    leaguepediaUserAgent: DEFAULT_LEAGUEPEDIA_USER_AGENT,
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -27,6 +39,21 @@ function parseArgs(argv: string[]): CliOptions {
       case "--since":
         if (next) {
           options.since = next;
+        }
+        index += 1;
+        break;
+      case "--enable-leaguepedia":
+        options.enableLeaguepedia = true;
+        break;
+      case "--seeds-cache-path":
+        if (next) {
+          options.seedsCachePath = next;
+        }
+        index += 1;
+        break;
+      case "--leaguepedia-user-agent":
+        if (next) {
+          options.leaguepediaUserAgent = next;
         }
         index += 1;
         break;
@@ -51,8 +78,14 @@ function resolveSources(options: CliOptions): ProSeedSourceDefinition[] {
 
 async function main() {
   const options = parseArgs(process.argv.slice(2));
+  if (!options.enableLeaguepedia) {
+    throw new Error("Leaguepedia is opt-in. Re-run with --enable-leaguepedia.");
+  }
   const sources = resolveSources(options);
-  const players = await fetchRecentProPlayerSeeds(sources);
+  const players = await fetchRecentProPlayerSeeds(sources, {
+    cachePath: options.seedsCachePath,
+    userAgent: options.leaguepediaUserAgent,
+  });
 
   if (players.length === 0) {
     throw new Error("No recent professional seeds were discovered from Leaguepedia.");

@@ -1,9 +1,6 @@
 import { PLATFORM_TO_REGION, type RiotPlatform, type RiotRegion } from "./routing.js";
 import {
-  DEFAULT_PRO_SEED_SOURCES,
-  fetchRecentProPlayerSeeds,
   type ProPlayerSeed,
-  type ProSeedSourceDefinition,
 } from "./proSeeds.js";
 import { riotApiClient } from "./riotApiClient.js";
 
@@ -38,13 +35,28 @@ export type CompetitiveSeedManifest = {
   season: string;
   source: "competitive-seed-merge";
   sources: {
-    pro: ProSeedSourceDefinition[];
+    pro: Array<{
+      kind: "curated-file" | "leaguepedia-cargo";
+      enabled: boolean;
+      path?: string;
+      cachePath?: string;
+      label?: string;
+      sourceCount?: number;
+    }>;
     elite: Array<{
       platform: RiotPlatform;
       tiers: string[];
       queue: string;
       maxEntriesPerTier: number;
     }>;
+  };
+  quality?: {
+    resolvedSeeds: number;
+    resolvedSeedsPercent: number;
+    seedsWithRiotIdCandidates: number;
+    seedsWithRiotIdCandidatesPercent: number;
+    leagueDistribution: Array<{ league: string; count: number }>;
+    regionDistribution: Array<{ region: string; count: number }>;
   };
   playerCount: number;
   players: CompetitiveSeed[];
@@ -78,13 +90,13 @@ const ROLE_ROTATION: CompetitiveSeed["role"][] = ["TOP", "JUNGLE", "MID", "ADC",
 export const DEFAULT_COMPETITIVE_SEED_SET_VERSION = "2026-premium-v1";
 export const DEFAULT_COMPETITIVE_SEASON = "2026";
 
-export const DEFAULT_ELITE_SEED_PLATFORMS: RiotPlatform[] = ["kr", "euw1", "na1", "eun1", "br1", "tw2", "vn2"];
+export const DEFAULT_ELITE_SEED_PLATFORMS: RiotPlatform[] = ["kr", "euw1"];
 
 export const DEFAULT_ELITE_SEED_OPTIONS: EliteSeedDiscoveryOptions = {
   platforms: DEFAULT_ELITE_SEED_PLATFORMS,
   queue: "RANKED_SOLO_5x5",
   tiers: ["challenger", "grandmaster", "master"],
-  maxEntriesPerTier: 20,
+  maxEntriesPerTier: 75,
   season: DEFAULT_COMPETITIVE_SEASON,
   seedSetVersion: DEFAULT_COMPETITIVE_SEED_SET_VERSION,
 };
@@ -249,19 +261,17 @@ export function dedupeCompetitiveSeeds(seeds: CompetitiveSeed[]) {
 }
 
 export async function buildCompetitiveSeedManifest(input?: {
-  proSources?: ProSeedSourceDefinition[];
+  proSeeds?: ProPlayerSeed[];
+  proSourcesMetadata?: CompetitiveSeedManifest["sources"]["pro"];
   eliteOptions?: Partial<EliteSeedDiscoveryOptions>;
   includeElite?: boolean;
   season?: string;
   seedSetVersion?: string;
+  quality?: CompetitiveSeedManifest["quality"];
 }): Promise<CompetitiveSeedManifest> {
   const season = input?.season ?? DEFAULT_COMPETITIVE_SEASON;
   const seedSetVersion = input?.seedSetVersion ?? DEFAULT_COMPETITIVE_SEED_SET_VERSION;
-  const proSources = input?.proSources ?? DEFAULT_PRO_SEED_SOURCES.map((source) => ({
-    ...source,
-    since: "2026-01-01",
-  }));
-  const proSeeds = (await fetchRecentProPlayerSeeds(proSources)).map((seed) =>
+  const proSeeds = (input?.proSeeds ?? []).map((seed) =>
     fromProSeed(seed, {
       seedSetVersion,
       season,
@@ -283,7 +293,7 @@ export async function buildCompetitiveSeedManifest(input?: {
     season,
     source: "competitive-seed-merge",
     sources: {
-      pro: proSources,
+      pro: input?.proSourcesMetadata ?? [],
       elite: (input?.eliteOptions?.platforms ?? DEFAULT_ELITE_SEED_OPTIONS.platforms).map((platform) => ({
         platform,
         tiers: input?.eliteOptions?.tiers ?? DEFAULT_ELITE_SEED_OPTIONS.tiers,
@@ -291,6 +301,7 @@ export async function buildCompetitiveSeedManifest(input?: {
         maxEntriesPerTier: input?.eliteOptions?.maxEntriesPerTier ?? DEFAULT_ELITE_SEED_OPTIONS.maxEntriesPerTier,
       })),
     },
+    quality: input?.quality,
     playerCount: players.length,
     players,
   };
