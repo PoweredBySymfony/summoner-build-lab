@@ -1545,20 +1545,41 @@ Lire ce fichier au debut de chaque nouvelle conversation sur ce repo, puis le me
     - `sourceTier`
     - `sourceLeague`
     - `sourceRegionHint`
+    - `patchCanonical`
+    - `patchFormat`
   - `ml/features/analytics.py` separe maintenant import policy et training policy
   - config par defaut:
     - `ml/configs/base.yaml`
     - `dataset.train_patch_mode = strict_recent_competitive`
+    - `dataset.strict_train_patch_prefixes = ["26."]`
+    - `dataset.adjacent_train_patch_prefixes = ["26.6", "26.5", "26.4", "26.3"]`
   - le rapport dataset Python doit exposer:
     - `rows_before_train_patch_filter`
     - `rows_after_train_patch_filter`
     - `snapshots_by_patch_before_filter`
+    - `snapshots_by_patch_format`
     - `snapshots_by_source_tier`
     - `snapshots_by_source_league`
     - `snapshots_exact_target_patch`
     - `snapshots_adjacent_recent_patch`
     - `snapshots_trainable_strict`
     - `snapshots_trainable_preferred_fallback`
+  - politique ML:
+    - les matchs legacy restent en base
+    - par defaut, les vues trainables excluent les patches hors `26.*`
+    - `analytics.py` consomme `patchCanonical` / `patchFormat` de l'export raw quand ils existent, sinon recalcule en fallback
+  - archivage legacy optionnel:
+    - commande: `npm run ml:archive-legacy-raw`
+    - archive les `timelineData.raw` non trainables en `.json.gz` sous `data/archive/legacy-raw/`
+    - remplace en base `timelineData.raw` par:
+      - `archived`
+      - `archivedAt`
+      - `archivePath`
+      - `patchCanonical`
+      - `patchFormat`
+      - `patchBucket`
+      - `summary` (`frameCount`, `eventCount`, bornes timestamp)
+    - objectif: garder les metadata + agregats de debug sans laisser les timelines legacy lourdes dans la DB
 - Commandes canonique premium:
   - seed prep:
     - `npm run riot:prepare-competitive-seeds -- --pro-only`

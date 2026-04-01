@@ -38,6 +38,7 @@
     "backfill:canonical-patches": "tsx scripts/backfillCanonicalImportedMatchPatches.ts",
     "ml:backfill-timelines": "tsx scripts/backfillImportedMatchTimelines.ts",
     "ml:export-raw": "tsx scripts/exportImportedMatchesForMl.ts",
+    "ml:archive-legacy-raw": "tsx scripts/archiveLegacyRawMatches.ts",
     "backfill:legacy-scenarios": "tsx scripts/backfillLegacyScenarioSnapshots.ts",
     "repair:generated-scenario-teams": "tsx scripts/repairGeneratedScenarioTeams.ts",
     "jobs:daily-reminders": "tsx scripts/sendDailyReminders.ts"

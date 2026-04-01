@@ -56,6 +56,20 @@ def _canonicalize_patch(patch_raw: Any, game_creation_at: Any) -> tuple[str | No
     return f"{major}.{minor}", "unknown"
 
 
+def _resolve_patch_fields(record: dict[str, Any]) -> tuple[str, str]:
+    patch_canonical = str(record.get("patchCanonical") or record.get("patch") or "").strip()
+    patch_format = str(record.get("patchFormat") or "").strip() or "unknown"
+
+    if patch_canonical:
+        return patch_canonical, patch_format
+
+    canonical_patch, canonical_format = _canonicalize_patch(
+        record.get("patch"),
+        record.get("gameCreationAt"),
+    )
+    return canonical_patch or "unknown", canonical_format
+
+
 def _patch_bucket(
     patch: Any,
     strict_prefixes: list[str],
@@ -244,11 +258,7 @@ def build_analytic_dataset(config: AppConfig) -> DatasetBuildSummary:
             skipped_matches += 1
             continue
 
-        patch, patch_format = _canonicalize_patch(
-            record.get("patch"),
-            record.get("gameCreationAt"),
-        )
-        patch = patch or "unknown"
+        patch, patch_format = _resolve_patch_fields(record)
         catalog = load_catalog_bundle(
             config.paths.export_manifest_path,
             config.paths.raw_data_dir,
@@ -357,6 +367,7 @@ def build_analytic_dataset(config: AppConfig) -> DatasetBuildSummary:
                     "timestamp": event_timestamp,
                     "timestamp_minutes": round(event_timestamp / 60000, 2),
                     "patch": patch,
+                    "patch_canonical": patch,
                     "patch_format": patch_format,
                     "source_kind": str(record.get("sourceKind") or "unknown"),
                     "source_tier": str(record.get("sourceTier") or "unknown"),
@@ -497,6 +508,11 @@ def build_analytic_dataset(config: AppConfig) -> DatasetBuildSummary:
             ),
             "snapshots_by_patch_bucket": (
                 dataset["patch_bucket"].fillna("unknown").value_counts().sort_values(ascending=False).to_dict()
+            ),
+            "snapshots_by_patch_format": (
+                raw_dataset["patch_format"].fillna("unknown").value_counts().sort_values(ascending=False).to_dict()
+                if "patch_format" in raw_dataset.columns
+                else {}
             ),
             "snapshots_by_role": (
                 dataset["role"].fillna("UNKNOWN").value_counts().sort_values(ascending=False).to_dict()

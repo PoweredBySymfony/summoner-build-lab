@@ -58,7 +58,7 @@ def make_config(tmp_path: Path) -> AppConfig:
             max_unknown_role_ratio=0.5,
             min_candidate_pool_median=1,
             strict_train_patch_prefixes=["26."],
-            adjacent_train_patch_prefixes=["26.6", "26.5", "26.4", "26.3", "26.2"],
+            adjacent_train_patch_prefixes=["26.6", "26.5", "26.4", "26.3"],
             train_patch_mode="strict_recent_competitive",
         ),
         training=TrainingConfig(
@@ -185,6 +185,8 @@ def make_raw_export(tmp_path: Path) -> AppConfig:
     match_record = {
         "riotMatchId": "EUW1_1",
         "patch": "16.1",
+        "patchCanonical": "26.1",
+        "patchFormat": "legacy_patch",
         "targetPuuid": "player-1",
         "targetChampionId": 222,
         "targetChampionSlug": "jinx",
@@ -388,6 +390,7 @@ def test_build_analytic_dataset_creates_snapshots(tmp_path: Path) -> None:
     assert report["quality"]["candidate_pool_median"] == 1.5
     assert report["train_patch_mode"] == "strict_recent_competitive"
     assert report["snapshots_by_source_tier"] == {"pro": 2}
+    assert report["snapshots_by_patch_format"] == {"legacy_patch": 2}
     assert report["snapshots_exact_target_patch"] == 2
     assert report["snapshots_adjacent_recent_patch"] == 0
 

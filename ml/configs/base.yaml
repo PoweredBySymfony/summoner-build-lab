@@ -40,7 +40,6 @@ dataset:
     - "26.5"
     - "26.4"
     - "26.3"
-    - "26.2"
   train_patch_mode: strict_recent_competitive
 
 training:

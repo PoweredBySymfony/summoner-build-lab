@@ -227,6 +227,7 @@ async function main() {
     return {
       ...entry,
       patch: patchInfo.patchCanonical,
+      patchCanonical: patchInfo.patchCanonical,
       patchFormat: patchInfo.patchFormat,
     };
   });
@@ -297,6 +298,8 @@ async function main() {
           && (entry.sourceMetadata as Record<string, unknown>).seed !== null
             ? (((entry.sourceMetadata as Record<string, unknown>).seed as Record<string, unknown>).region ?? null)
             : null,
+        patchCanonical: entry.patchCanonical ?? entry.patch ?? null,
+        patchFormat: entry.patchFormat ?? "unknown",
         gameCreationAt: toIsoString(entry.gameCreationAt),
         timelineFetchedAt: toIsoString(entry.timelineFetchedAt),
         createdAt: toIsoString(entry.createdAt),
@@ -325,6 +328,11 @@ async function main() {
           matchesWithTimeline: canonicalizedMatches.filter((entry) => Boolean(entry.timelineData)).length,
           sourceKindDistribution: canonicalizedMatches.reduce<Record<string, number>>((accumulator, entry) => {
             const key = String(entry.sourceKind ?? "unknown");
+            accumulator[key] = (accumulator[key] ?? 0) + 1;
+            return accumulator;
+          }, {}),
+          patchFormatDistribution: canonicalizedMatches.reduce<Record<string, number>>((accumulator, entry) => {
+            const key = String(entry.patchFormat ?? "unknown");
             accumulator[key] = (accumulator[key] ?? 0) + 1;
             return accumulator;
           }, {}),
