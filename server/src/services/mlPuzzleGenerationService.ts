@@ -63,6 +63,8 @@ type SnapshotCandidate = {
   relevanceScore: number;
 };
 
+type SnapshotSegment = "early" | "mid" | "late";
+
 type AttemptDebugSummary = {
   snapshotIndex: number;
   snapshotMinute: number;
@@ -110,6 +112,36 @@ type RejectedSnapshotAttempt = {
 
 type SnapshotAttempt = PreparedSnapshotAttempt | RejectedSnapshotAttempt;
 
+type SnapshotHistoryEntry = {
+  snapshotIndex: number;
+  snapshotMinute: number;
+  key: string;
+};
+
+type SegmentEvaluationSummary = {
+  segment: SnapshotSegment;
+  totalAccepted: number;
+  nonLowConfidenceAccepted: number;
+  lowConfidenceAccepted: number;
+  selectedSnapshotIndex: number | null;
+  selectedSnapshotMinute: number | null;
+  selectedQualityScore: number | null;
+  selectedFromHistoryFallback: boolean;
+};
+
+type SeriesSelectionResult = {
+  selectedAttempts: PreparedSnapshotAttempt[];
+  primaryAttempt: PreparedSnapshotAttempt | null;
+  draft: boolean;
+  segmentSummaries: SegmentEvaluationSummary[];
+  repetitionExcluded: Array<{
+    segment: SnapshotSegment;
+    snapshotIndex: number;
+    snapshotMinute: number;
+    qualityScore: number;
+  }>;
+};
+
 type MatchGenerationCompletedResponse = {
   generationStatus: "completed";
   requestId: string;
@@ -145,6 +177,16 @@ const FRONTLINE_TAGS = new Set(["Tank", "Fighter"]);
 const MIN_SNAPSHOT_MINUTE = 8;
 const MAX_SNAPSHOT_MINUTE = 32;
 const MAX_SNAPSHOT_CANDIDATES = 8;
+const MAX_SNAPSHOT_CANDIDATES_PER_SEGMENT = 3;
+const SNAPSHOT_SEGMENTS: ReadonlyArray<{
+  segment: SnapshotSegment;
+  minInclusive: number;
+  maxExclusive: number;
+}> = [
+  { segment: "early", minInclusive: 8, maxExclusive: 14 },
+  { segment: "mid", minInclusive: 14, maxExclusive: 23 },
+  { segment: "late", minInclusive: 23, maxExclusive: 32.01 },
+];
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -212,38 +254,83 @@ function isMlConfigured() {
   });
 }
 
+function buildSnapshotHistoryKey(input: {
+  snapshotIndex: number;
+  snapshotMinute: number;
+}) {
+  return `${input.snapshotIndex}:${input.snapshotMinute.toFixed(2)}`;
+}
+
+function getSnapshotSegment(snapshotMinute: number): SnapshotSegment | null {
+  for (const entry of SNAPSHOT_SEGMENTS) {
+    if (snapshotMinute >= entry.minInclusive && snapshotMinute < entry.maxExclusive) {
+      return entry.segment;
+    }
+  }
+  return null;
+}
+
 function buildMlRequestMetadata(input: {
   generationStatus: MatchGenerationResponse["generationStatus"];
-  selectedAttempt?: PreparedSnapshotAttempt;
+  selectedAttempts?: PreparedSnapshotAttempt[];
   attemptSummaries: AttemptDebugSummary[];
   payload?: Record<string, unknown>;
+  resultPuzzles?: Array<{ id: string; slug: string }>;
+  segmentSummaries?: SegmentEvaluationSummary[];
+  repetitionExcluded?: Array<{
+    segment: SnapshotSegment;
+    snapshotIndex: number;
+    snapshotMinute: number;
+    qualityScore: number;
+  }>;
+  draft?: boolean;
 }) {
+  const primaryAttempt = input.selectedAttempts?.[0];
   return {
     generationStatus: input.generationStatus,
     selectedSnapshot:
-      input.selectedAttempt
+      primaryAttempt
         ? {
-            snapshotIndex: input.selectedAttempt.snapshotIndex,
-            rawPurchaseIndex: input.selectedAttempt.rawPurchaseIndex,
-            snapshotMinute: input.selectedAttempt.snapshot.timestampMinutes,
-            qualityScore: input.selectedAttempt.qualityScore,
-            variationSeed: input.selectedAttempt.variationSeed,
-            choiceSignature: input.selectedAttempt.choiceSignature,
+            snapshotIndex: primaryAttempt.snapshotIndex,
+            rawPurchaseIndex: primaryAttempt.rawPurchaseIndex,
+            snapshotMinute: primaryAttempt.snapshot.timestampMinutes,
+            qualityScore: primaryAttempt.qualityScore,
+            variationSeed: primaryAttempt.variationSeed,
+            choiceSignature: primaryAttempt.choiceSignature,
           }
         : null,
+    selectedSnapshots:
+      input.selectedAttempts?.map((attempt) => ({
+        snapshotIndex: attempt.snapshotIndex,
+        rawPurchaseIndex: attempt.rawPurchaseIndex,
+        snapshotMinute: attempt.snapshot.timestampMinutes,
+        qualityScore: attempt.qualityScore,
+        variationSeed: attempt.variationSeed,
+        choiceSignature: attempt.choiceSignature,
+        segment: getSnapshotSegment(attempt.snapshot.timestampMinutes),
+        historyKey: buildSnapshotHistoryKey({
+          snapshotIndex: attempt.snapshotIndex,
+          snapshotMinute: attempt.snapshot.timestampMinutes,
+        }),
+      })) ?? [],
     attemptsSummary: {
       snapshotsEvaluated: input.attemptSummaries.length,
       successfulSnapshots: input.attemptSummaries.filter((entry) => entry.rejectionReasons.length === 0).length,
       attempts: input.attemptSummaries,
     },
+    draft: input.draft ?? false,
+    segmentsEvaluated: input.segmentSummaries ?? [],
+    repetitionExcluded: input.repetitionExcluded ?? [],
+    resultPuzzleIds: input.resultPuzzles?.map((entry) => entry.id) ?? [],
+    resultPuzzleSlugs: input.resultPuzzles?.map((entry) => entry.slug) ?? [],
     payload: input.payload as Prisma.InputJsonValue | undefined,
-    prediction: input.selectedAttempt?.prediction as Prisma.InputJsonValue | undefined,
-    seed: input.selectedAttempt?.seed as Prisma.InputJsonValue | undefined,
-    businessRules: input.selectedAttempt
+    prediction: primaryAttempt?.prediction as Prisma.InputJsonValue | undefined,
+    seed: primaryAttempt?.seed as Prisma.InputJsonValue | undefined,
+    businessRules: primaryAttempt
       ? ({
-          ...input.selectedAttempt.businessRules.debug,
-          choiceSignature: input.selectedAttempt.choiceSignature,
-          variationSeed: input.selectedAttempt.variationSeed,
+          ...primaryAttempt.businessRules.debug,
+          choiceSignature: primaryAttempt.choiceSignature,
+          variationSeed: primaryAttempt.variationSeed,
         } as Prisma.InputJsonValue)
       : undefined,
   } as Prisma.InputJsonValue;
@@ -409,6 +496,59 @@ async function getPreviousChoiceSignatures(input: {
     .map((slugs) => [...slugs].sort().join("|"));
 }
 
+async function getPreviousServedSnapshots(input: {
+  importedMatchId: string;
+  userId: string;
+}) {
+  const requests = await prisma.generatedPuzzleRequest.findMany({
+    where: {
+      importedMatchId: input.importedMatchId,
+      userId: input.userId,
+      status: GeneratedPuzzleRequestStatus.COMPLETED,
+    },
+    select: {
+      parameters: true,
+    },
+  });
+
+  const entries: SnapshotHistoryEntry[] = [];
+  for (const request of requests) {
+    const parameters = request.parameters;
+    if (!parameters || typeof parameters !== "object" || Array.isArray(parameters)) {
+      continue;
+    }
+
+    const objectParameters = parameters as Record<string, unknown>;
+    const selectedSnapshots = Array.isArray(objectParameters.selectedSnapshots)
+      ? objectParameters.selectedSnapshots
+      : objectParameters.selectedSnapshot
+        ? [objectParameters.selectedSnapshot]
+        : [];
+
+    for (const snapshotEntry of selectedSnapshots) {
+      if (!snapshotEntry || typeof snapshotEntry !== "object" || Array.isArray(snapshotEntry)) {
+        continue;
+      }
+      const snapshotObject = snapshotEntry as Record<string, unknown>;
+      const snapshotIndex = Number(snapshotObject.snapshotIndex);
+      const snapshotMinute = Number(snapshotObject.snapshotMinute);
+      if (!Number.isFinite(snapshotIndex) || !Number.isFinite(snapshotMinute)) {
+        continue;
+      }
+      entries.push({
+        snapshotIndex,
+        snapshotMinute,
+        key: buildSnapshotHistoryKey({
+          snapshotIndex,
+          snapshotMinute,
+        }),
+      });
+    }
+  }
+
+  return entries;
+}
+
 function scoreSnapshotCandidate(snapshot: MlPuzzleSnapshot) {
   let score = 0;
   const minute = snapshot.timestampMinutes;
@@ -432,25 +572,51 @@ function dedupeAndRankSnapshots(candidates: SnapshotCandidate[]) {
     .filter((candidate) => candidate.relevanceScore >= 0);
   const kept: SnapshotCandidate[] = [];
 
-  for (const candidate of sorted) {
+  const isDuplicateOfKept = (candidate: SnapshotCandidate) => {
     const candidateSignature = [...candidate.snapshot.currentItems].sort().join("|");
-    const duplicate = kept.find((existing) => {
+    return kept.find((existing) => {
       const existingSignature = [...existing.snapshot.currentItems].sort().join("|");
       return (
         candidateSignature === existingSignature
         && Math.abs(existing.snapshot.timestampMinutes - candidate.snapshot.timestampMinutes) < 3
       );
     });
-    if (duplicate) {
-      continue;
+  };
+
+  for (const segmentConfig of SNAPSHOT_SEGMENTS) {
+    let keptForSegment = 0;
+    for (const candidate of sorted) {
+      if (getSnapshotSegment(candidate.snapshot.timestampMinutes) !== segmentConfig.segment) {
+        continue;
+      }
+      if (isDuplicateOfKept(candidate)) {
+        continue;
+      }
+      kept.push(candidate);
+      keptForSegment += 1;
+      if (kept.length >= MAX_SNAPSHOT_CANDIDATES || keptForSegment >= MAX_SNAPSHOT_CANDIDATES_PER_SEGMENT) {
+        break;
+      }
     }
-    kept.push(candidate);
     if (kept.length >= MAX_SNAPSHOT_CANDIDATES) {
       break;
     }
   }
 
-  return kept.sort((left, right) => left.snapshot.timestampMinutes - right.snapshot.timestampMinutes);
+  if (kept.length < MAX_SNAPSHOT_CANDIDATES) {
+    for (const candidate of sorted) {
+      if (isDuplicateOfKept(candidate)) {
+        continue;
+      }
+      kept.push(candidate);
+      if (kept.length >= MAX_SNAPSHOT_CANDIDATES) {
+        break;
+      }
+    }
+  }
+
+  return [...new Map(kept.map((candidate) => [candidate.snapshotIndex, candidate])).values()]
+    .sort((left, right) => left.snapshot.timestampMinutes - right.snapshot.timestampMinutes);
 }
 
 async function buildSnapshotCandidatesFromImportedMatch(
@@ -977,12 +1143,154 @@ function selectBestAttempt(input: {
   };
 }
 
+function selectAttemptsForSeries(input: {
+  attempts: SnapshotAttempt[];
+  allowLowConfidenceDraft: boolean;
+  previousSnapshotKeys: string[];
+}): SeriesSelectionResult {
+  const accepted = input.attempts.filter((attempt): attempt is PreparedSnapshotAttempt => attempt.status === "accepted");
+  const previousSnapshotKeys = new Set(input.previousSnapshotKeys);
+  const byScore = (left: PreparedSnapshotAttempt, right: PreparedSnapshotAttempt) =>
+    right.qualityScore - left.qualityScore;
+
+  const chooseFromPool = (pool: PreparedSnapshotAttempt[]) => {
+    const selectedAttempts: PreparedSnapshotAttempt[] = [];
+    const segmentSummaries: SegmentEvaluationSummary[] = [];
+    const repetitionExcluded: SeriesSelectionResult["repetitionExcluded"] = [];
+
+    for (const segmentConfig of SNAPSHOT_SEGMENTS) {
+      const segmentAttempts = pool
+        .filter((attempt) => getSnapshotSegment(attempt.snapshot.timestampMinutes) === segmentConfig.segment)
+        .sort(byScore);
+      const freshAttempts = segmentAttempts.filter(
+        (attempt) =>
+          !previousSnapshotKeys.has(
+            buildSnapshotHistoryKey({
+              snapshotIndex: attempt.snapshotIndex,
+              snapshotMinute: attempt.snapshot.timestampMinutes,
+            }),
+          ),
+      );
+
+      if (freshAttempts.length > 0) {
+        for (const repeatedAttempt of segmentAttempts) {
+          const historyKey = buildSnapshotHistoryKey({
+            snapshotIndex: repeatedAttempt.snapshotIndex,
+            snapshotMinute: repeatedAttempt.snapshot.timestampMinutes,
+          });
+          if (!previousSnapshotKeys.has(historyKey)) {
+            continue;
+          }
+          repetitionExcluded.push({
+            segment: segmentConfig.segment,
+            snapshotIndex: repeatedAttempt.snapshotIndex,
+            snapshotMinute: Number(repeatedAttempt.snapshot.timestampMinutes.toFixed(2)),
+            qualityScore: repeatedAttempt.qualityScore,
+          });
+        }
+      }
+
+      const selectedAttempt = freshAttempts[0] ?? segmentAttempts[0] ?? null;
+      if (selectedAttempt) {
+        selectedAttempts.push(selectedAttempt);
+      }
+      segmentSummaries.push({
+        segment: segmentConfig.segment,
+        totalAccepted: segmentAttempts.length,
+        nonLowConfidenceAccepted: segmentAttempts.filter((attempt) => !attempt.seed.lowConfidence).length,
+        lowConfidenceAccepted: segmentAttempts.filter((attempt) => attempt.seed.lowConfidence).length,
+        selectedSnapshotIndex: selectedAttempt?.snapshotIndex ?? null,
+        selectedSnapshotMinute: selectedAttempt ? Number(selectedAttempt.snapshot.timestampMinutes.toFixed(2)) : null,
+        selectedQualityScore: selectedAttempt?.qualityScore ?? null,
+        selectedFromHistoryFallback:
+          Boolean(selectedAttempt)
+          && freshAttempts.length === 0
+          && segmentAttempts.length > 0,
+      });
+    }
+
+    return {
+      selectedAttempts,
+      segmentSummaries,
+      repetitionExcluded,
+    };
+  };
+
+  const publishedCandidates = accepted.filter((attempt) => !attempt.seed.lowConfidence);
+  const publishedSelection = chooseFromPool(publishedCandidates);
+  if (publishedSelection.selectedAttempts.length > 0) {
+    const primaryAttempt = [...publishedSelection.selectedAttempts].sort(byScore)[0] ?? null;
+    const orderedAttempts = primaryAttempt
+      ? [
+          primaryAttempt,
+          ...publishedSelection.selectedAttempts
+            .filter((attempt) => attempt.snapshotIndex !== primaryAttempt.snapshotIndex)
+            .sort((left, right) => left.snapshot.timestampMinutes - right.snapshot.timestampMinutes),
+        ]
+      : [];
+    return {
+      selectedAttempts: orderedAttempts,
+      primaryAttempt,
+      draft: false,
+      segmentSummaries: publishedSelection.segmentSummaries,
+      repetitionExcluded: publishedSelection.repetitionExcluded,
+    };
+  }
+
+  if (input.allowLowConfidenceDraft) {
+    const draftCandidates = accepted.filter((attempt) => attempt.seed.lowConfidence);
+    const draftSelection = chooseFromPool(draftCandidates);
+    if (draftSelection.selectedAttempts.length > 0) {
+      const primaryAttempt = [...draftSelection.selectedAttempts].sort(byScore)[0] ?? null;
+      const orderedAttempts = primaryAttempt
+        ? [
+            primaryAttempt,
+            ...draftSelection.selectedAttempts
+              .filter((attempt) => attempt.snapshotIndex !== primaryAttempt.snapshotIndex)
+              .sort((left, right) => left.snapshot.timestampMinutes - right.snapshot.timestampMinutes),
+          ]
+        : [];
+      return {
+        selectedAttempts: orderedAttempts,
+        primaryAttempt,
+        draft: true,
+        segmentSummaries: draftSelection.segmentSummaries,
+        repetitionExcluded: draftSelection.repetitionExcluded,
+      };
+    }
+  }
+
+  return {
+    selectedAttempts: [],
+    primaryAttempt: null,
+    draft: false,
+    segmentSummaries: SNAPSHOT_SEGMENTS.map((segmentConfig) => ({
+      segment: segmentConfig.segment,
+      totalAccepted: accepted.filter((attempt) => getSnapshotSegment(attempt.snapshot.timestampMinutes) === segmentConfig.segment)
+        .length,
+      nonLowConfidenceAccepted: accepted.filter(
+        (attempt) => getSnapshotSegment(attempt.snapshot.timestampMinutes) === segmentConfig.segment && !attempt.seed.lowConfidence,
+      ).length,
+      lowConfidenceAccepted: accepted.filter(
+        (attempt) => getSnapshotSegment(attempt.snapshot.timestampMinutes) === segmentConfig.segment && attempt.seed.lowConfidence,
+      ).length,
+      selectedSnapshotIndex: null,
+      selectedSnapshotMinute: null,
+      selectedQualityScore: null,
+      selectedFromHistoryFallback: false,
+    })),
+    repetitionExcluded: [],
+  };
+}
+
 async function persistAiGeneratedPuzzle(input: {
   championId: string;
   championName: string;
   championSlug: string;
   attempt: PreparedSnapshotAttempt;
   draft: boolean;
+  seriesIndex: number;
+  primary: boolean;
 }) {
   const choiceSlugs = [
     input.attempt.resolvedChoices.goodAnswer.slug,
@@ -1009,7 +1317,7 @@ async function persistAiGeneratedPuzzle(input: {
   return prisma.puzzle.create({
     data: {
       title: `${input.championName} AI item puzzle`,
-      slug: slugify(`${input.championSlug}-ai-generated-${Date.now()}`),
+      slug: slugify(`${input.championSlug}-ai-generated-${Date.now()}-${input.attempt.snapshotIndex}-${input.seriesIndex + 1}`),
       mode: PuzzleMode.PERSONALIZED,
       sourceType: PuzzleSourceType.AI_GENERATED,
       difficulty:
@@ -1073,6 +1381,8 @@ async function persistAiGeneratedPuzzle(input: {
           "ml",
           "next-item",
           "ml-draft",
+          "ml-series",
+          ...(input.primary ? ["ml-series-primary"] : []),
           ...(input.draft ? ["low-confidence"] : []),
         ].map((tag) => ({
           tag: {
@@ -1156,6 +1466,10 @@ export const mlPuzzleGenerationService = {
         importedMatchId,
         userId,
       });
+      const previousServedSnapshots = await getPreviousServedSnapshots({
+        importedMatchId,
+        userId,
+      });
       const championTags = Array.isArray(champion.tags) ? champion.tags.map((tag) => String(tag)) : [];
       const attempts: SnapshotAttempt[] = [];
 
@@ -1172,39 +1486,77 @@ export const mlPuzzleGenerationService = {
         logSnapshotAttempt(request.id, importedMatchId, attempt);
       }
 
-      const selection = selectBestAttempt({
+      const selection = selectAttemptsForSeries({
         attempts,
         allowLowConfidenceDraft,
+        previousSnapshotKeys: previousServedSnapshots.map((entry) => entry.key),
       });
-
-      if (selection.selectedAttempt) {
-        const puzzle = await persistAiGeneratedPuzzle({
-          championId: champion.id,
-          championName: champion.name,
-          championSlug: champion.slug,
-          attempt: selection.selectedAttempt,
-          draft: selection.draft,
-        });
-        await updateGeneratedRequest({
+      console.info(
+        "[ml-puzzle] segments-evaluated",
+        JSON.stringify({
           requestId: request.id,
-          status: GeneratedPuzzleRequestStatus.COMPLETED,
-          resultPuzzleId: puzzle.id,
-          parameters: buildMlRequestMetadata({
-            generationStatus: "completed",
-            selectedAttempt: selection.selectedAttempt,
-            attemptSummaries: attempts.map((attempt) => attempt.debugSummary),
-            payload: selection.selectedAttempt.payload,
-          }),
-        });
+          importedMatchId,
+          previousSnapshotKeys: previousServedSnapshots.map((entry) => entry.key),
+          segments: selection.segmentSummaries,
+        }),
+      );
+      if (selection.repetitionExcluded.length > 0) {
         console.info(
-          "[ml-puzzle] selected-snapshot",
+          "[ml-puzzle] snapshots-excluded-for-repetition",
           JSON.stringify({
             requestId: request.id,
             importedMatchId,
-            selectedSnapshotIndex: selection.selectedAttempt.snapshotIndex,
-            snapshotMinute: selection.selectedAttempt.snapshot.timestampMinutes,
-            qualityScore: selection.selectedAttempt.qualityScore,
-            lowConfidence: selection.selectedAttempt.seed.lowConfidence,
+            excluded: selection.repetitionExcluded,
+          }),
+        );
+      }
+
+      if (selection.primaryAttempt) {
+        const persistedPuzzles = [];
+        for (const [seriesIndex, attempt] of selection.selectedAttempts.entries()) {
+          const puzzle = await persistAiGeneratedPuzzle({
+            championId: champion.id,
+            championName: champion.name,
+            championSlug: champion.slug,
+            attempt,
+            draft: selection.draft,
+            seriesIndex,
+            primary: attempt.snapshotIndex === selection.primaryAttempt.snapshotIndex,
+          });
+          persistedPuzzles.push(puzzle);
+        }
+        const primaryPuzzle = persistedPuzzles[0]!;
+        await updateGeneratedRequest({
+          requestId: request.id,
+          status: GeneratedPuzzleRequestStatus.COMPLETED,
+          resultPuzzleId: primaryPuzzle.id,
+          parameters: buildMlRequestMetadata({
+            generationStatus: "completed",
+            selectedAttempts: selection.selectedAttempts,
+            attemptSummaries: attempts.map((attempt) => attempt.debugSummary),
+            payload: selection.primaryAttempt.payload,
+            resultPuzzles: persistedPuzzles.map((puzzle) => ({ id: puzzle.id, slug: puzzle.slug })),
+            segmentSummaries: selection.segmentSummaries,
+            repetitionExcluded: selection.repetitionExcluded,
+            draft: selection.draft,
+          }),
+        });
+        console.info(
+          "[ml-puzzle] selected-snapshots",
+          JSON.stringify({
+            requestId: request.id,
+            importedMatchId,
+            selectedSnapshots: selection.selectedAttempts.map((attempt) => ({
+              segment: getSnapshotSegment(attempt.snapshot.timestampMinutes),
+              snapshotIndex: attempt.snapshotIndex,
+              snapshotMinute: attempt.snapshot.timestampMinutes,
+              qualityScore: attempt.qualityScore,
+              historyKey: buildSnapshotHistoryKey({
+                snapshotIndex: attempt.snapshotIndex,
+                snapshotMinute: attempt.snapshot.timestampMinutes,
+              }),
+            })),
+            lowConfidence: selection.primaryAttempt.seed.lowConfidence,
             draft: selection.draft,
           }),
         );
@@ -1212,11 +1564,11 @@ export const mlPuzzleGenerationService = {
         return {
           generationStatus: "completed",
           requestId: request.id,
-          slug: puzzle.slug,
-          slugs: [puzzle.slug],
+          slug: primaryPuzzle.slug,
+          slugs: persistedPuzzles.map((puzzle) => puzzle.slug),
           sourceType: "ai_generated",
           published: false,
-          lowConfidence: selection.selectedAttempt.seed.lowConfidence,
+          lowConfidence: selection.primaryAttempt.seed.lowConfidence,
           draft: selection.draft,
         };
       }
@@ -1227,6 +1579,8 @@ export const mlPuzzleGenerationService = {
         parameters: buildMlRequestMetadata({
           generationStatus: "no_viable_snapshot_found",
           attemptSummaries: attempts.map((attempt) => attempt.debugSummary),
+          segmentSummaries: selection.segmentSummaries,
+          repetitionExcluded: selection.repetitionExcluded,
         }),
       });
       console.warn(
@@ -1268,4 +1622,6 @@ export const mlPuzzleGenerationServiceTestables = {
   scoreSnapshotCandidate,
   dedupeAndRankSnapshots,
   selectBestAttempt,
+  getSnapshotSegment,
+  selectAttemptsForSeries,
 };

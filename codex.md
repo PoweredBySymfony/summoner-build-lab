@@ -1267,6 +1267,15 @@ Lire ce fichier au debut de chaque nouvelle conversation sur ce repo, puis le me
 - Reflexe attendu:
   - apres toute modification de code ML Python, toujours rebuild avant de conclure qu'un correctif "ne marche pas"
 
+## Regle redemarrage backend Node obligatoire (2026-04-01)
+
+- Si un fichier sous `server/` est modifie, il faut considerer que l'API locale sur `:3001` doit tourner avec ce nouveau code.
+- En developpement, `npm run dev` ou `npm run dev:server` via `tsx watch` devrait recharger automatiquement, mais il ne faut jamais le supposer sans verifier un effet observable en base/logs.
+- Si les nouvelles metadonnees attendues n'apparaissent pas en base apres une generation, partir du principe que l'ancien serveur tourne encore.
+- Reflexe attendu apres un correctif backend:
+  - redemarrer `npm run dev` si le doute existe
+  - verifier soit les logs serveur, soit la DB (`GeneratedPuzzleRequest.parameters`) avant de conclure
+
 ## Audit statique Data Dragon / DB / UI (2026-04-01)
 
 - Objectif:
@@ -1311,3 +1320,39 @@ Lire ce fichier au debut de chaque nouvelle conversation sur ce repo, puis le me
   - rapport genere avec `207` items actifs et `172` champions audites
   - `0` anomalie item
   - `0` anomalie champion
+
+## Serie multi-snapshots match-based (2026-04-01)
+
+- Probleme:
+  - le flow ML match-based selectionnait historiquement un seul snapshot "meilleur" de facon deterministe
+  - sur plusieurs runs du meme match, cela re-servait tres souvent la meme minute
+- Decision:
+  - conserver un puzzle `primary` pour compatibilite
+  - enrichir le flow pour produire jusqu'a `3` puzzles credibles sur des segments distincts
+- Segments utilises:
+  - `early`: `8 <= minute < 14`
+  - `mid`: `14 <= minute < 23`
+  - `late`: `23 <= minute <= 32`
+- Regle de selection:
+  - on evalue les snapshots credibles existants avec les garde-fous actuels
+  - on retient au maximum un snapshot par segment
+  - on privilegie les snapshots non deja servis a ce `userId` sur ce `importedMatchId`
+  - si un segment n'a plus aucune alternative fraiche, un fallback sur un snapshot deja vu reste autorise pour ne pas casser la generation
+  - tant qu'il existe au moins un snapshot publiable, on n'ajoute pas de snapshot `low-confidence` juste pour faire du volume
+- Traçabilite:
+  - `GeneratedPuzzleRequest.parameters` doit maintenant garder:
+    - `selectedSnapshot` pour le primary
+    - `selectedSnapshots` pour toute la mini-serie
+    - `resultPuzzleIds`
+    - `resultPuzzleSlugs`
+    - `segmentsEvaluated`
+    - `repetitionExcluded`
+- Logs attendus:
+  - `segments-evaluated`
+  - `snapshots-excluded-for-repetition`
+  - `selected-snapshots`
+- Contrat API:
+  - `slug` reste le puzzle primary
+  - `slugs` contient la mini-serie complete, dans un ordre demarrant par le primary
+- Tests de garde:
+  - `src/test/mlPuzzleOrchestration.test.ts`

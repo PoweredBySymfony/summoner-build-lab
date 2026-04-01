@@ -155,6 +155,23 @@ describe("mlPuzzleGenerationService orchestration", () => {
     expect(result.map((entry) => entry.snapshotIndex)).toEqual([0, 2]);
   });
 
+  it("preserves segment coverage before filling the global snapshot cap", () => {
+    const snapshots = [
+      createSnapshotCandidate({ snapshotIndex: 0, minute: 10.5, currentItems: ["a"], goldAvailable: 700, relevanceScore: 28 }),
+      createSnapshotCandidate({ snapshotIndex: 1, minute: 11.2, currentItems: ["b"], goldAvailable: 760, relevanceScore: 27 }),
+      createSnapshotCandidate({ snapshotIndex: 2, minute: 15.4, currentItems: ["c", "d"], goldAvailable: 1400, relevanceScore: 95 }),
+      createSnapshotCandidate({ snapshotIndex: 3, minute: 16.1, currentItems: ["e", "f"], goldAvailable: 1450, relevanceScore: 93 }),
+      createSnapshotCandidate({ snapshotIndex: 4, minute: 17.8, currentItems: ["g", "h"], goldAvailable: 1500, relevanceScore: 90 }),
+      createSnapshotCandidate({ snapshotIndex: 5, minute: 19.4, currentItems: ["i", "j"], goldAvailable: 1620, relevanceScore: 88 }),
+      createSnapshotCandidate({ snapshotIndex: 6, minute: 25.2, currentItems: ["k", "l", "m"], goldAvailable: 2100, relevanceScore: 32 }),
+    ];
+
+    const result = mlPuzzleGenerationServiceTestables.dedupeAndRankSnapshots(snapshots);
+
+    expect(result.some((entry) => entry.snapshotIndex === 0 || entry.snapshotIndex === 1)).toBe(true);
+    expect(result.some((entry) => entry.snapshotIndex === 6)).toBe(true);
+  });
+
   it("prefers the best non-low-confidence snapshot when several attempts exist", () => {
     const selection = mlPuzzleGenerationServiceTestables.selectBestAttempt({
       attempts: [
@@ -204,5 +221,103 @@ describe("mlPuzzleGenerationService orchestration", () => {
     );
 
     expect(mid).toBeGreaterThan(early);
+  });
+
+  it("maps snapshots into early, mid and late segments with stable boundaries", () => {
+    expect(mlPuzzleGenerationServiceTestables.getSnapshotSegment(8)).toBe("early");
+    expect(mlPuzzleGenerationServiceTestables.getSnapshotSegment(13.99)).toBe("early");
+    expect(mlPuzzleGenerationServiceTestables.getSnapshotSegment(14)).toBe("mid");
+    expect(mlPuzzleGenerationServiceTestables.getSnapshotSegment(22.99)).toBe("mid");
+    expect(mlPuzzleGenerationServiceTestables.getSnapshotSegment(23)).toBe("late");
+    expect(mlPuzzleGenerationServiceTestables.getSnapshotSegment(32)).toBe("late");
+    expect(mlPuzzleGenerationServiceTestables.getSnapshotSegment(7.99)).toBeNull();
+  });
+
+  it("selects up to one high-quality published snapshot per segment", () => {
+    const selection = mlPuzzleGenerationServiceTestables.selectAttemptsForSeries({
+      attempts: [
+        {
+          ...createAcceptedAttempt({ snapshotIndex: 0, qualityScore: 70 }),
+          snapshot: {
+            ...createAcceptedAttempt({ snapshotIndex: 0, qualityScore: 70 }).snapshot,
+            timestampMinutes: 10.5,
+          },
+        },
+        {
+          ...createAcceptedAttempt({ snapshotIndex: 1, qualityScore: 82 }),
+          snapshot: {
+            ...createAcceptedAttempt({ snapshotIndex: 1, qualityScore: 82 }).snapshot,
+            timestampMinutes: 18.2,
+          },
+        },
+        {
+          ...createAcceptedAttempt({ snapshotIndex: 2, qualityScore: 76 }),
+          snapshot: {
+            ...createAcceptedAttempt({ snapshotIndex: 2, qualityScore: 76 }).snapshot,
+            timestampMinutes: 27.4,
+          },
+        },
+      ],
+      allowLowConfidenceDraft: false,
+      previousSnapshotKeys: [],
+    });
+
+    expect(selection.draft).toBe(false);
+    expect(selection.primaryAttempt?.snapshotIndex).toBe(1);
+    expect(selection.selectedAttempts.map((attempt) => attempt.snapshotIndex)).toEqual([1, 0, 2]);
+    expect(selection.segmentSummaries.map((entry) => entry.selectedSnapshotIndex)).toEqual([0, 1, 2]);
+  });
+
+  it("avoids re-serving the exact same snapshot when another candidate exists in the segment", () => {
+    const selection = mlPuzzleGenerationServiceTestables.selectAttemptsForSeries({
+      attempts: [
+        {
+          ...createAcceptedAttempt({ snapshotIndex: 0, qualityScore: 84 }),
+          snapshot: {
+            ...createAcceptedAttempt({ snapshotIndex: 0, qualityScore: 84 }).snapshot,
+            timestampMinutes: 18.2,
+          },
+        },
+        {
+          ...createAcceptedAttempt({ snapshotIndex: 1, qualityScore: 79 }),
+          snapshot: {
+            ...createAcceptedAttempt({ snapshotIndex: 1, qualityScore: 79 }).snapshot,
+            timestampMinutes: 19.1,
+          },
+        },
+      ],
+      allowLowConfidenceDraft: false,
+      previousSnapshotKeys: ["0:18.20"],
+    });
+
+    expect(selection.primaryAttempt?.snapshotIndex).toBe(1);
+    expect(selection.selectedAttempts.map((attempt) => attempt.snapshotIndex)).toEqual([1]);
+    expect(selection.repetitionExcluded).toEqual([
+      {
+        segment: "mid",
+        snapshotIndex: 0,
+        snapshotMinute: 18.2,
+        qualityScore: 84,
+      },
+    ]);
+  });
+
+  it("falls back to a repeated snapshot only when the segment has no fresh alternative", () => {
+    const selection = mlPuzzleGenerationServiceTestables.selectAttemptsForSeries({
+      attempts: [
+        {
+          ...createAcceptedAttempt({ snapshotIndex: 3, qualityScore: 74 }),
+          snapshot: {
+            ...createAcceptedAttempt({ snapshotIndex: 3, qualityScore: 74 }).snapshot,
+            timestampMinutes: 26.6,
+          },
+        },
+      ],
+      allowLowConfidenceDraft: false,
+      previousSnapshotKeys: ["3:26.60"],
+    });
+
+    expect(selection.primaryAttempt?.snapshotIndex).toBe(3);
+    expect(selection.segmentSummaries.find((entry) => entry.segment === "late")?.selectedFromHistoryFallback).toBe(true);
   });
 });
