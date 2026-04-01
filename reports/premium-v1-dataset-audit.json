@@ -1,0 +1,199 @@
+{
+  "generatedAt": "2026-04-01T17:42:25.429Z",
+  "baseline": {
+    "id": "premium-v1",
+    "state": "frozen-for-ml-audit",
+    "ingestionFrozen": true,
+    "note": "Ne pas relancer l'ingestion competitive tant que l'evaluation premium v1 n'est pas terminee."
+  },
+  "database": {
+    "totalImportedMatches": 610,
+    "totalValidTimelines": 610,
+    "matchsParPatch": [
+      {
+        "patch": "26.6",
+        "count": 411
+      },
+      {
+        "patch": "26.5",
+        "count": 44
+      },
+      {
+        "patch": "26.1",
+        "count": 42
+      },
+      {
+        "patch": "15.23",
+        "count": 27
+      },
+      {
+        "patch": "14.20",
+        "count": 19
+      },
+      {
+        "patch": "15.24",
+        "count": 12
+      },
+      {
+        "patch": "15.19",
+        "count": 8
+      },
+      {
+        "patch": "15.4",
+        "count": 8
+      },
+      {
+        "patch": "14.24",
+        "count": 5
+      },
+      {
+        "patch": "15.7",
+        "count": 5
+      },
+      {
+        "patch": "15.1",
+        "count": 4
+      },
+      {
+        "patch": "15.18",
+        "count": 4
+      },
+      {
+        "patch": "15.9",
+        "count": 4
+      },
+      {
+        "patch": "14.15",
+        "count": 3
+      },
+      {
+        "patch": "15.5",
+        "count": 3
+      },
+      {
+        "patch": "26.3",
+        "count": 3
+      },
+      {
+        "patch": "15.22",
+        "count": 2
+      },
+      {
+        "patch": "26.7",
+        "count": 2
+      },
+      {
+        "patch": "15.12",
+        "count": 1
+      },
+      {
+        "patch": "15.20",
+        "count": 1
+      },
+      {
+        "patch": "26.2",
+        "count": 1
+      },
+      {
+        "patch": "26.4",
+        "count": 1
+      }
+    ],
+    "matchsParSourceTier": [
+      {
+        "sourceTier": "unknown",
+        "count": 602
+      },
+      {
+        "sourceTier": "pro",
+        "count": 8
+      }
+    ],
+    "premiumRecentMatches26x": 504,
+    "premiumRecentShare26x": 82.62
+  },
+  "dataset": {
+    "totalSnapshotsGenerated": 11958,
+    "snapshotsByPatch": {
+      "26.6": 9810,
+      "26.1": 1020,
+      "26.5": 991,
+      "26.3": 62,
+      "26.7": 48,
+      "26.4": 22,
+      "26.2": 5
+    },
+    "snapshotsByRole": {
+      "ADC": 3000,
+      "SUPPORT": 2513,
+      "MID": 2441,
+      "TOP": 2066,
+      "JUNGLE": 1938
+    },
+    "snapshotsByChampion": {
+      "anivia": 540,
+      "bard": 479,
+      "ezreal": 464,
+      "ambessa": 442,
+      "ryze": 367,
+      "yunara": 348,
+      "jayce": 329,
+      "renekton": 303,
+      "ashe": 298,
+      "jhin": 270,
+      "karma": 241,
+      "varus": 239,
+      "aurora": 228,
+      "mel": 213,
+      "pantheon": 208,
+      "jarvan-iv": 197,
+      "kaisa": 192,
+      "sylas": 188,
+      "vi": 185,
+      "caitlyn": 173,
+      "vayne": 172,
+      "poppy": 167,
+      "rumble": 167,
+      "corki": 165,
+      "lissandra": 165,
+      "azir": 161,
+      "nautilus": 158,
+      "miss-fortune": 153,
+      "akali": 140,
+      "orianna": 140
+    },
+    "candidatePoolMedian": 23,
+    "candidatePoolP95": 82,
+    "goldIncoherentRatio": 0.39831075430674023,
+    "missingActualItemRatio": 0,
+    "snapshotsTrainableStrictRecents": 11958,
+    "rowsBeforeTrainPatchFilter": 14237,
+    "rowsAfterTrainPatchFilter": 11958
+  },
+  "trainingPolicy": {
+    "trainPatchMode": "strict_recent_competitive",
+    "strictTrainPatchPrefixes": [
+      "26."
+    ],
+    "adjacentTrainPatchPrefixes": [
+      "26.6",
+      "26.5",
+      "26.4",
+      "26.3"
+    ],
+    "recentFirstVerified": true
+  },
+  "ingestionCheckpoint": {
+    "totalCompetitiveMatchesInDb": 0,
+    "createdMatches": 0,
+    "discoveredUniqueMatches": 0
+  },
+  "reproduction": {
+    "commands": [
+      "npm run riot:report-competitive",
+      "npm run ml:export-raw",
+      "ml\\.venv\\Scripts\\python.exe ml\\scripts\\tasks.py build-dataset",
+      "npm run audit:premium-v1-dataset"
+    ]
+  }
+}

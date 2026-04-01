@@ -1580,6 +1580,29 @@ Lire ce fichier au debut de chaque nouvelle conversation sur ce repo, puis le me
       - `patchBucket`
       - `summary` (`frameCount`, `eventCount`, bornes timestamp)
     - objectif: garder les metadata + agregats de debug sans laisser les timelines legacy lourdes dans la DB
+- Premium baseline v1:
+  - etat fige temporairement le `2026-04-01` pour audit avant nouvel entrainement
+  - ne pas relancer `npm run riot:import-competitive` tant que l'evaluation premium v1 n'est pas cloturee
+  - runbook freeze:
+    - `reports/premium-v1-freeze-runbook.md`
+  - audit consolide:
+    - JSON: `reports/premium-v1-dataset-audit.json`
+    - Markdown: `reports/premium-v1-dataset-audit.md`
+    - commande: `npm run audit:premium-v1-dataset`
+  - sequence de reproduction premium v1:
+    - `npm run riot:report-competitive`
+    - `npm run ml:export-raw`
+    - `ml\.venv\Scripts\python.exe ml\scripts\tasks.py build-dataset`
+    - `npm run audit:premium-v1-dataset`
+  - etat observe a figer pour premium v1:
+    - `610` matchs importes
+    - `610` timelines valides
+    - `504` matchs en patchs `26.1` a `26.7`
+    - part recente premium: `82.62%`
+    - `11958` snapshots trainables strict recents
+    - training policy verifiee:
+      - `train_patch_mode = strict_recent_competitive`
+      - `strict_train_patch_prefixes = ["26."]`
 - Commandes canonique premium:
   - seed prep:
     - `npm run riot:prepare-competitive-seeds -- --pro-only`
