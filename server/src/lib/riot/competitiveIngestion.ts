@@ -72,6 +72,12 @@ export type CompetitiveResolvedSeed = CompetitiveSeed & {
   cluster: RiotRegion | null;
 };
 
+export type CompetitiveDiscoveryQueueState = {
+  nextStart: number;
+  requests: number;
+  exhausted: boolean;
+};
+
 export type CompetitiveSeedMatchDiscovery = {
   seedKey: string;
   playerName: string;
@@ -84,6 +90,21 @@ export type CompetitiveSeedMatchDiscovery = {
   puuid: string;
   region: RiotRegion;
   matchIds: string[];
+  querySignature?: string;
+  appliedFilters?: {
+    queues: number[];
+    startTime: number | null;
+    endTime: number | null;
+    pageSize: number;
+    maxIdsPerSeed: number;
+  };
+  scanStateByQueue?: Record<string, CompetitiveDiscoveryQueueState>;
+};
+
+export type CompetitiveCachedMatchMetadata = {
+  patch: string | null;
+  queueId: number | null;
+  gameCreationAt: string | null;
 };
 
 export type CompetitiveDiscoveredMatch = {
@@ -181,7 +202,7 @@ export type CompetitiveSeedDiscoverySummary = {
 };
 
 export type CompetitiveIngestionCheckpoint = {
-  version: 2;
+  version: 2 | 3;
   generatedAt: string;
   seedSetVersion: string;
   targetUniqueMatches: number;
@@ -199,6 +220,7 @@ export type CompetitiveIngestionCheckpoint = {
   importCountsByTier?: Record<string, number>;
   importCountsByPatchBucket?: Record<string, number>;
   importCountsByQueueBucket?: Record<string, number>;
+  matchMetadataById?: Record<string, CompetitiveCachedMatchMetadata>;
   resolvedSeeds: CompetitiveResolvedSeed[];
   discoveredMatches: CompetitiveSeedMatchDiscovery[];
   attemptedMatchIds: string[];
@@ -579,10 +601,17 @@ export function buildCompetitiveMatchQueue(input: {
   targetUniqueMatches: number;
   policy: CompetitiveIngestionPolicyRuntime;
   activeBands: CompetitivePriorityBand[];
+  excludedMatchIds?: Set<string>;
 }) {
   const grouped = new Map<string, CompetitiveDiscoveredMatch[]>();
+  const excludedMatchIds = input.excludedMatchIds ?? new Set<string>();
   for (const match of input.matches) {
-    if (!match.acceptedByPolicy || !match.priorityBand || !input.activeBands.includes(match.priorityBand)) {
+    if (
+      !match.acceptedByPolicy
+      || !match.priorityBand
+      || !input.activeBands.includes(match.priorityBand)
+      || excludedMatchIds.has(match.matchId)
+    ) {
       continue;
     }
     const key = `${match.priorityBand}::${match.league || "unknown"}`;
@@ -784,12 +813,32 @@ export function buildCompetitiveIngestionReport(input: CompetitiveIngestionRepor
   }
 
   const discovered = new Set(discoveredMatches.map((entry) => entry.matchId)).size;
+  const discoveredAfterTimeFilter = new Set(
+    discoveredMatches
+      .filter((entry) => entry.rejectionReason !== "before-season-window" && entry.rejectionReason !== "after-season-window")
+      .map((entry) => entry.matchId),
+  ).size;
   const policyAccepted = new Set(
     discoveredMatches.filter((entry) => entry.acceptedByPolicy).map((entry) => entry.matchId),
   ).size;
   const rejectedByPolicy = new Set(
     discoveredMatches.filter((entry) => !entry.acceptedByPolicy).map((entry) => entry.matchId),
   ).size;
+  const rejectedUniqueReasonCounts = new Map<string, number>();
+  for (const match of discoveredMatches.filter((entry) => !entry.acceptedByPolicy)) {
+    const reason = match.rejectionReason ?? "policy-rejected";
+    const key = `${reason}::${match.matchId}`;
+    if (rejectedUniqueReasonCounts.has(key)) {
+      continue;
+    }
+    rejectedUniqueReasonCounts.set(key, 1);
+  }
+  const rejectedCountsByReason = [...rejectedUniqueReasonCounts.keys()].reduce<Record<string, number>>((accumulator, key) => {
+    const [reason] = key.split("::");
+    accumulator[reason] = (accumulator[reason] ?? 0) + 1;
+    return accumulator;
+  }, {});
+  const rejectedUniqueTotal = Object.values(rejectedCountsByReason).reduce((sum, value) => sum + value, 0);
 
   const discoveredByTier = countBy(discoveredMatches.map((entry) => entry.sourceBucket));
   const discoveredByPatchBucket = countBy(discoveredMatches.map((entry) => entry.policyBucket));
@@ -836,8 +885,18 @@ export function buildCompetitiveIngestionReport(input: CompetitiveIngestionRepor
       max: maxGameDate?.toISOString() ?? null,
     },
     discovered,
+    discoveredUniqueMatchesAfterTimeFilter: discoveredAfterTimeFilter,
     policyAccepted,
     rejectedByPolicy,
+    rejectedByReason: rejectedCountsByReason,
+    rejectedReasonFractions: {
+      beforeSeasonWindow:
+        rejectedUniqueTotal > 0 ? (rejectedCountsByReason["before-season-window"] ?? 0) / rejectedUniqueTotal : 0,
+      patchNotAllowed:
+        rejectedUniqueTotal > 0 ? (rejectedCountsByReason["patch-not-allowed"] ?? 0) / rejectedUniqueTotal : 0,
+      queueNotAllowed:
+        rejectedUniqueTotal > 0 ? (rejectedCountsByReason["queue-not-allowed"] ?? 0) / rejectedUniqueTotal : 0,
+    },
     attempted: failedMatches.length + persistedRows.length,
     imported: persistedRows.length,
     failedFetch: failedMatches.length,

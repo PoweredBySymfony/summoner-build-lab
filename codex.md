@@ -1442,7 +1442,7 @@ Lire ce fichier au debut de chaque nouvelle conversation sur ce repo, puis le me
       - `priorityBand`
 - Checkpoint runtime:
   - `data/runtime/competitive-ingestion/checkpoint.json`
-  - version `2`
+  - version `3`
   - garde:
     - `policyMode`
     - `openedFallbackTiers`
@@ -1452,12 +1452,21 @@ Lire ce fichier au debut de chaque nouvelle conversation sur ce repo, puis le me
     - `importCountsByTier`
     - `importCountsByPatchBucket`
     - `importCountsByQueueBucket`
+    - `matchMetadataById`
     - `resolvedSeeds`
     - `discoveredMatches`
     - `attemptedMatchIds`
     - `importedMatchIds`
     - `rejectedMatchIds`
     - `failedMatches`
+  - `discoveredMatches` garde maintenant aussi l'etat de pagination par seed:
+    - `querySignature`
+    - `appliedFilters`
+    - `scanStateByQueue`
+  - relancabilite:
+    - la decouverte `match-v5` reprend a partir de `start` par queue au lieu de rescanner indefiniment les memes pages
+    - `--reset-checkpoint` force un run fresh sur le meme chemin de checkpoint
+    - `--checkpoint-path` permet d'isoler completement un run fresh dans un autre fichier
 - Rapports runtime:
   - `data/runtime/competitive-ingestion/report.json`
   - `data/runtime/competitive-ingestion/report.md`
@@ -1469,14 +1478,36 @@ Lire ce fichier au debut de chaque nouvelle conversation sur ce repo, puis le me
     - `resolvedButNoMatches`
     - `resolvedButRejectedByPolicy`
     - `discovered`
+    - `discoveredUniqueMatchesAfterTimeFilter`
     - `policyAccepted`
     - `rejectedByPolicy`
+    - `rejectedByReason`
+    - `rejectedReasonFractions`
     - repartition `tier`
     - repartition `league`
     - repartition `region`
     - repartition `queue`
     - repartition `patchBucket`
     - top raisons d'echec
+  - fractions de rejet a suivre explicitement:
+    - `before-season-window`
+    - `patch-not-allowed`
+    - `queue-not-allowed`
+- Import competif, etape 2:
+  - `scripts/importCompetitiveMatches.ts` passe maintenant `startTime` / `endTime` a `match-v5` en secondes UNIX a partir de la policy runtime
+  - la decouverte supporte la pagination `start` par queue pour continuer au-dela du premier lot quand `countPerSeed` est insuffisant
+  - garde-fou de scan:
+    - `countPerSeed` = taille de page
+    - `maxIdsPerSeed` = budget max de match ids scannes par seed, defaut `300`
+  - adaptation automatique:
+    - si la creation stagne surtout a cause de matchs deja presents en base, le script augmente automatiquement la profondeur de scan par seed
+    - la queue de creation exclut les `attemptedMatchIds` / `importedMatchIds` deja connus du checkpoint
+  - nouveau flag CLI:
+    - `--dry-run`
+    - le mode dry run decouvre, classe, checkpoint, genere le report, mais n'importe rien en base
+  - logs attendus:
+    - log global des filtres appliques a `match-v5`: queues, `startTime`, `endTime`, `dryRun`
+    - log par requete de decouverte: `discover-match-ids ... queue=... start=... count=... startTime=... endTime=...`
 - Integration ML:
   - `scripts/exportImportedMatchesForMl.ts` exporte maintenant aussi:
     - `sourceTier`
