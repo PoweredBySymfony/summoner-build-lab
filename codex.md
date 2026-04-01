@@ -1685,3 +1685,23 @@ Lire ce fichier au debut de chaque nouvelle conversation sur ce repo, puis le me
   - `rejectionReasonCounts`
   - `distinctSelectedSnapshotCount`
   - `snapshotSegmentCounts`
+
+## 2026-04-01 Patch-Aware Puzzle Catalog
+
+- Contexte:
+  - le backend puzzle tombait en `patch-catalog-fallback` car `ImportedMatch.patch` est canonicalise en `26.x`, alors que la table `Item` locale ne contient que des versions Data Dragon legacy (`16.7.1` actif, `16.6.1` inactif)
+- Correction:
+  - `server/src/services/mlPuzzleGenerationService.ts` derive maintenant un `effectivePatch` depuis `matchData.raw.info.gameVersion` via `canonicalizePatch(...)`
+  - `getPatchChoiceItems(...)` essaie d'abord les prefixes issus de `buildPatchLookupCandidates(...)`
+  - si le match direct est vide ou trop pauvre, le service choisit le meilleur patch actif de la meme famille de version (`16.x`) au lieu d'un fallback global non borne
+  - logs attendus:
+    - `[ml-puzzle] patch-catalog-resolved`
+    - disparition de `[ml-puzzle] patch-catalog-fallback`
+- Etat mesure apres rerun audit:
+  - `resolvedPatchPrefix` observe: `16.7.1`
+  - `patchItemCount` observe sur `26.*`: `207`
+  - `good-answer-unresolved` a baisse fortement (`72 -> 36`) mais reste legerement la premiere raison de rejet devant `good-answer-too-cheap` (`34`)
+  - acceptance partielle:
+    - `patchItemCount > 100`: oui
+    - fin du fallback global: oui
+    - `good-answer-unresolved` non dominant: pas encore totalement, mais quasi a parite

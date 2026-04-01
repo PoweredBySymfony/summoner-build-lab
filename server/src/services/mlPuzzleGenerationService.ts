@@ -21,6 +21,7 @@ import {
 } from "../lib/ml/mlPuzzle.js";
 import { getItemRestrictionDecision } from "../lib/itemRestrictions.js";
 import { collectTimelineItemIds, reconstructInventoriesAtTimestamp } from "../lib/ml/scenarioInventory.js";
+import { buildPatchLookupCandidates, canonicalizePatch, type PatchFormat } from "../lib/riot/patchCanonical.js";
 import {
   buildChoiceSignatureForHistory,
   buildMlPuzzleBusinessRules,
@@ -170,6 +171,13 @@ type MatchGenerationNoViableResponse = {
 export type MatchGenerationResponse =
   | MatchGenerationCompletedResponse
   | MatchGenerationNoViableResponse;
+
+type ResolvedPatchLookup = {
+  rawGameVersion: string | null;
+  patchCanonical: string | null;
+  patchFormat: PatchFormat;
+  lookupCandidates: string[];
+};
 
 const PHYSICAL_TAGS = new Set(["Marksman", "Assassin", "Fighter"]);
 const MAGIC_TAGS = new Set(["Mage", "Support"]);
@@ -389,7 +397,72 @@ async function getItemsBySlugs(slugs: string[]) {
   return new Map(items.map((item) => [item.slug, item]));
 }
 
-async function getPatchChoiceItems(patch: string) {
+function asRecord(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  return value as Record<string, unknown>;
+}
+
+function asOptionalString(value: unknown) {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+}
+
+function resolveEffectivePatchLookup(input: {
+  importedMatchPatch?: string | null;
+  gameCreationAt?: Date | string | number | null;
+  matchData?: Prisma.JsonValue;
+  snapshotFallbackPatch?: string | null;
+}): ResolvedPatchLookup {
+  const matchData = asRecord(input.matchData);
+  const raw = asRecord(matchData?.raw);
+  const info = asRecord(raw?.info);
+  const rawGameVersion = asOptionalString(info?.gameVersion);
+  const patchSource = rawGameVersion ?? input.importedMatchPatch ?? input.snapshotFallbackPatch ?? null;
+  const patchInfo = canonicalizePatch(patchSource, input.gameCreationAt);
+
+  return {
+    rawGameVersion,
+    patchCanonical: patchInfo.patchCanonical,
+    patchFormat: patchInfo.patchFormat,
+    lookupCandidates: buildPatchLookupCandidates(patchInfo.patchCanonical, patchInfo.patchFormat),
+  };
+}
+
+function mapChoiceItems(
+  items: Array<{
+    id: string;
+    slug: string;
+    name: string;
+    riotItemId: number;
+    goldTotal: number | null;
+    patch: string;
+    category: string | null;
+    tags: Prisma.JsonValue;
+    isBoots: boolean;
+    isLegendary: boolean;
+    isConsumable: boolean;
+    isStarter: boolean;
+    isTrinket: boolean;
+    isActive: boolean;
+    buildsFrom: Prisma.JsonValue;
+    fullDescription: string | null;
+  }>,
+) {
+  return items.map(
+    (item): MlChoiceItem => ({
+      ...item,
+      tags: Array.isArray(item.tags) ? item.tags.map((tag) => String(tag)) : [],
+      buildsFrom: Array.isArray(item.buildsFrom) ? item.buildsFrom.map((entry) => String(entry)) : [],
+      itemGroups: getItemGroups({
+        ...item,
+        fullDescription: item.fullDescription,
+      }).map((group) => String(group)),
+    }),
+  );
+}
+
+async function getPatchChoiceItems(input: ResolvedPatchLookup) {
   const select = {
     id: true,
     slug: true,
@@ -409,51 +482,129 @@ async function getPatchChoiceItems(patch: string) {
     fullDescription: true,
   } as const;
 
-  const patchItems = await prisma.item.findMany({
-    where: {
-      isActive: true,
-      patch: {
-        startsWith: patch,
+  const fetchItemsByPatchPrefixes = (prefixes: string[]) =>
+    prisma.item.findMany({
+      where: {
+        isActive: true,
+        OR: prefixes.map((candidate) => ({
+          patch: {
+            startsWith: candidate,
+          },
+        })),
       },
-    },
-    select,
-  });
+      orderBy: [
+        { patch: "desc" },
+        { riotItemId: "asc" },
+      ],
+      select,
+    });
 
-  const items = patchItems.length >= 100
-    ? patchItems
-    : await prisma.item.findMany({
+  if (input.lookupCandidates.length === 0) {
+    const fallbackItems = await prisma.item.findMany({
+      where: {
+        isActive: true,
+      },
+      orderBy: [
+        { patch: "desc" },
+        { riotItemId: "asc" },
+      ],
+      select,
+    });
+
+    console.warn(
+      "[ml-puzzle] patch-catalog-unresolved",
+      JSON.stringify({
+        requestedPatch: input.patchCanonical,
+        patchFormat: input.patchFormat,
+        resolvedPatchPrefix: null,
+        patchItemCount: 0,
+        fallbackItemCount: fallbackItems.length,
+      }),
+    );
+
+    return mapChoiceItems(fallbackItems);
+  }
+
+  const directPatchItems = await fetchItemsByPatchPrefixes(input.lookupCandidates);
+  const directResolvedPatchPrefix = input.lookupCandidates.find((candidate) =>
+    directPatchItems.some((item) => item.patch.startsWith(candidate)),
+  ) ?? input.lookupCandidates[0] ?? null;
+
+  if (directPatchItems.length >= 100) {
+    console.info(
+      "[ml-puzzle] patch-catalog-resolved",
+      JSON.stringify({
+        requestedPatch: input.patchCanonical,
+        patchFormat: input.patchFormat,
+        lookupCandidates: input.lookupCandidates,
+        resolvedPatchPrefix: directResolvedPatchPrefix,
+        patchItemCount: directPatchItems.length,
+        resolutionMode: "direct",
+      }),
+    );
+    return mapChoiceItems(directPatchItems);
+  }
+
+  const familyPrefixes = [...new Set(
+    input.lookupCandidates
+      .map((candidate) => candidate.match(/^(\d{1,2})\./)?.[1] ?? null)
+      .filter((entry): entry is string => Boolean(entry))
+      .map((major) => `${major}.`),
+  )];
+
+  const familyPatchVersions = familyPrefixes.length === 0
+    ? []
+    : await prisma.item.groupBy({
+        by: ["patch"],
         where: {
           isActive: true,
+          OR: familyPrefixes.map((prefix) => ({
+            patch: {
+              startsWith: prefix,
+            },
+          })),
         },
-        orderBy: [
-          { patch: "desc" },
-          { riotItemId: "asc" },
-        ],
-        select,
+        _count: {
+          patch: true,
+        },
+        orderBy: {
+          patch: "desc",
+        },
       });
 
-  if (patchItems.length < 100) {
+  const familyPatchVersion = familyPatchVersions.find((entry) => entry._count.patch >= 100)?.patch
+    ?? familyPatchVersions[0]?.patch
+    ?? null;
+  const familyPatchItems = familyPatchVersion ? await fetchItemsByPatchPrefixes([familyPatchVersion]) : [];
+
+  console.info(
+    "[ml-puzzle] patch-catalog-resolved",
+    JSON.stringify({
+      requestedPatch: input.patchCanonical,
+      patchFormat: input.patchFormat,
+      lookupCandidates: input.lookupCandidates,
+      resolvedPatchPrefix: familyPatchVersion ?? directResolvedPatchPrefix,
+      patchItemCount: familyPatchItems.length,
+      directPatchItemCount: directPatchItems.length,
+      familyPrefixes,
+      resolutionMode: familyPatchItems.length > 0 ? "family-fallback" : "direct-empty",
+    }),
+  );
+
+  if (familyPatchItems.length === 0) {
     console.warn(
-      "[ml-puzzle] patch-catalog-fallback",
+      "[ml-puzzle] patch-catalog-empty",
       JSON.stringify({
-        requestedPatch: patch,
-        patchItemCount: patchItems.length,
-        fallbackItemCount: items.length,
+        requestedPatch: input.patchCanonical,
+        patchFormat: input.patchFormat,
+        lookupCandidates: input.lookupCandidates,
+        resolvedPatchPrefix: familyPatchVersion ?? directResolvedPatchPrefix,
+        patchItemCount: 0,
       }),
     );
   }
 
-  return items.map(
-    (item): MlChoiceItem => ({
-      ...item,
-      tags: Array.isArray(item.tags) ? item.tags.map((tag) => String(tag)) : [],
-      buildsFrom: Array.isArray(item.buildsFrom) ? item.buildsFrom.map((entry) => String(entry)) : [],
-      itemGroups: getItemGroups({
-        ...item,
-        fullDescription: item.fullDescription,
-      }).map((group) => String(group)),
-    }),
-  );
+  return mapChoiceItems(familyPatchItems);
 }
 
 async function getPreviousChoiceSignatures(input: {
@@ -1461,7 +1612,13 @@ export const mlPuzzleGenerationService = {
         forceDraftOnLowConfidence: options?.forceDraftOnLowConfidence,
       });
       const snapshotCandidates = await buildSnapshotCandidatesFromImportedMatch(importedMatch);
-      const patchChoiceItems = await getPatchChoiceItems(importedMatch.patch ?? snapshotCandidates[0]?.snapshot.patch ?? "unknown");
+      const effectivePatch = resolveEffectivePatchLookup({
+        importedMatchPatch: importedMatch.patch,
+        gameCreationAt: importedMatch.gameCreationAt,
+        matchData: importedMatch.matchData,
+        snapshotFallbackPatch: snapshotCandidates[0]?.snapshot.patch ?? null,
+      });
+      const patchChoiceItems = await getPatchChoiceItems(effectivePatch);
       const previousChoiceSignatures = await getPreviousChoiceSignatures({
         importedMatchId,
         userId,
@@ -1624,4 +1781,5 @@ export const mlPuzzleGenerationServiceTestables = {
   selectBestAttempt,
   getSnapshotSegment,
   selectAttemptsForSeries,
+  resolveEffectivePatchLookup,
 };
