@@ -4,6 +4,7 @@ import path from "node:path";
 import type { Prisma } from "@prisma/client";
 
 import { prisma } from "../server/src/lib/prisma.js";
+import { canonicalizePatch } from "../server/src/lib/riot/patchCanonical.js";
 import {
   buildCompetitiveIngestionReport,
   buildCompetitiveMatchQueue,
@@ -200,10 +201,9 @@ function withPolicyOverrides(
 }
 
 function normalizePatch(match: Record<string, unknown>) {
-  const info = match.info as { gameVersion?: string } | undefined;
-  const version = String(info?.gameVersion ?? "").trim();
-  const matchVersion = version.match(/^(\d+\.\d+)/);
-  return matchVersion?.[1] ?? null;
+  const info = match.info as { gameVersion?: string; gameCreation?: number } | undefined;
+  const gameCreationAt = typeof info?.gameCreation === "number" ? new Date(info.gameCreation) : null;
+  return canonicalizePatch(info?.gameVersion, gameCreationAt).patchCanonical;
 }
 
 function normalizeQueueId(match: Record<string, unknown>) {

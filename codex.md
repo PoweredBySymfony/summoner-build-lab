@@ -1524,3 +1524,28 @@ Lire ce fichier au debut de chaque nouvelle conversation sur ce repo, puis le me
     - `npm run ml:export-raw`
     - `ml\.venv\Scripts\python.exe ml\scripts\tasks.py build-dataset`
     - `ml\.venv\Scripts\python.exe ml\scripts\tasks.py train-baseline`
+
+## 2026-04-01 Patch Canonique
+
+- Regle:
+  - le patch interne premium doit etre canonicalise au format `year.minor`
+  - si `gameVersion` Riot est en format legacy `10-19.x` et que `gameCreationAt >= 2026-01-01`, alors convertir `major + 10`
+  - exemple: `16.6 -> 26.6`
+- Fichier de reference:
+  - `server/src/lib/riot/patchCanonical.ts`
+- Obligatoire dans tout le pipeline:
+  - ingestion Node
+  - scripts batch/import/report
+  - export raw ML
+  - dataset builder Python
+- Policy 2026:
+  - `preferredPatchPrefixes = ["26."]`
+  - `acceptedAdjacentPatchPrefixes = ["26.6", "26.5", "26.4", "26.3", "26.2"]`
+  - ne plus reintroduire de `16.x` dans la policy premium
+- Maintenance:
+  - backfill DB idempotent: `npm run backfill:canonical-patches`
+  - si un script derive encore `patch` via `gameVersion.split(\".\").slice(0, 2)`, il doit etre migre vers le helper canonique
+- ML:
+  - `ml/configs/base.yaml` doit rester aligne sur les prefixes `26.*`
+  - si des fichiers sous `ml/` sont modifies pour cette logique, rebuild Docker ML obligatoire:
+    - `docker compose --profile ml up --build -d ml-api`

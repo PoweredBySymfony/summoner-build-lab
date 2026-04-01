@@ -3,6 +3,7 @@ import path from "node:path";
 
 import type { Role } from "@prisma/client";
 
+import { classifyPatchBucket as classifyCanonicalPatchBucket } from "./patchCanonical.js";
 import type { CompetitiveSeed, CompetitiveSeedPriorityTier } from "./competitiveSeeds.js";
 import type { RiotPlatform, RiotRegion } from "./routing.js";
 
@@ -234,6 +235,9 @@ export type CompetitiveIngestionReportInput = {
   whatWasRelaxed?: string;
 };
 
+const REPORT_PREFERRED_PATCH_PREFIXES = ["26."];
+const REPORT_ADJACENT_PATCH_PREFIXES = ["26.6", "26.5", "26.4", "26.3", "26.2"];
+
 export function buildCompetitiveSeedKey(
   seed: Pick<CompetitiveSeed, "playerName" | "team" | "league" | "role" | "priorityTier">,
 ) {
@@ -259,16 +263,11 @@ function classifyPatchBucket(
   patch: string | null,
   policy: CompetitiveIngestionPolicyRuntime,
 ): CompetitivePatchBucket {
-  if (!patch) {
-    return "out_of_target_patch";
-  }
-  if (policy.preferredPatchPrefixes.some((prefix) => patch.startsWith(prefix))) {
-    return "exact_target_patch";
-  }
-  if (policy.acceptedAdjacentPatchPrefixes.some((prefix) => patch.startsWith(prefix))) {
-    return "adjacent_recent_patch";
-  }
-  return "out_of_target_patch";
+  return classifyCanonicalPatchBucket(
+    patch,
+    policy.preferredPatchPrefixes,
+    policy.acceptedAdjacentPatchPrefixes,
+  );
 }
 
 function classifyQueueBucket(
@@ -729,6 +728,19 @@ export function buildCompetitiveIngestionReport(input: CompetitiveIngestionRepor
   let maxGameDate: Date | null = null;
 
   for (const row of persistedRows) {
+    const effectivePatchBucket = classifyCanonicalPatchBucket(
+      row.patch,
+      REPORT_PREFERRED_PATCH_PREFIXES,
+      REPORT_ADJACENT_PATCH_PREFIXES,
+    );
+    const effectiveQueueBucket =
+      row.queueBucket
+        ? row.queueBucket
+        : row.queueId === 420
+          ? "preferred_queue"
+          : row.queueId === 440
+            ? "fallback_queue"
+            : "out_of_policy_queue";
     const patch = row.patch ?? "unknown";
     patchCounts.set(patch, (patchCounts.get(patch) ?? 0) + 1);
     queueCounts.set(String(row.queueId ?? "unknown"), (queueCounts.get(String(row.queueId ?? "unknown")) ?? 0) + 1);
@@ -736,13 +748,13 @@ export function buildCompetitiveIngestionReport(input: CompetitiveIngestionRepor
     regionCounts.set(row.sourceRegion ?? "unknown", (regionCounts.get(row.sourceRegion ?? "unknown") ?? 0) + 1);
     tierCounts.set(row.priorityTier ?? "unknown", (tierCounts.get(row.priorityTier ?? "unknown") ?? 0) + 1);
     roleCounts.set(row.targetRole ?? "UNKNOWN", (roleCounts.get(row.targetRole ?? "UNKNOWN") ?? 0) + 1);
-    patchBucketCounts.set(row.patchBucket ?? "unknown", (patchBucketCounts.get(row.patchBucket ?? "unknown") ?? 0) + 1);
-    queueBucketCounts.set(row.queueBucket ?? "unknown", (queueBucketCounts.get(row.queueBucket ?? "unknown") ?? 0) + 1);
+    patchBucketCounts.set(effectivePatchBucket, (patchBucketCounts.get(effectivePatchBucket) ?? 0) + 1);
+    queueBucketCounts.set(effectiveQueueBucket, (queueBucketCounts.get(effectiveQueueBucket) ?? 0) + 1);
     priorityBandCounts.set(row.priorityBand ?? "unknown", (priorityBandCounts.get(row.priorityBand ?? "unknown") ?? 0) + 1);
 
-    if (row.patchBucket === "exact_target_patch") {
+    if (effectivePatchBucket === "exact_target_patch") {
       exactTargetCount += 1;
-    } else if (row.patchBucket === "adjacent_recent_patch") {
+    } else if (effectivePatchBucket === "adjacent_recent_patch") {
       adjacentPatchCount += 1;
     } else {
       outOfTargetCount += 1;

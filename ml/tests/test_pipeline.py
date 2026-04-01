@@ -58,7 +58,7 @@ def make_config(tmp_path: Path) -> AppConfig:
             max_unknown_role_ratio=0.5,
             min_candidate_pool_median=1,
             strict_train_patch_prefixes=["26."],
-            adjacent_train_patch_prefixes=["25.24", "25.23", "25.22", "25.21"],
+            adjacent_train_patch_prefixes=["26.6", "26.5", "26.4", "26.3", "26.2"],
             train_patch_mode="strict_recent_competitive",
         ),
         training=TrainingConfig(
@@ -184,7 +184,7 @@ def make_raw_export(tmp_path: Path) -> AppConfig:
 
     match_record = {
         "riotMatchId": "EUW1_1",
-        "patch": "26.1",
+        "patch": "16.1",
         "targetPuuid": "player-1",
         "targetChampionId": 222,
         "targetChampionSlug": "jinx",

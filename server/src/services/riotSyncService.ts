@@ -2,6 +2,7 @@ import { Prisma, Role } from "@prisma/client";
 import { env } from "../config/env.js";
 import { prisma } from "../lib/prisma.js";
 import { dataDragonClient } from "../lib/gameData/dataDragonClient.js";
+import { canonicalizePatch } from "../lib/riot/patchCanonical.js";
 import { riotApiClient } from "../lib/riot/riotApiClient.js";
 import { type RiotImportInput, type RiotImportMatchSummary, type RiotImportRunSummary } from "../lib/riot/riotBatch.js";
 import { RIOT_REGIONS, getPlatformSearchOrder, type RiotPlatform, type RiotRegion } from "../lib/riot/routing.js";
@@ -80,10 +81,6 @@ function unique<T>(values: T[]) {
 
 function normalizeRiotId(gameName: string, tagLine: string) {
   return `${gameName.trim().toLowerCase()}#${tagLine.trim().toUpperCase()}`;
-}
-
-function extractPatchFromVersion(gameVersion: string | undefined) {
-  return gameVersion?.split(".").slice(0, 2).join(".");
 }
 
 function sleep(ms: number) {
@@ -568,9 +565,10 @@ async function importMatchForIdentityInternal(
 
   if (!participant) {
     console.warn(`[riot-sync] target participant missing in match ${riotMatchId}, skipping`);
+    const canonicalPatch = canonicalizePatch(info.gameVersion, info.gameCreation ? new Date(info.gameCreation) : null);
     return {
       riotMatchId,
-      patch: extractPatchFromVersion(info.gameVersion),
+      patch: canonicalPatch.patchCanonical,
       sourceRegion: identity.region,
       timelineAvailable: Boolean(timeline),
       timelineMissingReason: timeline ? null : "target-participant-missing",
@@ -601,8 +599,8 @@ async function importMatchForIdentityInternal(
 
   const championSlug = await resolveChampionSlugFromParticipant(participant);
   const targetRole = resolveParticipantRole(participant);
-  const patch = extractPatchFromVersion(info.gameVersion);
   const gameCreationAt = info.gameCreation ? new Date(info.gameCreation) : null;
+  const patch = canonicalizePatch(info.gameVersion, gameCreationAt).patchCanonical;
   const sourceKind = normalizeSourceKind(input.sourceKind);
   const sourceMetadata = input.sourceMetadata ?? null;
   const timelinePayload = timeline

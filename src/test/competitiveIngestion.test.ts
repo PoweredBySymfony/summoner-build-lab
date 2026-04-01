@@ -16,7 +16,7 @@ const policy = resolveCompetitiveIngestionPolicy({
   policyName: "test-policy",
   mode: "recent_preferred_with_controlled_fallback",
   preferredPatchPrefixes: ["26."],
-  acceptedAdjacentPatchPrefixes: ["16.6", "16.5", "16.4", "16.3", "16.2"],
+  acceptedAdjacentPatchPrefixes: ["26.6", "26.5", "26.4", "26.3", "26.2"],
   preferredQueues: [420],
   acceptedFallbackQueues: [440],
   seasonWindowStart: "2026-01-01T00:00:00.000Z",
@@ -110,7 +110,7 @@ function makeMatch(overrides: Partial<CompetitiveDiscoveredMatch>): CompetitiveD
 }
 
 describe("competitiveIngestion", () => {
-  it("classifies exact target, adjacent fallback, and queue rejection correctly", () => {
+  it("classifies canonical 26.x patches as exact target and still rejects invalid queues", () => {
     expect(
       evaluateCompetitiveMatchPolicy(
         {
@@ -131,7 +131,7 @@ describe("competitiveIngestion", () => {
     expect(
       evaluateCompetitiveMatchPolicy(
         {
-          patch: "16.6",
+          patch: "26.6",
           queueId: 420,
           gameCreationAt: new Date("2026-03-01T00:00:00.000Z"),
           priorityTier: "pro",
@@ -140,15 +140,15 @@ describe("competitiveIngestion", () => {
       ),
     ).toMatchObject({
       accepted: true,
-      patchBucket: "adjacent_recent_patch",
-      priorityBand: "tier2",
-      fallbackReason: "pro_adjacent_patch",
+      patchBucket: "exact_target_patch",
+      priorityBand: "tier1",
+      fallbackReason: null,
     });
 
     expect(
       evaluateCompetitiveMatchPolicy(
         {
-          patch: "16.6",
+          patch: "26.6",
           queueId: 450,
           gameCreationAt: new Date("2026-03-01T00:00:00.000Z"),
           priorityTier: "elite",
@@ -191,10 +191,13 @@ describe("competitiveIngestion", () => {
         makeMatch({ matchId: "A" }),
         makeMatch({
           matchId: "B",
-          patch: "16.6",
-          policyBucket: "adjacent_recent_patch",
-          priorityBand: "tier2",
-          fallbackReason: "pro_adjacent_patch",
+          patch: "25.9",
+          acceptedByPolicy: false,
+          acceptedReason: null,
+          rejectionReason: "patch-not-allowed",
+          policyBucket: "out_of_target_patch",
+          priorityBand: null,
+          fallbackReason: null,
         }),
         makeMatch({
           matchId: "C",
@@ -208,10 +211,11 @@ describe("competitiveIngestion", () => {
       policy,
     });
 
-    expect(plan.activeBands).toEqual(["tier1", "tier2", "tier3"]);
+    expect(plan.activeBands).toEqual(["tier1", "tier2", "tier3", "tier4"]);
     expect(plan.openedFallbackTiers).toEqual([
       "fallback-opened: pro_adjacent_patch",
       "fallback-opened: elite_exact_patch",
+      "fallback-opened: elite_adjacent_patch",
     ]);
   });
 
@@ -220,14 +224,6 @@ describe("competitiveIngestion", () => {
       matches: [
         makeMatch({ matchId: "A", league: "LCK", priorityBand: "tier1" }),
         makeMatch({
-          matchId: "B",
-          league: "LEC",
-          patch: "16.6",
-          policyBucket: "adjacent_recent_patch",
-          priorityBand: "tier2",
-          fallbackReason: "pro_adjacent_patch",
-        }),
-        makeMatch({
           matchId: "C",
           priorityTier: "elite",
           sourceBucket: "elite",
@@ -237,10 +233,10 @@ describe("competitiveIngestion", () => {
       ],
       targetUniqueMatches: 3,
       policy,
-      activeBands: ["tier1", "tier2", "tier3"],
+      activeBands: ["tier1", "tier3"],
     });
 
-    expect(queue.map((entry) => entry.matchId)).toEqual(["A", "B", "C"]);
+    expect(queue.map((entry) => entry.matchId)).toEqual(["A", "C"]);
   });
 
   it("reports imported patch buckets and source tiers clearly", () => {
@@ -263,7 +259,7 @@ describe("competitiveIngestion", () => {
           priorityBand: "tier1",
         },
         {
-          patch: "16.6",
+          patch: "25.9",
           queueId: 440,
           timelineMissingReason: null,
           gameCreationAt: new Date("2026-03-02T00:00:00.000Z"),
@@ -274,7 +270,7 @@ describe("competitiveIngestion", () => {
           sourceCompetition: "KR CHALLENGER 2026",
           sourceRegion: "KR",
           priorityTier: "elite",
-          patchBucket: "adjacent_recent_patch",
+          patchBucket: "out_of_target_patch",
           queueBucket: "fallback_queue",
           priorityBand: "tier4",
         },
@@ -286,8 +282,11 @@ describe("competitiveIngestion", () => {
           priorityTier: "elite",
           sourceBucket: "elite",
           priorityBand: "tier4",
-          patch: "16.6",
-          policyBucket: "adjacent_recent_patch",
+          patch: "25.9",
+          acceptedByPolicy: false,
+          acceptedReason: null,
+          rejectionReason: "patch-not-allowed",
+          policyBucket: "out_of_target_patch",
           queueId: 440,
           queueBucket: "fallback_queue",
         }),
@@ -339,7 +338,8 @@ describe("competitiveIngestion", () => {
     });
 
     expect(report.matchesImportedExactTargetPatch).toBe(1);
-    expect(report.matchesImportedAdjacentRecentPatch).toBe(1);
+    expect(report.matchesImportedAdjacentRecentPatch).toBe(0);
+    expect(report.matchesImportedOutOfTargetPatch).toBe(1);
     expect(report.matchesImportedPro).toBe(1);
     expect(report.matchesImportedElite).toBe(1);
     expect(report.fallbackActivations).toEqual(["fallback-opened: pro_adjacent_patch"]);

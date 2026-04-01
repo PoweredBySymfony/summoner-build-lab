@@ -3,6 +3,10 @@ import path from "node:path";
 
 import { dataDragonClient } from "../server/src/lib/gameData/dataDragonClient.js";
 import { prisma } from "../server/src/lib/prisma.js";
+import {
+  buildPatchLookupCandidates,
+  canonicalizePatch,
+} from "../server/src/lib/riot/patchCanonical.js";
 import { slugify } from "../server/src/lib/slug.js";
 
 const rootDir = process.cwd();
@@ -78,10 +82,17 @@ function deriveBootItemIds(summary: DataDragonItemSummary) {
   return bootItemIds;
 }
 
-function resolveDataDragonVersionForPatch(patch: string, versions: string[]) {
-  const matched = versions.find((version) => version.startsWith(`${patch}.`));
+function resolveDataDragonVersionForPatch(
+  patchCanonical: string,
+  patchFormat: "year_patch" | "legacy_patch" | "unknown",
+  versions: string[],
+) {
+  const candidates = buildPatchLookupCandidates(patchCanonical, patchFormat);
+  const matched = candidates
+    .map((candidate) => versions.find((version) => version.startsWith(`${candidate}.`)))
+    .find(Boolean);
   if (!matched) {
-    throw new Error(`Unable to resolve a Data Dragon version for patch ${patch}.`);
+    throw new Error(`Unable to resolve a Data Dragon version for patch ${patchCanonical}.`);
   }
   return matched;
 }
@@ -195,7 +206,32 @@ async function main() {
     ORDER BY COALESCE("gameCreationAt", "createdAt") ASC, "createdAt" ASC
   `;
 
-  const patches = [...new Set(matches.map((entry) => String(entry.patch ?? "").trim()).filter(Boolean))].sort();
+  const canonicalizedMatches = matches.map((entry) => {
+    const matchData =
+      typeof entry.matchData === "object" && entry.matchData !== null && !Array.isArray(entry.matchData)
+        ? (entry.matchData as Record<string, unknown>)
+        : {};
+    const rawMatch =
+      typeof matchData.raw === "object" && matchData.raw !== null && !Array.isArray(matchData.raw)
+        ? (matchData.raw as Record<string, unknown>)
+        : {};
+    const info =
+      typeof rawMatch.info === "object" && rawMatch.info !== null && !Array.isArray(rawMatch.info)
+        ? (rawMatch.info as Record<string, unknown>)
+        : {};
+    const gameCreationAt = entry.gameCreationAt instanceof Date ? entry.gameCreationAt : toIsoString(entry.gameCreationAt);
+    const patchInfo = canonicalizePatch(
+      typeof info.gameVersion === "string" ? info.gameVersion : String(entry.patch ?? ""),
+      gameCreationAt,
+    );
+    return {
+      ...entry,
+      patch: patchInfo.patchCanonical,
+      patchFormat: patchInfo.patchFormat,
+    };
+  });
+
+  const patches = [...new Set(canonicalizedMatches.map((entry) => String(entry.patch ?? "").trim()).filter(Boolean))].sort();
   const versions = await dataDragonClient.getVersions();
   const latestVersion = versions[0];
 
@@ -205,7 +241,9 @@ async function main() {
   > = {};
 
   for (const patch of patches) {
-    const ddVersion = resolveDataDragonVersionForPatch(patch, versions);
+    const patchFormat =
+      canonicalizedMatches.find((entry) => entry.patch === patch)?.patchFormat ?? "unknown";
+    const ddVersion = resolveDataDragonVersionForPatch(patch, patchFormat, versions);
     const [itemSummary, championSummary] = await Promise.all([
       dataDragonClient.getItemSummary(ddVersion),
       dataDragonClient.getChampionSummary(ddVersion),
@@ -231,7 +269,7 @@ async function main() {
 
   const rawMatchesPath = path.join(rawDir, "imported_matches.jsonl");
   const manifestPath = path.join(rawDir, "manifest.json");
-  const jsonl = matches
+  const jsonl = canonicalizedMatches
     .map((entry) =>
       JSON.stringify({
         ...entry,
@@ -283,9 +321,9 @@ async function main() {
       JSON.stringify(
         {
           exportedAt: new Date().toISOString(),
-          matchCount: matches.length,
-          matchesWithTimeline: matches.filter((entry) => Boolean(entry.timelineData)).length,
-          sourceKindDistribution: matches.reduce<Record<string, number>>((accumulator, entry) => {
+          matchCount: canonicalizedMatches.length,
+          matchesWithTimeline: canonicalizedMatches.filter((entry) => Boolean(entry.timelineData)).length,
+          sourceKindDistribution: canonicalizedMatches.reduce<Record<string, number>>((accumulator, entry) => {
             const key = String(entry.sourceKind ?? "unknown");
             accumulator[key] = (accumulator[key] ?? 0) + 1;
             return accumulator;
@@ -305,7 +343,7 @@ async function main() {
   ]);
 
   console.info(
-    `[ml-export] wrote ${matches.length} imported matches (${matches.filter((entry) => entry.timelineData).length} with timeline) and ${patches.length} patch-aware catalogs to ${rawDir}`,
+    `[ml-export] wrote ${canonicalizedMatches.length} imported matches (${canonicalizedMatches.filter((entry) => entry.timelineData).length} with timeline) and ${patches.length} patch-aware catalogs to ${rawDir}`,
   );
 }
 

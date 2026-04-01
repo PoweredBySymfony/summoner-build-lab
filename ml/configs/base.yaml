@@ -36,11 +36,11 @@ dataset:
   strict_train_patch_prefixes:
     - "26."
   adjacent_train_patch_prefixes:
-    - "16.6"
-    - "16.5"
-    - "16.4"
-    - "16.3"
-    - "16.2"
+    - "26.6"
+    - "26.5"
+    - "26.4"
+    - "26.3"
+    - "26.2"
   train_patch_mode: strict_recent_competitive
 
 training:

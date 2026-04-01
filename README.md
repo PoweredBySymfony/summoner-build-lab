@@ -291,7 +291,7 @@ Politique d'ingestion:
   - fallback controle: `440`
 - patches:
   - exact target: `26.x`
-  - adjacent recent acceptes par defaut: `16.6`, `16.5`, `16.4`, `16.3`, `16.2`
+  - adjacent recent acceptes par defaut: `26.6`, `26.5`, `26.4`, `26.3`, `26.2`
 - le fallback est explicite et trace dans les logs et rapports:
   - `fallback-opened: pro_adjacent_patch`
   - `fallback-opened: elite_exact_patch`
@@ -305,6 +305,12 @@ Export brut:
 
 ```bash
 npm run ml:export-raw
+```
+
+Backfill patch canonique:
+
+```bash
+npm run backfill:canonical-patches
 ```
 
 Build dataset:
@@ -322,6 +328,9 @@ ml\.venv\Scripts\python.exe ml\scripts\tasks.py train-baseline
 Regles 2026:
 
 - le raw export porte maintenant `sourceKind`, `sourceTier`, `sourceLeague`, `sourceRegionHint`
+- le patch canonique interne suit la convention `year.minor`
+  - exemple: un `gameVersion` Riot `16.6.x` date `2026-03-*` devient `26.6`
+  - les matchs legacy anterieurs a `2026-01-01` gardent leur majeur legacy
 - l'import policy et la training policy sont separees
 - le dataset analytique supporte:
   - `strict_recent_competitive`

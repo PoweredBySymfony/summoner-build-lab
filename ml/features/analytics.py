@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import json
+import re
 from bisect import bisect_right
 from collections import Counter
 from dataclasses import asdict, dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -17,6 +19,41 @@ from models.artifacts import save_metadata
 PHYSICAL_TAGS = {"Marksman", "Assassin", "Fighter"}
 MAGIC_TAGS = {"Mage", "Support"}
 FRONTLINE_TAGS = {"Tank", "Fighter"}
+CANONICAL_SEASON_2026_START = datetime(2026, 1, 1, tzinfo=UTC)
+
+
+def _parse_game_creation_at(value: Any) -> datetime | None:
+    if not value:
+        return None
+    if isinstance(value, datetime):
+        return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
+    raw = str(value).strip()
+    if not raw:
+        return None
+    try:
+        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=UTC)
+
+
+def _canonicalize_patch(patch_raw: Any, game_creation_at: Any) -> tuple[str | None, str]:
+    value = str(patch_raw or "").strip()
+    match = re.match(r"^(\d{1,2})\.(\d{1,2})", value)
+    if not match:
+        return None, "unknown"
+
+    major = int(match.group(1))
+    minor = int(match.group(2))
+    game_date = _parse_game_creation_at(game_creation_at)
+
+    if 20 <= major <= 29:
+        return f"{major}.{minor}", "year_patch"
+    if 10 <= major <= 19:
+        if game_date is not None and game_date >= CANONICAL_SEASON_2026_START:
+            return f"{major + 10}.{minor}", "legacy_patch"
+        return f"{major}.{minor}", "legacy_patch"
+    return f"{major}.{minor}", "unknown"
 
 
 def _patch_bucket(
@@ -207,7 +244,11 @@ def build_analytic_dataset(config: AppConfig) -> DatasetBuildSummary:
             skipped_matches += 1
             continue
 
-        patch = str(record.get("patch") or "unknown")
+        patch, patch_format = _canonicalize_patch(
+            record.get("patch"),
+            record.get("gameCreationAt"),
+        )
+        patch = patch or "unknown"
         catalog = load_catalog_bundle(
             config.paths.export_manifest_path,
             config.paths.raw_data_dir,
@@ -316,6 +357,7 @@ def build_analytic_dataset(config: AppConfig) -> DatasetBuildSummary:
                     "timestamp": event_timestamp,
                     "timestamp_minutes": round(event_timestamp / 60000, 2),
                     "patch": patch,
+                    "patch_format": patch_format,
                     "source_kind": str(record.get("sourceKind") or "unknown"),
                     "source_tier": str(record.get("sourceTier") or "unknown"),
                     "source_league": str(record.get("sourceLeague") or "unknown"),

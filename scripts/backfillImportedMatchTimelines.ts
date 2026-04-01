@@ -1,14 +1,11 @@
 import { Prisma } from "@prisma/client";
 
 import { prisma } from "../server/src/lib/prisma.js";
+import { canonicalizePatch } from "../server/src/lib/riot/patchCanonical.js";
 import { riotApiClient } from "../server/src/lib/riot/riotApiClient.js";
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function extractPatchFromVersion(gameVersion: string | undefined) {
-  return gameVersion?.split(".").slice(0, 2).join(".");
 }
 
 function normalizeParticipantRole(value: unknown) {
@@ -95,6 +92,10 @@ async function main() {
           );
 
     const info = rawMatch.info as { gameVersion?: string; gameCreation?: number; gameDuration?: number; participants?: Array<Record<string, unknown>> } | undefined;
+    const canonicalPatch = canonicalizePatch(
+      info?.gameVersion,
+      importedMatch.gameCreationAt ?? (info?.gameCreation ? new Date(info.gameCreation) : null),
+    ).patchCanonical;
     const participant = info?.participants?.find((entry) => entry.puuid === targetPuuid);
     if (!participant) {
       skippedCount += 1;
@@ -122,7 +123,7 @@ async function main() {
     await prisma.importedMatch.update({
       where: { id: importedMatch.id },
       data: {
-        patch: importedMatch.patch ?? extractPatchFromVersion(info?.gameVersion),
+        patch: canonicalPatch ?? importedMatch.patch,
         sourceRegion: region,
         targetPuuid,
         targetGameName:
@@ -143,7 +144,7 @@ async function main() {
           raw: rawMatch as Prisma.InputJsonObject,
           metadata: {
             riotMatchId: importedMatch.riotMatchId,
-            patch: importedMatch.patch ?? extractPatchFromVersion(info?.gameVersion),
+            patch: canonicalPatch ?? importedMatch.patch,
             sourceRegion: region,
             targetPuuid,
             targetChampionId:

@@ -35,6 +35,7 @@
     "riot:report-competitive": "tsx scripts/reportCompetitiveIngestion.ts",
     "audit:items": "tsx scripts/auditItemPresentation.ts",
     "audit:static-data": "tsx scripts/auditStaticData.ts",
+    "backfill:canonical-patches": "tsx scripts/backfillCanonicalImportedMatchPatches.ts",
     "ml:backfill-timelines": "tsx scripts/backfillImportedMatchTimelines.ts",
     "ml:export-raw": "tsx scripts/exportImportedMatchesForMl.ts",
     "backfill:legacy-scenarios": "tsx scripts/backfillLegacyScenarioSnapshots.ts",
