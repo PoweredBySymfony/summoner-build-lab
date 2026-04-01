@@ -102,6 +102,10 @@ const phraseMap: PhraseDescriptor[] = [
   { match: /acceleration de competence/i, label: "Acceleration de competence", icon: "abilityHaste", semanticKey: "abilityHaste" },
   { match: /degats? de coup critique|degats? critiques?/i, label: "Degats de coup critique", icon: "crit", semanticKey: "critDamage" },
   { match: /chances? de coup critique|taux de coup critique|chance critique/i, label: "Chances de coup critique", icon: "crit", semanticKey: "critChance" },
+  { match: /penetration d'armure/i, label: "Penetration d'armure", icon: "lethality", semanticKey: "armorPen" },
+  { match: /penetration magique/i, label: "Penetration magique", icon: "magicPen", semanticKey: "magicPen" },
+  { match: /regeneration de base du mana|regeneration de mana/i, label: "Regeneration de mana", icon: "manaRegen", semanticKey: "manaRegen" },
+  { match: /regeneration de base des pv|regeneration de base du pv|regeneration de pv/i, label: "Regeneration de PV", icon: "healthRegen", semanticKey: "healthRegen" },
   { match: /vitesse d'attaque/i, label: "Vitesse d'attaque", icon: "attackSpeed", semanticKey: "attackSpeed" },
   { match: /^pv$|points? de vie|sante/i, label: "PV", icon: "health", semanticKey: "health" },
   { match: /mana/i, label: "Mana", icon: "mana", semanticKey: "mana" },
@@ -112,10 +116,6 @@ const phraseMap: PhraseDescriptor[] = [
   { match: /vampirisme physique|vol de vie/i, label: "Vol de vie", icon: "lifesteal", semanticKey: "lifesteal" },
   { match: /efficacite des soins et boucliers/i, label: "Efficacite des soins et boucliers", icon: "healthRegen", semanticKey: "healShieldPower" },
   { match: /letalite/i, label: "Letalite", icon: "lethality", semanticKey: "lethality" },
-  { match: /penetration d'armure/i, label: "Penetration d'armure", icon: "lethality", semanticKey: "armorPen" },
-  { match: /penetration magique/i, label: "Penetration magique", icon: "magicPen", semanticKey: "magicPen" },
-  { match: /regeneration de base des pv|regeneration de base du pv|regeneration de pv/i, label: "Regeneration de PV", icon: "healthRegen", semanticKey: "healthRegen" },
-  { match: /regeneration de base du mana|regeneration de mana/i, label: "Regeneration de mana", icon: "manaRegen", semanticKey: "manaRegen" },
   { match: /tenacite/i, label: "Tenacite", icon: "tenacity", semanticKey: "tenacity" },
 ];
 
@@ -180,10 +180,17 @@ function parseStatLine(line: string): ResolvedItemStatLine | null {
   const [, value, rawLabel] = match;
   const { descriptor, normalizedLabel } = resolveDescriptor(rawLabel);
   const { numericValue, isPercent } = parseNumericValue(value);
+  let resolvedLabel = descriptor?.label ?? rawLabel;
+  if (descriptor?.semanticKey === "magicPen" && isPercent) {
+    resolvedLabel = "Penetration magique (%)";
+  }
+  if (descriptor?.semanticKey === "armorPen" && isPercent) {
+    resolvedLabel = "Penetration d'armure (%)";
+  }
 
   return {
     key: normalizedLabel || rawLabel,
-    label: descriptor?.label ?? rawLabel,
+    label: resolvedLabel,
     value,
     icon: descriptor?.icon ?? "default",
     semanticKey: descriptor?.semanticKey ?? null,
@@ -252,6 +259,10 @@ function statLinesFromRawStats(item: GameItem) {
       } satisfies ResolvedItemStatLine;
     })
     .filter((entry): entry is ResolvedItemStatLine => Boolean(entry));
+}
+
+export function getRawItemStatLines(item: GameItem) {
+  return toPublicStatLines(statLinesFromRawStats(item));
 }
 
 function hasSameNumericMeaning(left: ResolvedItemStatLine, right: ResolvedItemStatLine) {

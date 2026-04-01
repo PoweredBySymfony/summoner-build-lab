@@ -943,6 +943,17 @@ export const riotSyncService = {
       },
     });
 
+    await prisma.item.updateMany({
+      where: {
+        riotItemId: {
+          notIn: canonicalItemIds,
+        },
+      },
+      data: {
+        isActive: false,
+      },
+    });
+
     return {
       version: resolvedVersion,
       count: canonicalEntries.length,

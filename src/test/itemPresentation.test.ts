@@ -201,6 +201,175 @@ describe("itemPresentation", () => {
     expect(getItemEffectBlocks(item)).toEqual([{ title: "Passif", body: "Texte de passif." }]);
   });
 
+  it("renders Bloodthirster crit and lifesteal correctly", () => {
+    const item = createItem({
+      id: "bloodthirster",
+      name: "Soif-de-sang",
+      slug: "soif-de-sang",
+      stats: {
+        FlatPhysicalDamageMod: 80,
+        FlatCritChanceMod: 0.25,
+        PercentLifeStealMod: 0.18,
+      },
+      fullDescription: [
+        "+80 Degats d'attaque",
+        "+25% chances de coup critique",
+        "+18% vol de vie",
+        "Ichor",
+        "Le surplus de soins se convertit en bouclier.",
+      ].join("\n"),
+    });
+
+    expect(getItemStatLines(item)).toEqual([
+      { key: "FlatPhysicalDamageMod", label: "Degats d'attaque", value: "+80", icon: "attackDamage" },
+      { key: "FlatCritChanceMod", label: "Chances de coup critique", value: "+25%", icon: "crit" },
+      { key: "PercentLifeStealMod", label: "Vol de vie", value: "+18%", icon: "lifesteal" },
+    ]);
+  });
+
+  it("renders Berserker boots offensive stats without inventing extra effects", () => {
+    const item = createItem({
+      id: "berserker-greaves",
+      name: "Jambieres du berzerker",
+      slug: "jambieres-du-berzerker",
+      stats: {
+        PercentAttackSpeedMod: 0.25,
+        FlatMovementSpeedMod: 45,
+      },
+      fullDescription: ["+25% Vitesse d'attaque", "+45 Vitesse de deplacement"].join("\n"),
+      isBoots: true,
+      isLegendary: false,
+    });
+
+    expect(getItemStatLines(item)).toEqual([
+      { key: "PercentAttackSpeedMod", label: "Vitesse d'attaque", value: "+25%", icon: "attackSpeed" },
+      { key: "FlatMovementSpeedMod", label: "Vitesse de deplacement", value: "+45", icon: "moveSpeed" },
+    ]);
+    expect(getItemEffectBlocks(item)).toEqual([]);
+  });
+
+  it("renders Sorcerer shoes magic penetration from description parsing", () => {
+    const item = createItem({
+      id: "sorcerer-shoes",
+      name: "Chaussures de sorcier",
+      slug: "chaussures-de-sorcier",
+      stats: {
+        FlatMovementSpeedMod: 45,
+      },
+      fullDescription: ["+15 Penetration magique", "+45 Vitesse de deplacement"].join("\n"),
+      isBoots: true,
+      isLegendary: false,
+    });
+
+    expect(getItemStatLines(item)).toEqual([
+      { key: "FlatMovementSpeedMod", label: "Vitesse de deplacement", value: "+45", icon: "moveSpeed" },
+      { key: "penetration magique", label: "Penetration magique", value: "+15", icon: "magicPen" },
+    ]);
+  });
+
+  it("merges raw defensive stats with ability haste from description when Riot stats are incomplete", () => {
+    const item = createItem({
+      id: "spirit-visage",
+      name: "Visage spirituel",
+      slug: "visage-spirituel",
+      stats: {
+        FlatHPPoolMod: 400,
+        FlatSpellBlockMod: 50,
+      },
+      fullDescription: [
+        "+400 PV",
+        "+50 Resistance magique",
+        "+10 Acceleration de competence",
+        "Vitalite sans limite",
+        "Augmente les soins et boucliers recus.",
+      ].join("\n"),
+    });
+
+    expect(getItemStatLines(item)).toEqual([
+      { key: "FlatHPPoolMod", label: "PV", value: "+400", icon: "health" },
+      { key: "FlatSpellBlockMod", label: "Resistance magique", value: "+50", icon: "magicResist" },
+      { key: "acceleration de competence", label: "Acceleration de competence", value: "+10", icon: "abilityHaste" },
+    ]);
+  });
+
+  it("supplements AP support items with heal and shield power from description", () => {
+    const item = createItem({
+      id: "ardent-censer",
+      name: "Encensoir ardent",
+      slug: "encensoir-ardent",
+      stats: {
+        FlatMagicDamageMod: 45,
+        PercentMovementSpeedMod: 0.08,
+      },
+      fullDescription: [
+        "+45 Puissance",
+        "+8% Vitesse de deplacement",
+        "+10% Efficacite des soins et boucliers",
+        "Sanctifie",
+        "Soigner ou bouclier un allie octroie vitesse d'attaque.",
+      ].join("\n"),
+    });
+
+    expect(getItemStatLines(item)).toEqual([
+      { key: "FlatMagicDamageMod", label: "Puissance", value: "+45", icon: "abilityPower" },
+      { key: "PercentMovementSpeedMod", label: "Vitesse de deplacement", value: "+8%", icon: "moveSpeed" },
+      { key: "efficacite des soins et boucliers", label: "Efficacite des soins et boucliers", value: "+10%", icon: "healthRegen" },
+    ]);
+  });
+
+  it("parses mana regeneration percentages without confusing them with mana pool", () => {
+    const item = createItem({
+      id: "faerie-charm",
+      name: "Charme feerique",
+      slug: "charme-feerique",
+      stats: {},
+      fullDescription: "+50% Regeneration de mana",
+      isLegendary: false,
+    });
+
+    expect(getItemStatLines(item)).toEqual([
+      { key: "regeneration de mana", label: "Regeneration de mana", value: "+50%", icon: "manaRegen" },
+    ]);
+  });
+
+  it("parses armor penetration without confusing it with armor", () => {
+    const item = createItem({
+      id: "last-whisper",
+      name: "Dernier souffle",
+      slug: "dernier-souffle",
+      stats: {
+        FlatPhysicalDamageMod: 20,
+      },
+      fullDescription: ["+20 Degats d'attaque", "+18% Penetration d'armure"].join("\n"),
+      isLegendary: false,
+    });
+
+    expect(getItemStatLines(item)).toEqual([
+      { key: "FlatPhysicalDamageMod", label: "Degats d'attaque", value: "+20", icon: "attackDamage" },
+      { key: "penetration d'armure", label: "Penetration d'armure (%)", value: "+18%", icon: "lethality" },
+    ]);
+  });
+
+  it("disambiguates flat and percent magic penetration labels when both are present", () => {
+    const item = createItem({
+      id: "spellcaster-shoes",
+      name: "Chaussures de lanceur de sorts",
+      slug: "chaussures-de-lanceur-de-sorts",
+      stats: {
+        FlatMovementSpeedMod: 45,
+      },
+      fullDescription: ["+18 Penetration magique", "+8% Penetration magique", "+45 Vitesse de deplacement"].join("\n"),
+      isBoots: true,
+      isLegendary: true,
+    });
+
+    expect(getItemStatLines(item)).toEqual([
+      { key: "FlatMovementSpeedMod", label: "Vitesse de deplacement", value: "+45", icon: "moveSpeed" },
+      { key: "penetration magique", label: "Penetration magique", value: "+18", icon: "magicPen" },
+      { key: "penetration magique", label: "Penetration magique (%)", value: "+8%", icon: "magicPen" },
+    ]);
+  });
+
   it("audits a representative sample for duplicated or misleading stat/effect rendering", () => {
     const infinityEdge = createItem({
       id: "infinity-edge",

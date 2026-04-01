@@ -158,9 +158,43 @@ npm run sync:champions
 npm run sync:items
 npm run sync:assets
 npm run sync:all
+npm run audit:static-data
 
 npm run jobs:daily-reminders
 ```
+
+## Audit statique avant retrain / release
+
+Commande:
+
+```bash
+npm run audit:static-data
+```
+
+Sorties:
+
+- `reports/static-data-audit/latest.json`
+- `reports/static-data-audit/latest.md`
+
+Le script audite:
+
+- les items synchronises:
+  - coherence `item.stats` vs rendu UI parse
+  - labels dupliques
+  - stats manquantes
+  - anomalies de parsing
+  - incoherences de patch
+- les champions synchronises:
+  - champs obligatoires
+  - types numeriques dans `stats`
+  - nulls
+  - coherence patch
+
+Regle pratique:
+
+- lancer cet audit avant un retrain ML
+- lancer cet audit avant une release
+- traiter les anomalies `error` avant de considerer le catalogue comme fiable
 
 ## Flux de données LoL
 

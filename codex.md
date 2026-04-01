@@ -1266,3 +1266,48 @@ Lire ce fichier au debut de chaque nouvelle conversation sur ce repo, puis le me
   - si seuls `ml/configs/`, `ml/data/` ou `ml/artifacts/` changent, un rebuild n'est pas necessaire en premiere intention car ces dossiers sont montes comme volumes dans `docker-compose.yml`
 - Reflexe attendu:
   - apres toute modification de code ML Python, toujours rebuild avant de conclure qu'un correctif "ne marche pas"
+
+## Audit statique Data Dragon / DB / UI (2026-04-01)
+
+- Objectif:
+  - verifier la coherence entre les donnees statiques Riot/Data Dragon, la DB locale et le rendu UI
+  - detecter vite les erreurs de mapping, labels dupliques, champs manquants, nulls, anomalies de parsing et incoherences de patch
+- Source de verite:
+  - moteur partage: `src/lib/staticDataAudit.ts`
+  - script runnable localement: `scripts/auditStaticData.ts`
+  - sortie:
+    - JSON: `reports/static-data-audit/latest.json`
+    - markdown: `reports/static-data-audit/latest.md`
+- Perimetre items:
+  - compare `item.stats` reconnus vs `getItemStatLines()`
+  - detecte:
+    - `duplicate-display-stat`
+    - `duplicate-display-label`
+    - `raw-stat-missing-from-display`
+    - `base-stat-leaked-into-effects`
+    - `%` sur mauvais libelle
+    - `missing-crit-damage-icon`
+    - `patch-not-latest`
+- Perimetre champions:
+  - verifie:
+    - champs obligatoires
+    - presence identifiants Riot
+    - shape `stats`
+    - valeurs numeriques
+    - nulls
+    - format / coherence patch
+- Commande standard:
+  - `npm run audit:static-data`
+- Usage attendu:
+  - a lancer avant un retrain ML
+  - a lancer avant une release
+  - si le rapport remonte des anomalies `error`, ne pas considerer le catalogue comme fiable
+  - l'audit cible le catalogue actif (`isActive = true`) pour ne pas polluer le signal avec des reliquats legacy en base
+- Tests de garde:
+  - `src/test/itemPresentation.test.ts`
+  - `src/test/itemPresentationCatalog.test.ts`
+  - `src/test/staticDataAudit.test.ts`
+- Etat local observe le `2026-04-01`:
+  - rapport genere avec `207` items actifs et `172` champions audites
+  - `0` anomalie item
+  - `0` anomalie champion

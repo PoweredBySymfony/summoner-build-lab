@@ -74,6 +74,7 @@ describe("item presentation catalog audit", () => {
     const result = await client.query<ItemRow>(
       `SELECT id, "riotItemId", name, slug, image, "goldTotal", category, tags, stats, "shortDescription", "fullDescription", "activeEffect", "passiveEffect", "buildsFrom", "buildsInto", "isBoots", "isLegendary", "isConsumable", "isTrinket", "isStarter", "isActive", patch
        FROM "Item"
+       WHERE "isActive" = true
        ORDER BY "riotItemId"`,
     );
     items = result.rows.map(mapItem);
