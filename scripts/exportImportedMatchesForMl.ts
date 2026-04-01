@@ -34,6 +34,50 @@ function detectCategory(tags: string[] = []) {
   return tags[0]?.toLowerCase() ?? "utility";
 }
 
+function deriveItemGroups(item: { tags?: string[]; from?: string[] | number[] }) {
+  const groups = new Set<string>();
+  const tags = new Set(item.tags ?? []);
+  const buildsFrom = (item.from ?? []).map((entry) => Number(entry));
+
+  if (tags.has("Boots")) {
+    groups.add("Boots");
+  }
+  if (buildsFrom.includes(3035)) {
+    groups.add("LastWhisper");
+  }
+
+  return [...groups];
+}
+
+function deriveBootItemIds(summary: DataDragonItemSummary) {
+  const entries = Object.entries(summary.data);
+  const bootItemIds = new Set<number>();
+
+  for (const [itemId, item] of entries) {
+    if (item.tags?.includes("Boots")) {
+      bootItemIds.add(Number(itemId));
+    }
+  }
+
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const [itemId, item] of entries) {
+      const numericItemId = Number(itemId);
+      if (bootItemIds.has(numericItemId)) {
+        continue;
+      }
+      const buildsFrom = (item.from ?? []).map((entry) => Number(entry));
+      if (buildsFrom.some((entry) => bootItemIds.has(entry))) {
+        bootItemIds.add(numericItemId);
+        changed = true;
+      }
+    }
+  }
+
+  return bootItemIds;
+}
+
 function resolveDataDragonVersionForPatch(patch: string, versions: string[]) {
   const matched = versions.find((version) => version.startsWith(`${patch}.`));
   if (!matched) {
@@ -58,6 +102,7 @@ function buildChampionCatalog(summary: DataDragonChampionSummary) {
 
 function buildItemCatalog(summary: DataDragonItemSummary, patchVersion: string) {
   const seenSlugs = new Map<string, number>();
+  const derivedBootItemIds = deriveBootItemIds(summary);
 
   return Object.entries(summary.data)
     .map(([itemId, item]) => {
@@ -75,7 +120,7 @@ function buildItemCatalog(summary: DataDragonItemSummary, patchVersion: string) 
         goldBase: item.gold.base,
         goldSell: item.gold.sell,
         category: detectCategory(item.tags ?? []),
-        isBoots: item.tags?.includes("Boots") ?? false,
+        isBoots: derivedBootItemIds.has(Number(itemId)),
         isLegendary: item.gold.total >= 2200,
         isConsumable: item.consumed ?? false,
         isStarter: item.tags?.includes("Lane") ?? false,
@@ -83,6 +128,7 @@ function buildItemCatalog(summary: DataDragonItemSummary, patchVersion: string) 
         tags: item.tags ?? [],
         buildsFrom: item.from ?? [],
         buildsInto: item.into ?? [],
+        itemGroups: deriveItemGroups(item),
         mapAvailability: item.maps ?? null,
       };
     })
@@ -223,6 +269,7 @@ async function main() {
           rawMatchesPath: "imported_matches.jsonl",
           itemCatalogPath: latestCatalog.itemCatalogPath,
           championCatalogPath: latestCatalog.championCatalogPath,
+          itemRestrictionsPath: "../configs/item_restrictions.json",
           latestDataDragonVersion: latestVersion,
           patchCatalogs,
         },

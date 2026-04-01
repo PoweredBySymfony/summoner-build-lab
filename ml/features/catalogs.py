@@ -6,6 +6,11 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
+from features.item_restrictions import (
+    get_structural_restriction_reasons,
+    is_item_allowed_for_role,
+)
+
 
 @dataclass(slots=True)
 class CatalogBundle:
@@ -99,8 +104,11 @@ def load_catalog_bundle(
 def is_plausible_candidate(
     item: dict[str, Any],
     *,
+    patch: str,
+    role: str | None,
     owned_item_slugs: set[str],
     gold_available: int,
+    item_meta_by_slug: dict[str, dict[str, Any]],
 ) -> bool:
     slug = str(item.get("slug") or "")
     tags = {str(tag) for tag in item.get("tags", [])}
@@ -114,6 +122,19 @@ def is_plausible_candidate(
         return False
     if "Trinket" in tags:
         return False
+    if not is_item_allowed_for_role(
+        item_slug=slug,
+        patch=patch,
+        role=role,
+    ):
+        return False
+    if get_structural_restriction_reasons(
+        item=item,
+        role=role,
+        owned_item_slugs=owned_item_slugs,
+        item_meta_by_slug=item_meta_by_slug,
+    ):
+        return False
     if gold_available > 0 and safe_int(item.get("goldTotal")) > gold_available:
         return False
     return True
@@ -124,6 +145,7 @@ def build_candidate_pool(
     *,
     owned_item_slugs: list[str],
     gold_available: int,
+    role: str | None = None,
 ) -> list[str]:
     owned_set = set(owned_item_slugs)
     candidates = [
@@ -131,8 +153,11 @@ def build_candidate_pool(
         for item in catalog.items
         if is_plausible_candidate(
             item,
+            patch=catalog.patch,
+            role=role,
             owned_item_slugs=owned_set,
             gold_available=gold_available,
+            item_meta_by_slug=catalog.item_meta_by_slug,
         )
     ]
     candidates.sort(

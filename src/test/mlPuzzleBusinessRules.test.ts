@@ -44,6 +44,8 @@ const availableItems = [
     isTrinket: false,
     isActive: true,
     goldTotal: 3300,
+    buildsFrom: [],
+    itemGroups: [],
   },
   {
     id: "2",
@@ -60,6 +62,8 @@ const availableItems = [
     isTrinket: false,
     isActive: true,
     goldTotal: 3500,
+    buildsFrom: [],
+    itemGroups: [],
   },
   {
     id: "3",
@@ -76,6 +80,8 @@ const availableItems = [
     isTrinket: false,
     isActive: true,
     goldTotal: 3000,
+    buildsFrom: ["3035"],
+    itemGroups: ["LastWhisper"],
   },
   {
     id: "4",
@@ -92,6 +98,8 @@ const availableItems = [
     isTrinket: false,
     isActive: true,
     goldTotal: 3400,
+    buildsFrom: [],
+    itemGroups: [],
   },
   {
     id: "5",
@@ -108,6 +116,8 @@ const availableItems = [
     isTrinket: false,
     isActive: true,
     goldTotal: 2800,
+    buildsFrom: [],
+    itemGroups: [],
   },
   {
     id: "6",
@@ -124,6 +134,8 @@ const availableItems = [
     isTrinket: false,
     isActive: true,
     goldTotal: 3200,
+    buildsFrom: [],
+    itemGroups: [],
   },
   {
     id: "7",
@@ -140,6 +152,8 @@ const availableItems = [
     isTrinket: false,
     isActive: true,
     goldTotal: 3500,
+    buildsFrom: [],
+    itemGroups: [],
   },
   {
     id: "8",
@@ -156,6 +170,8 @@ const availableItems = [
     isTrinket: false,
     isActive: true,
     goldTotal: 1200,
+    buildsFrom: [],
+    itemGroups: [],
   },
   {
     id: "9",
@@ -172,6 +188,8 @@ const availableItems = [
     isTrinket: false,
     isActive: true,
     goldTotal: 700,
+    buildsFrom: [],
+    itemGroups: [],
   },
   {
     id: "10",
@@ -188,6 +206,26 @@ const availableItems = [
     isTrinket: false,
     isActive: true,
     goldTotal: 3000,
+    buildsFrom: [],
+    itemGroups: [],
+  },
+  {
+    id: "11",
+    slug: "lucidite-pourpre",
+    name: "Lucidite pourpre",
+    riotItemId: 3171,
+    patch: "16.6.1",
+    category: "boots",
+    tags: ["Boots", "CooldownReduction"],
+    isBoots: true,
+    isLegendary: true,
+    isConsumable: false,
+    isStarter: false,
+    isTrinket: false,
+    isActive: true,
+    goldTotal: 1600,
+    buildsFrom: ["3158"],
+    itemGroups: ["Boots"],
   },
 ] as const;
 
@@ -256,6 +294,85 @@ describe("buildMlPuzzleBusinessRules", () => {
     expect(result.debug.preferredSignature).not.toBe(
       ["salutations-de-dominik", "soif-de-sang", "fin-de-lesprit", "ange-gardien"].sort().join("|"),
     );
+  });
+
+  it("applies patch and role restrictions from config", () => {
+    const result = buildMlPuzzleBusinessRules({
+      snapshot: { ...baseSnapshot },
+      championTags: ["Marksman"],
+      goodAnswer: availableItems[2],
+      rankedCandidates: [...availableItems],
+      availableItems: [...availableItems, { ...availableItems[0], id: "12", slug: "jarvan-i", name: "Jarvan I", riotItemId: 3001 }],
+      previousChoiceSignatures: [],
+      variationSeed: "seed-restrictions",
+    });
+
+    expect(result.distractorCandidates.some((item) => item.slug === "lucidite-pourpre")).toBe(false);
+    expect(result.distractorCandidates.some((item) => item.slug === "jarvan-i")).toBe(false);
+    expect(result.debug.filterReasonCounts["role-restricted"]).toBeGreaterThan(0);
+    expect(result.debug.filterReasonCounts["patch-restricted"]).toBeGreaterThan(0);
+    expect(result.debug.restrictedCandidateSamples.some((entry) => entry.slug === "lucidite-pourpre")).toBe(true);
+  });
+
+  it("blocks tier 3 boots for ADC even when the slug is not hardcoded in config", () => {
+    const result = buildMlPuzzleBusinessRules({
+      snapshot: { ...baseSnapshot },
+      championTags: ["Marksman"],
+      goodAnswer: availableItems[2],
+      rankedCandidates: [...availableItems],
+      availableItems: [
+        ...availableItems,
+        {
+          ...availableItems[10],
+          id: "12",
+          slug: "capsules-de-metal",
+          name: "Capsules de metal",
+          riotItemId: 3047,
+          isLegendary: false,
+          buildsFrom: ["1001"],
+        },
+        {
+          ...availableItems[10],
+          id: "13",
+          slug: "jambieres-de-metal",
+          name: "Jambieres de metal",
+          riotItemId: 3999,
+          isBoots: false,
+          buildsFrom: ["3047"],
+        },
+      ],
+      previousChoiceSignatures: [],
+      variationSeed: "seed-tier3-derived",
+    });
+
+    expect(result.distractorCandidates.some((item) => item.slug === "jambieres-de-metal")).toBe(false);
+    expect(result.debug.filterReasonCounts["role-restricted"]).toBeGreaterThan(0);
+  });
+
+  it("filters mutually exclusive family items already present in the current build", () => {
+    const result = buildMlPuzzleBusinessRules({
+      snapshot: { ...baseSnapshot, currentItems: ["ouragan-de-runaan", "salutations-de-dominik"] },
+      championTags: ["Marksman"],
+      goodAnswer: availableItems[3],
+      rankedCandidates: [...availableItems],
+      availableItems: [
+        ...availableItems,
+        {
+          ...availableItems[3],
+          id: "12",
+          slug: "rappel-mortel",
+          name: "Rappel mortel",
+          riotItemId: 3033,
+          buildsFrom: ["3035"],
+          itemGroups: ["LastWhisper"],
+        },
+      ],
+      previousChoiceSignatures: [],
+      variationSeed: "seed-exclusive-groups",
+    });
+
+    expect(result.distractorCandidates.some((item) => item.slug === "rappel-mortel")).toBe(false);
+    expect(result.debug.filterReasonCounts["exclusive-group"]).toBeGreaterThan(0);
   });
 });
 

@@ -1166,3 +1166,103 @@ Lire ce fichier au debut de chaque nouvelle conversation sur ce repo, puis le me
 - Diagnostic environnement local:
   - si le front affiche `ERR_CONNECTION_REFUSED` sur `http://localhost:8080/...`, ce n'est pas un bug de recherche joueur Riot mais un probleme de runtime local: Vite (`:8080`) et/ou l'API Express (`:3001`) ne tournent pas
   - `src/api/client.ts` remonte maintenant un message explicite quand l'application locale n'est pas joignable
+
+## Restrictions d'items versionnees patch/role (2026-04-01)
+
+- Source de verite:
+  - config partagee: `ml/configs/item_restrictions.json`
+  - schema minimal:
+    - `patch`
+    - `globalBlacklist`
+    - `roleRestrictions`
+    - `roleAllowlistOverrides`
+- Resolution:
+  - la cle de patch est normalisee au format `major.minor` (ex: `16.6.1` -> `16.6`)
+  - `globalBlacklist` produit la raison `patch-restricted`
+  - `roleRestrictions[ROLE]` produit la raison `role-restricted`
+  - `roleAllowlistOverrides[ROLE]` peut lever un blocage patch/role pour ce role
+- Backend TS:
+  - loader partage: `server/src/lib/itemRestrictions.ts`
+  - points d'application:
+    - `server/src/lib/ml/puzzleBusinessRules.ts` pour filtrer le candidate pool backend
+    - `server/src/lib/ml/puzzleChoiceResolution.ts` pour empecher la resolution finale d'un item restreint
+    - `server/src/services/mlPuzzleGenerationService.ts` pour rejeter/logguer une bonne reponse ML qui serait interdite
+  - logs explicites:
+    - `scope: "good-answer"` si le top pick ML est interdit
+    - `scope: "candidate-pool"` avec echantillon de slugs rejetes et compteurs `role-restricted` / `patch-restricted`
+- ML Python:
+  - helper partage python: `ml/features/item_restrictions.py`
+  - `ml/features/catalogs.py` applique aussi les restrictions au `build_candidate_pool(...)`
+  - `ml/features/analytics.py` passe maintenant le role snapshot au candidate pool dataset
+  - `ml/inference/service.py` passe maintenant le role au candidate pool reconstruit cote inference
+- Export ML:
+  - `scripts/exportImportedMatchesForMl.ts` reference maintenant `itemRestrictionsPath` dans le manifest exporte
+- Exemple courant:
+  - patch `16.6`
+  - `jarvan-i` est en `globalBlacklist`
+  - plusieurs bottes T3 sont `roleRestrictions.ADC`
+  - `MID` garde un `roleAllowlistOverrides` sur ces bottes T3
+- Tests de garde:
+  - `src/test/itemRestrictions.test.ts`
+  - `src/test/mlPuzzleBusinessRules.test.ts`
+  - `src/test/mlPuzzleChoiceResolution.test.ts`
+  - `ml/tests/test_item_restrictions.py`
+
+## Coherence puzzle ML alignee sur le Lab (2026-04-01)
+
+- Probleme constate:
+  - une simple blacklist de slugs ne suffit pas; un nouveau slug de bottes T3 peut fuiter hors `MID`
+  - le Lab avait deja une logique plus robuste fondee sur la structure des items
+- Decision:
+  - ne pas toucher aux fichiers du Lab
+  - porter la logique utile dans le pipeline puzzle/ML courant via un module dedie
+- Regles structurelles retenues:
+  - detection des bottes T3 via `isBoots` + chaine `buildsFrom`
+  - bottes T3 reservees a `MID` meme si le slug n'est pas encore present dans `item_restrictions.json`
+  - exclusion des conflits de famille via `itemGroups` / groupes derives (`Boots`, `LastWhisper`)
+  - exclusion de ces conflits a la fois contre le build courant et entre les choix finaux proposes
+- Implementation:
+  - helper central: `server/src/lib/ml/itemCandidateRules.ts`
+  - candidate pool backend: `server/src/lib/ml/puzzleBusinessRules.ts`
+  - resolution finale: `server/src/lib/ml/puzzleChoiceResolution.ts`
+  - enrichissement des items backend: `server/src/services/mlPuzzleGenerationService.ts`
+  - export / candidate pool ML: `scripts/exportImportedMatchesForMl.ts`, `ml/features/catalogs.py`, `ml/features/item_restrictions.py`
+- Intention:
+  - la config versionnee garde les exceptions patch/specifiques
+  - les regles structurelles empechent les incoherences de shop quand un nouveau slug apparait
+
+### Correctif complementaire - lignee de bottes et catalogues partiels
+
+- Cas reel rencontre:
+  - `jambieres-de-metal` (`riotItemId=3172`) etait propose a un ADC alors que c'est une upgrade de bottes reservee hors ADC
+  - cause reelle: l'item etait stocke avec `isBoots = false` en base, bien qu'il derive de `jambieres-du-berzerker` (`3006`)
+- Regle corrigee:
+  - une upgrade de bottes doit etre reconnue par sa lignee `buildsFrom`, meme si Riot / Data Dragon ne renseigne pas `Boots` dans les tags
+  - les filtres puzzle/ML ne doivent jamais dependre uniquement du flag brut `isBoots`
+- Donnees:
+  - la sync items derive maintenant `isBoots` par propagation de lignee, pas seulement via `tags.includes("Boots")`
+  - l'export ML derive la meme logique
+- Generation:
+  - `server/src/services/mlPuzzleGenerationService.ts` doit fallback sur le dernier catalogue actif si le catalogue du patch demande est incomplet localement
+  - symptome detecte localement: apres sync latest, il ne restait que 4 items en `16.6`, ce qui n'est pas un vrai catalogue jouable
+- Hygiene de test:
+  - si un puzzle AI deja persiste contient une anomalie corrigee depuis, il faut supprimer ce puzzle (ou la famille concernee) avant de conclure que le fix ne marche pas
+
+## Regle Docker ML obligatoire (2026-04-01)
+
+- Si un fichier de code sous `ml/` est modifie dans:
+  - `ml/features/`
+  - `ml/inference/`
+  - `ml/models/`
+  - `ml/training/`
+  - `ml/scripts/`
+  - `ml/pyproject.toml`
+  - `ml/Dockerfile`
+- Alors il faut considerer que le conteneur `ml-api` Docker n'embarque plus le bon code.
+- Dans ce cas, le rebuild de l'image est obligatoire. Un simple restart du conteneur n'est pas suffisant.
+- Commande de reference:
+  - `docker compose --profile ml up --build -d ml-api`
+- Cas particulier:
+  - si seuls `ml/configs/`, `ml/data/` ou `ml/artifacts/` changent, un rebuild n'est pas necessaire en premiere intention car ces dossiers sont montes comme volumes dans `docker-compose.yml`
+- Reflexe attendu:
+  - apres toute modification de code ML Python, toujours rebuild avant de conclure qu'un correctif "ne marche pas"

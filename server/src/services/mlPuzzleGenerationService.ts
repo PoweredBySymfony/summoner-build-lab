@@ -9,6 +9,7 @@ import {
   Role,
 } from "@prisma/client";
 import { env } from "../config/env.js";
+import { getItemGroups } from "../lib/itemGroups.js";
 import {
   buildBackendPuzzleSeed,
   isLowConfidenceDraftAllowed,
@@ -18,6 +19,7 @@ import {
   type MlPuzzleSeed,
   type MlPuzzleSnapshot,
 } from "../lib/ml/mlPuzzle.js";
+import { getItemRestrictionDecision } from "../lib/itemRestrictions.js";
 import { collectTimelineItemIds, reconstructInventoriesAtTimestamp } from "../lib/ml/scenarioInventory.js";
 import {
   buildChoiceSignatureForHistory,
@@ -301,35 +303,68 @@ async function getItemsBySlugs(slugs: string[]) {
 }
 
 async function getPatchChoiceItems(patch: string) {
-  const items = await prisma.item.findMany({
+  const select = {
+    id: true,
+    slug: true,
+    name: true,
+    riotItemId: true,
+    goldTotal: true,
+    patch: true,
+    category: true,
+    tags: true,
+    isBoots: true,
+    isLegendary: true,
+    isConsumable: true,
+    isStarter: true,
+    isTrinket: true,
+    isActive: true,
+    buildsFrom: true,
+    fullDescription: true,
+  } as const;
+
+  const patchItems = await prisma.item.findMany({
     where: {
       isActive: true,
       patch: {
         startsWith: patch,
       },
     },
-    select: {
-      id: true,
-      slug: true,
-      name: true,
-      riotItemId: true,
-      goldTotal: true,
-      patch: true,
-      category: true,
-      tags: true,
-      isBoots: true,
-      isLegendary: true,
-      isConsumable: true,
-      isStarter: true,
-      isTrinket: true,
-      isActive: true,
-    },
+    select,
   });
+
+  const items = patchItems.length >= 100
+    ? patchItems
+    : await prisma.item.findMany({
+        where: {
+          isActive: true,
+        },
+        orderBy: [
+          { patch: "desc" },
+          { riotItemId: "asc" },
+        ],
+        select,
+      });
+
+  if (patchItems.length < 100) {
+    console.warn(
+      "[ml-puzzle] patch-catalog-fallback",
+      JSON.stringify({
+        requestedPatch: patch,
+        patchItemCount: patchItems.length,
+        fallbackItemCount: items.length,
+      }),
+    );
+  }
 
   return items.map(
     (item): MlChoiceItem => ({
       ...item,
       tags: Array.isArray(item.tags) ? item.tags.map((tag) => String(tag)) : [],
+      buildsFrom: Array.isArray(item.buildsFrom) ? item.buildsFrom.map((entry) => String(entry)) : [],
+      itemGroups: getItemGroups({
+        ...item,
+        fullDescription: item.fullDescription,
+      }).map((group) => String(group)),
     }),
   );
 }
@@ -752,6 +787,32 @@ async function prepareSnapshotAttempt(input: {
         rejectionReasons: ["good-answer-unresolved"],
       });
     }
+    const goodAnswerRestriction = getItemRestrictionDecision(resolvedGoodAnswer.slug, {
+      patch: input.candidate.snapshot.patch,
+      role: input.candidate.snapshot.role,
+    });
+    if (!goodAnswerRestriction.allowed) {
+      console.info(
+        "[ml-puzzle] restriction-reject",
+        JSON.stringify({
+          scope: "good-answer",
+          patch: input.candidate.snapshot.patch,
+          role: input.candidate.snapshot.role,
+          slug: resolvedGoodAnswer.slug,
+          reasons: goodAnswerRestriction.reasons,
+        }),
+      );
+      return buildRejectedAttempt({
+        candidate: input.candidate,
+        payload,
+        prediction,
+        seed,
+        rawCandidatePoolSize: prediction.candidate_pool_size,
+        filteredCandidatePoolSize: 0,
+        goodAnswer: resolvedGoodAnswer.slug,
+        rejectionReasons: goodAnswerRestriction.reasons.map((reason) => `good-answer-${reason}`),
+      });
+    }
 
     const variationSeed = `${input.importedMatchId}:${input.userId}:${input.candidate.snapshotIndex}:${Date.now()}`;
     const rankedResolvedItems = prediction.top_k_predictions
@@ -766,6 +827,21 @@ async function prepareSnapshotAttempt(input: {
       previousChoiceSignatures: input.previousChoiceSignatures,
       variationSeed,
     });
+    if (businessRules.debug.restrictedCandidateSamples.length > 0) {
+      console.info(
+        "[ml-puzzle] restriction-reject",
+        JSON.stringify({
+          scope: "candidate-pool",
+          patch: input.candidate.snapshot.patch,
+          role: input.candidate.snapshot.role,
+          rejected: businessRules.debug.restrictedCandidateSamples,
+          counts: {
+            roleRestricted: businessRules.debug.filterReasonCounts["role-restricted"],
+            patchRestricted: businessRules.debug.filterReasonCounts["patch-restricted"],
+          },
+        }),
+      );
+    }
 
     const rejectionReasons: string[] = [];
     if (seed.lowConfidence) {
@@ -780,11 +856,12 @@ async function prepareSnapshotAttempt(input: {
 
     const choiceResolutionInput = {
       patch: input.candidate.snapshot.patch,
+      role: input.candidate.snapshot.role,
       currentItemSlugs: input.candidate.snapshot.currentItems,
       goodAnswer: seed.goodAnswer,
       distractors: businessRules.debug.selectedDistractors,
       rankedItemSlugs: businessRules.distractorCandidates.map((item) => item.slug),
-      availableItems: [resolvedGoodAnswer, ...businessRules.distractorCandidates],
+      availableItems: input.patchChoiceItems,
       fallbackItems: businessRules.distractorCandidates,
     };
 

@@ -294,6 +294,7 @@ def build_analytic_dataset(config: AppConfig) -> DatasetBuildSummary:
                     catalog,
                     owned_item_slugs=current_items,
                     gold_available=gold_available,
+                    role=_normalize_role(record.get("targetRole")),
                 )
                 snapshot_id = f"{record.get('riotMatchId') or ''}:{event_timestamp}"
                 row = {

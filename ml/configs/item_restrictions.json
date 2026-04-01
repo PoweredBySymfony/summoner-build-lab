@@ -1,0 +1,36 @@
+{
+  "version": 1,
+  "patches": [
+    {
+      "patch": "16.6",
+      "globalBlacklist": [
+        "jarvan-i"
+      ],
+      "roleRestrictions": {
+        "ADC": [
+          "lucidite-pourpre",
+          "broyeuses-a-chaines",
+          "avancee-blindee",
+          "chaussures-de-lanceur-de-sorts",
+          "semelles-militaires",
+          "celerite-martiale"
+        ],
+        "SUPPORT": [
+          "lucidite-pourpre",
+          "avancee-blindee",
+          "chaussures-de-lanceur-de-sorts"
+        ]
+      },
+      "roleAllowlistOverrides": {
+        "MID": [
+          "lucidite-pourpre",
+          "broyeuses-a-chaines",
+          "avancee-blindee",
+          "chaussures-de-lanceur-de-sorts",
+          "semelles-militaires",
+          "celerite-martiale"
+        ]
+      }
+    }
+  ]
+}

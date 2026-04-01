@@ -183,6 +183,36 @@ function compareCanonicalItemCandidates(
   return Number(left[0]) - Number(right[0]);
 }
 
+function deriveBootItemIds(
+  items: Array<[string, { tags?: string[] | null; from?: Array<string | number> | null }]>,
+) {
+  const bootItemIds = new Set<number>();
+
+  for (const [itemId, item] of items) {
+    if (item.tags?.includes("Boots")) {
+      bootItemIds.add(Number(itemId));
+    }
+  }
+
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const [itemId, item] of items) {
+      const numericItemId = Number(itemId);
+      if (bootItemIds.has(numericItemId)) {
+        continue;
+      }
+      const buildsFrom = Array.isArray(item.from) ? item.from.map((entry) => Number(entry)) : [];
+      if (buildsFrom.some((entry) => bootItemIds.has(entry))) {
+        bootItemIds.add(numericItemId);
+        changed = true;
+      }
+    }
+  }
+
+  return bootItemIds;
+}
+
 async function findAccountAcrossRegions(gameName: string, tagLine: string) {
   let lastNotFound: HttpError | null = null;
 
@@ -823,6 +853,7 @@ export const riotSyncService = {
     const resolvedVersion = version ?? (await dataDragonClient.getLatestVersion());
     const summary = await dataDragonClient.getItemSummary(resolvedVersion);
     const items = Object.entries(summary.data);
+    const derivedBootItemIds = deriveBootItemIds(items);
     const purchasableItems = items.filter(([itemId, item]) => isPurchasableCatalogItem(Number(itemId), item));
     const canonicalItems = new Map<string, (typeof purchasableItems)[number]>();
 
@@ -858,7 +889,7 @@ export const riotSyncService = {
           buildsFrom: item.from ?? [],
           buildsInto: item.into ?? [],
           mapAvailability: item.maps ?? null,
-          isBoots: item.tags?.includes("Boots") ?? false,
+          isBoots: derivedBootItemIds.has(numericItemId),
           isLegendary: item.gold.total >= 2200,
           isConsumable: item.consumed ?? false,
           isTrinket: item.tags?.includes("Trinket") ?? false,
@@ -882,7 +913,7 @@ export const riotSyncService = {
           buildsFrom: item.from ?? [],
           buildsInto: item.into ?? [],
           mapAvailability: item.maps ?? null,
-          isBoots: item.tags?.includes("Boots") ?? false,
+          isBoots: derivedBootItemIds.has(numericItemId),
           isLegendary: item.gold.total >= 2200,
           isConsumable: item.consumed ?? false,
           isTrinket: item.tags?.includes("Trinket") ?? false,

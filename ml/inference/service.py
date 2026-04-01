@@ -82,6 +82,7 @@ def predict_next_item(payload: dict[str, Any], config: AppConfig | None = None) 
                 if str(item_slug).strip()
             ],
             gold_available=int(payload.get("gold_available", 0) or 0),
+            role=str(payload.get("role") or "").strip().upper() or None,
         )
 
     if not candidate_pool:

@@ -18,6 +18,8 @@ const baseItems = [
     isStarter: false,
     isTrinket: false,
     isActive: true,
+    buildsFrom: [],
+    itemGroups: [],
   },
   {
     id: "item-2",
@@ -34,6 +36,8 @@ const baseItems = [
     isStarter: false,
     isTrinket: false,
     isActive: true,
+    buildsFrom: [],
+    itemGroups: [],
   },
   {
     id: "item-3",
@@ -50,6 +54,8 @@ const baseItems = [
     isStarter: false,
     isTrinket: false,
     isActive: true,
+    buildsFrom: [],
+    itemGroups: [],
   },
   {
     id: "item-4",
@@ -66,6 +72,8 @@ const baseItems = [
     isStarter: false,
     isTrinket: false,
     isActive: true,
+    buildsFrom: [],
+    itemGroups: [],
   },
   {
     id: "item-5",
@@ -82,6 +90,26 @@ const baseItems = [
     isStarter: false,
     isTrinket: false,
     isActive: true,
+    buildsFrom: [],
+    itemGroups: [],
+  },
+  {
+    id: "item-6",
+    slug: "lucidite-pourpre",
+    name: "Lucidite pourpre",
+    riotItemId: 3171,
+    goldTotal: 1600,
+    patch: "16.6.1",
+    category: "boots",
+    tags: ["Boots", "CooldownReduction"],
+    isBoots: true,
+    isLegendary: true,
+    isConsumable: false,
+    isStarter: false,
+    isTrinket: false,
+    isActive: true,
+    buildsFrom: ["3158"],
+    itemGroups: ["Boots"],
   },
 ] as const;
 
@@ -89,6 +117,7 @@ describe("resolveMlPuzzleChoices", () => {
   it("resolves a valid ML seed into one answer and three distractors", () => {
     const result = resolveMlPuzzleChoices({
       patch: "16.6",
+      role: "MID",
       currentItemSlugs: [],
       goodAnswer: "rabadons-deathcap",
       distractors: ["void-staff", "morellonomicon", "zhonyas-hourglass"],
@@ -108,6 +137,7 @@ describe("resolveMlPuzzleChoices", () => {
   it("fills a missing distractor with a fallback candidate", () => {
     const result = resolveMlPuzzleChoices({
       patch: "16.6",
+      role: "MID",
       currentItemSlugs: [],
       goodAnswer: "coiffe-de-rabadon",
       distractors: ["baton-du-vide", "missing-item", "baton-du-vide"],
@@ -125,6 +155,7 @@ describe("resolveMlPuzzleChoices", () => {
     expect(() =>
       resolveMlPuzzleChoices({
         patch: "16.6",
+        role: "MID",
         currentItemSlugs: [],
         goodAnswer: "missing-answer",
         distractors: ["baton-du-vide", "morellonomicon", "sablier-de-zhonya"],
@@ -138,6 +169,7 @@ describe("resolveMlPuzzleChoices", () => {
   it("handles collisions and duplicate distractors without duplicating final choices", () => {
     const result = resolveMlPuzzleChoices({
       patch: "16.6",
+      role: "MID",
       currentItemSlugs: [],
       goodAnswer: "coiffe-de-rabadon",
       distractors: ["coiffe-de-rabadon", "baton-du-vide", "baton-du-vide"],
@@ -148,5 +180,111 @@ describe("resolveMlPuzzleChoices", () => {
 
     expect(new Set(result.resolvedItems.map((item) => item.id)).size).toBe(4);
     expect(result.duplicateInputs.length).toBeGreaterThan(0);
+  });
+
+  it("skips restricted distractors for ADC and traces the rejection reason", () => {
+    const result = resolveMlPuzzleChoices({
+      patch: "16.6",
+      role: "ADC",
+      currentItemSlugs: [],
+      goodAnswer: "coiffe-de-rabadon",
+      distractors: ["lucidite-pourpre", "baton-du-vide", "morellonomicon"],
+      rankedItemSlugs: ["lucidite-pourpre", "baton-du-vide", "morellonomicon", "zhonyas-hourglass"],
+      availableItems: [...baseItems],
+      fallbackItems: [...baseItems],
+    });
+
+    expect(result.distractors.some((item) => item.slug === "lucidite-pourpre")).toBe(false);
+    expect(result.restrictedItems).toEqual([
+      { input: "lucidite-pourpre", reasons: ["role-restricted"] },
+    ]);
+  });
+
+  it("rejects derived tier 3 boots for ADC even when the slug is not in config", () => {
+    expect(() =>
+      resolveMlPuzzleChoices({
+        patch: "16.6",
+        role: "ADC",
+        currentItemSlugs: [],
+        goodAnswer: "jambieres-de-metal",
+        distractors: ["baton-du-vide", "morellonomicon", "sablier-de-zhonya"],
+        rankedItemSlugs: [],
+        availableItems: [
+          ...baseItems,
+          {
+            ...baseItems[5],
+            id: "item-7",
+            slug: "bottes-de-metal",
+            name: "Bottes de metal",
+            riotItemId: 3047,
+            isLegendary: false,
+            buildsFrom: ["1001"],
+          },
+          {
+            ...baseItems[5],
+            id: "item-8",
+            slug: "jambieres-de-metal",
+            name: "Jambieres de metal",
+            riotItemId: 3999,
+            isBoots: false,
+            buildsFrom: ["3047"],
+          },
+        ],
+        fallbackItems: [...baseItems],
+      }),
+    ).toThrow("good-answer-role-restricted");
+  });
+
+  it("does not keep two last whisper family items in the final choices", () => {
+    const result = resolveMlPuzzleChoices({
+      patch: "16.6",
+      role: "ADC",
+      currentItemSlugs: [],
+      goodAnswer: "salutations-de-dominik",
+      distractors: ["rappel-mortel", "baton-du-vide", "morellonomicon"],
+      rankedItemSlugs: ["rappel-mortel", "baton-du-vide", "morellonomicon", "zhonyas-hourglass"],
+      availableItems: [
+        ...baseItems,
+        {
+          id: "item-7",
+          slug: "salutations-de-dominik",
+          name: "Salutations de Dominik",
+          riotItemId: 3036,
+          goldTotal: 3000,
+          patch: "16.6.1",
+          category: "crit",
+          tags: ["CriticalStrike", "Damage"],
+          isBoots: false,
+          isLegendary: true,
+          isConsumable: false,
+          isStarter: false,
+          isTrinket: false,
+          isActive: true,
+          buildsFrom: ["3035"],
+          itemGroups: ["LastWhisper"],
+        },
+        {
+          id: "item-8",
+          slug: "rappel-mortel",
+          name: "Rappel mortel",
+          riotItemId: 3033,
+          goldTotal: 3200,
+          patch: "16.6.1",
+          category: "crit",
+          tags: ["CriticalStrike", "Damage"],
+          isBoots: false,
+          isLegendary: true,
+          isConsumable: false,
+          isStarter: false,
+          isTrinket: false,
+          isActive: true,
+          buildsFrom: ["3035"],
+          itemGroups: ["LastWhisper"],
+        },
+      ],
+      fallbackItems: [...baseItems],
+    });
+
+    expect(result.distractors.some((item) => item.slug === "rappel-mortel")).toBe(false);
   });
 });

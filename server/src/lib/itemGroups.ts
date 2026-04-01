@@ -22,6 +22,7 @@ const LAST_WHISPER_ITEM_IDS = new Set([3033, 3036, 6694]);
 const BLIGHT_ITEM_IDS = new Set([3135, 3137, 4630]);
 const FATALITY_ITEM_IDS = new Set([6676]);
 const STASIS_ITEM_IDS = new Set([2420, 2421, 3157]);
+const BOOTS_RELATED_ITEM_IDS = new Set([1001, 3006, 3009, 3020, 3047, 3111, 3158, 3170, 3171, 3172, 3173, 3174, 3175]);
 
 const normalizeText = (value?: string | null) =>
   (value ?? "")
@@ -37,7 +38,11 @@ export const getItemGroups = (item: Item): ItemGroupId[] => {
   const groups = new Set<ItemGroupId>();
   const normalizedName = normalizeText(item.name);
 
-  if (item.isBoots) {
+  if (
+    item.isBoots
+    || BOOTS_RELATED_ITEM_IDS.has(item.riotItemId)
+    || (Array.isArray(item.buildsFrom) && item.buildsFrom.some((entry) => BOOTS_RELATED_ITEM_IDS.has(Number(entry))))
+  ) {
     groups.add("Boots");
   }
 

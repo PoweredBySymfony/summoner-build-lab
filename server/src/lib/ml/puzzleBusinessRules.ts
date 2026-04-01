@@ -1,13 +1,23 @@
 import { Role } from "@prisma/client";
+import { filterRestrictedItems, type ItemRestrictionReason } from "../itemRestrictions.js";
 import { resolveItemSlug } from "../itemSlugAliases.js";
 import type { MlPuzzleSnapshot } from "./mlPuzzle.js";
 import type { MlChoiceItem } from "./puzzleChoiceResolution.js";
+import {
+  filterMlCandidateRules,
+  getMlCandidateRuleDecision,
+  sharesExclusiveGroup,
+  type MlCandidateRuleReason,
+} from "./itemCandidateRules.js";
 
 type CandidateFilterReason =
   | "incoherent-with-champion"
   | "already-owned"
   | "too-cheap"
-  | "too-expensive";
+  | "too-expensive"
+  | "exclusive-group"
+  | "role-restricted"
+  | "patch-restricted";
 
 type ItemProfile = "physical" | "magic" | "tank" | "support" | "utility" | "boots";
 
@@ -34,6 +44,7 @@ export type MlPuzzleBusinessRulesResult = {
     candidatePoolSizeAfterGold: number;
     candidatePoolSizeAfterFallback: number;
     filterReasonCounts: Record<CandidateFilterReason, number>;
+    restrictedCandidateSamples: Array<{ slug: string; reasons: Array<ItemRestrictionReason | MlCandidateRuleReason> }>;
     allowedProfiles: ItemProfile[];
     goldFilter: {
       minGold: number;
@@ -227,6 +238,14 @@ function chooseDistractors(input: {
           shuffledCandidates[second],
           shuffledCandidates[third],
         ];
+        if (
+          distractors.some((item) => sharesExclusiveGroup(item, input.goodAnswer))
+          || sharesExclusiveGroup(distractors[0], distractors[1])
+          || sharesExclusiveGroup(distractors[0], distractors[2])
+          || sharesExclusiveGroup(distractors[1], distractors[2])
+        ) {
+          continue;
+        }
         const signature = buildChoiceSignature(input.goodAnswer, distractors);
         if (!bestAny) {
           bestAny = distractors;
@@ -339,9 +358,25 @@ export function buildMlPuzzleBusinessRules(
     "already-owned": 0,
     "too-cheap": 0,
     "too-expensive": 0,
+    "exclusive-group": 0,
+    "role-restricted": 0,
+    "patch-restricted": 0,
   };
+  const restrictedCandidateSamples: Array<{ slug: string; reasons: Array<ItemRestrictionReason | MlCandidateRuleReason> }> = [];
   const goldFilter = buildGoldWindow(input.snapshot, input.goodAnswer);
   const goodAnswerViolations: CandidateFilterReason[] = [];
+  const availableBySlug = new Map(input.availableItems.map((item) => [item.slug, item]));
+  const ownedItems = input.snapshot.currentItems
+    .map((slug) => availableBySlug.get(resolveItemSlug(slug)) ?? null)
+    .filter((item): item is MlChoiceItem => Boolean(item));
+  const goodAnswerRuleDecision = getMlCandidateRuleDecision(input.goodAnswer, {
+    role: input.snapshot.role,
+    catalog: input.availableItems,
+    ownedItems,
+  });
+  for (const reason of goodAnswerRuleDecision.reasons) {
+    goodAnswerViolations.push(reason);
+  }
   if (!isItemCoherent(input.goodAnswer, allowedProfiles)) {
     goodAnswerViolations.push("incoherent-with-champion");
   }
@@ -355,8 +390,39 @@ export function buildMlPuzzleBusinessRules(
   const baseCandidates = uniqueById(
     input.availableItems.filter((item) => item.id !== input.goodAnswer.id),
   );
+  const restricted = filterRestrictedItems(baseCandidates, {
+    patch: input.snapshot.patch,
+    role: input.snapshot.role,
+  });
+  for (const rejection of restricted.rejectedItems) {
+    for (const reason of rejection.reasons) {
+      filterReasonCounts[reason] += 1;
+    }
+    if (restrictedCandidateSamples.length < 20) {
+      restrictedCandidateSamples.push({
+        slug: rejection.item.slug,
+        reasons: rejection.reasons,
+      });
+    }
+  }
+  const structural = filterMlCandidateRules(restricted.allowedItems, {
+    role: input.snapshot.role,
+    catalog: input.availableItems,
+    ownedItems,
+  });
+  for (const rejection of structural.rejectedItems) {
+    for (const reason of rejection.reasons) {
+      filterReasonCounts[reason] += 1;
+    }
+    if (restrictedCandidateSamples.length < 20) {
+      restrictedCandidateSamples.push({
+        slug: rejection.item.slug,
+        reasons: rejection.reasons,
+      });
+    }
+  }
 
-  const afterChampion = baseCandidates.filter((item) => {
+  const afterChampion = structural.allowedItems.filter((item) => {
     if (currentItems.has(item.slug)) {
       filterReasonCounts["already-owned"] += 1;
       return false;
@@ -433,6 +499,7 @@ export function buildMlPuzzleBusinessRules(
       candidatePoolSizeAfterGold: afterGold.length + 1,
       candidatePoolSizeAfterFallback: distractorCandidates.length + 1,
       filterReasonCounts,
+      restrictedCandidateSamples,
       allowedProfiles,
       goldFilter,
       preferredSignature: selected.signature,
