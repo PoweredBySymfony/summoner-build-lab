@@ -1,0 +1,451 @@
+{
+  "generatedAt": "2026-04-01T18:36:24.985Z",
+  "baseline": {
+    "state": "premium-v1-frozen",
+    "note": "Validation match-based apres retrain baseline sans modifier le coeur ML."
+  },
+  "evaluationUser": {
+    "id": "cmn4plsrz0000s0raoam4eco5",
+    "email": "xtrouche@gmail.com",
+    "isAdmin": true
+  },
+  "selectionPolicy": {
+    "strictPatchPrefix": "26.",
+    "sampleSize": 10,
+    "ordering": "fewest-previous-requests-first, then newest imported matches"
+  },
+  "summary": {
+    "completedCount": 1,
+    "noViableSnapshotFoundCount": 9,
+    "totalGenerations": 10,
+    "completedRate": 0.1,
+    "noViableSnapshotFoundRate": 0.9,
+    "rejectionReasonCounts": [
+      {
+        "reason": "good-answer-unresolved",
+        "count": 40
+      },
+      {
+        "reason": "good-answer-too-cheap",
+        "count": 25
+      },
+      {
+        "reason": "low-confidence",
+        "count": 24
+      },
+      {
+        "reason": "good-answer-incoherent-with-champion",
+        "count": 5
+      }
+    ],
+    "distinctSelectedSnapshotCount": 1,
+    "distinctChampionCount": 8,
+    "snapshotSegmentCounts": [
+      {
+        "segment": "none",
+        "count": 9
+      },
+      {
+        "segment": "early",
+        "count": 1
+      }
+    ],
+    "averageCandidatePoolSize": 3.3
+  },
+  "generations": [
+    {
+      "index": 1,
+      "importedMatchId": "cmnf22mo604u79cra4468jenw",
+      "requestId": "cmnge02ft0000jwraoocszf6t",
+      "patch": "26.6",
+      "sourceKind": "PRO_SEED",
+      "sourceTier": "unknown",
+      "championSlug": "bard",
+      "role": "SUPPORT",
+      "generationStatus": "no_viable_snapshot_found",
+      "selectedSnapshotIndex": null,
+      "minute": 13.78,
+      "gold": 112,
+      "candidatePoolSize": 0,
+      "qualityScore": 0,
+      "failureReason": "good-answer-unresolved",
+      "rejectionReasons": [
+        "good-answer-unresolved"
+      ],
+      "observedRejectionReasons": [
+        "good-answer-unresolved",
+        "good-answer-unresolved",
+        "good-answer-unresolved",
+        "low-confidence",
+        "good-answer-too-cheap",
+        "good-answer-unresolved",
+        "good-answer-unresolved",
+        "low-confidence",
+        "good-answer-too-cheap",
+        "low-confidence",
+        "good-answer-too-cheap"
+      ],
+      "attemptsEvaluated": 8,
+      "successfulSnapshots": 0,
+      "selectedSnapshotHistoryKey": null,
+      "selectedSnapshotSegment": null,
+      "lowConfidence": false,
+      "draft": false,
+      "resultSlug": null
+    },
+    {
+      "index": 2,
+      "importedMatchId": "cmnf22lv804tw9cra0iitwxfk",
+      "requestId": "cmnge02vp0001jwrau8y67078",
+      "patch": "26.6",
+      "sourceKind": "PRO_SEED",
+      "sourceTier": "unknown",
+      "championSlug": "ambessa",
+      "role": "JUNGLE",
+      "generationStatus": "completed",
+      "selectedSnapshotIndex": 12,
+      "minute": 12.07,
+      "gold": 1297,
+      "candidatePoolSize": 11,
+      "qualityScore": 107.26,
+      "failureReason": null,
+      "rejectionReasons": [
+        "good-answer-unresolved"
+      ],
+      "observedRejectionReasons": [
+        "good-answer-unresolved",
+        "low-confidence",
+        "good-answer-too-cheap",
+        "low-confidence",
+        "good-answer-too-cheap",
+        "low-confidence",
+        "good-answer-too-cheap"
+      ],
+      "attemptsEvaluated": 6,
+      "successfulSnapshots": 2,
+      "selectedSnapshotHistoryKey": "12:12.07",
+      "selectedSnapshotSegment": "early",
+      "lowConfidence": false,
+      "draft": false,
+      "resultSlug": "ambessa-ai-generated-1775068581485-12-1"
+    },
+    {
+      "index": 3,
+      "importedMatchId": "cmnf22l4n04tl9crau95gracs",
+      "requestId": "cmnge03a40008jwrak8jvrycw",
+      "patch": "26.6",
+      "sourceKind": "PRO_SEED",
+      "sourceTier": "unknown",
+      "championSlug": "vayne",
+      "role": "TOP",
+      "generationStatus": "no_viable_snapshot_found",
+      "selectedSnapshotIndex": null,
+      "minute": 10.84,
+      "gold": 160,
+      "candidatePoolSize": 0,
+      "qualityScore": 0,
+      "failureReason": "good-answer-unresolved",
+      "rejectionReasons": [
+        "good-answer-unresolved"
+      ],
+      "observedRejectionReasons": [
+        "good-answer-unresolved",
+        "good-answer-unresolved",
+        "good-answer-unresolved",
+        "good-answer-unresolved",
+        "low-confidence",
+        "good-answer-incoherent-with-champion",
+        "good-answer-too-cheap",
+        "low-confidence",
+        "good-answer-incoherent-with-champion",
+        "good-answer-too-cheap",
+        "low-confidence",
+        "good-answer-incoherent-with-champion",
+        "good-answer-too-cheap",
+        "low-confidence",
+        "good-answer-too-cheap"
+      ],
+      "attemptsEvaluated": 8,
+      "successfulSnapshots": 0,
+      "selectedSnapshotHistoryKey": null,
+      "selectedSnapshotSegment": null,
+      "lowConfidence": false,
+      "draft": false,
+      "resultSlug": null
+    },
+    {
+      "index": 4,
+      "importedMatchId": "cmnf22k0q04ta9craz2vkt68v",
+      "requestId": "cmnge03p00009jwraansnjzna",
+      "patch": "26.6",
+      "sourceKind": "PRO_SEED",
+      "sourceTier": "unknown",
+      "championSlug": "talon",
+      "role": "JUNGLE",
+      "generationStatus": "no_viable_snapshot_found",
+      "selectedSnapshotIndex": null,
+      "minute": 11.79,
+      "gold": 219,
+      "candidatePoolSize": 0,
+      "qualityScore": 0,
+      "failureReason": "good-answer-unresolved",
+      "rejectionReasons": [
+        "good-answer-unresolved"
+      ],
+      "observedRejectionReasons": [
+        "good-answer-unresolved",
+        "good-answer-unresolved",
+        "good-answer-unresolved",
+        "low-confidence",
+        "good-answer-too-cheap",
+        "good-answer-unresolved",
+        "good-answer-unresolved",
+        "low-confidence",
+        "good-answer-too-cheap",
+        "low-confidence",
+        "good-answer-too-cheap"
+      ],
+      "attemptsEvaluated": 8,
+      "successfulSnapshots": 0,
+      "selectedSnapshotHistoryKey": null,
+      "selectedSnapshotSegment": null,
+      "lowConfidence": false,
+      "draft": false,
+      "resultSlug": null
+    },
+    {
+      "index": 5,
+      "importedMatchId": "cmnf22ixe04sz9cratsnbydun",
+      "requestId": "cmnge0432000ajwraazd41hqs",
+      "patch": "26.5",
+      "sourceKind": "PRO_SEED",
+      "sourceTier": "unknown",
+      "championSlug": "xayah",
+      "role": "ADC",
+      "generationStatus": "no_viable_snapshot_found",
+      "selectedSnapshotIndex": null,
+      "minute": 11.49,
+      "gold": 110,
+      "candidatePoolSize": 0,
+      "qualityScore": 0,
+      "failureReason": "good-answer-unresolved",
+      "rejectionReasons": [
+        "good-answer-unresolved"
+      ],
+      "observedRejectionReasons": [
+        "good-answer-unresolved",
+        "good-answer-unresolved",
+        "good-answer-unresolved",
+        "good-answer-unresolved",
+        "good-answer-unresolved",
+        "good-answer-unresolved",
+        "low-confidence",
+        "good-answer-too-cheap",
+        "low-confidence",
+        "good-answer-too-cheap"
+      ],
+      "attemptsEvaluated": 8,
+      "successfulSnapshots": 0,
+      "selectedSnapshotHistoryKey": null,
+      "selectedSnapshotSegment": null,
+      "lowConfidence": false,
+      "draft": false,
+      "resultSlug": null
+    },
+    {
+      "index": 6,
+      "importedMatchId": "cmnf22hue04so9cra2bq9kipu",
+      "requestId": "cmnge04g6000bjwrao7ryokgr",
+      "patch": "26.5",
+      "sourceKind": "PRO_SEED",
+      "sourceTier": "unknown",
+      "championSlug": "jhin",
+      "role": "ADC",
+      "generationStatus": "no_viable_snapshot_found",
+      "selectedSnapshotIndex": null,
+      "minute": 9.13,
+      "gold": 648,
+      "candidatePoolSize": 11,
+      "qualityScore": 0,
+      "failureReason": "low-confidence, good-answer-too-cheap",
+      "rejectionReasons": [
+        "low-confidence",
+        "good-answer-too-cheap"
+      ],
+      "observedRejectionReasons": [
+        "low-confidence",
+        "good-answer-too-cheap"
+      ],
+      "attemptsEvaluated": 1,
+      "successfulSnapshots": 0,
+      "selectedSnapshotHistoryKey": null,
+      "selectedSnapshotSegment": null,
+      "lowConfidence": false,
+      "draft": false,
+      "resultSlug": null
+    },
+    {
+      "index": 7,
+      "importedMatchId": "cmnf22h6v04sd9craatq36miv",
+      "requestId": "cmnge04ix000cjwraboblbz19",
+      "patch": "26.3",
+      "sourceKind": "PRO_SEED",
+      "sourceTier": "unknown",
+      "championSlug": "miss-fortune",
+      "role": "ADC",
+      "generationStatus": "no_viable_snapshot_found",
+      "selectedSnapshotIndex": null,
+      "minute": 9.24,
+      "gold": 168,
+      "candidatePoolSize": 0,
+      "qualityScore": 0,
+      "failureReason": "good-answer-unresolved",
+      "rejectionReasons": [
+        "good-answer-unresolved"
+      ],
+      "observedRejectionReasons": [
+        "good-answer-unresolved",
+        "good-answer-unresolved",
+        "good-answer-unresolved",
+        "good-answer-unresolved"
+      ],
+      "attemptsEvaluated": 4,
+      "successfulSnapshots": 0,
+      "selectedSnapshotHistoryKey": null,
+      "selectedSnapshotSegment": null,
+      "lowConfidence": false,
+      "draft": false,
+      "resultSlug": null
+    },
+    {
+      "index": 8,
+      "importedMatchId": "cmnf22gjg04s29cra0nhxbukp",
+      "requestId": "cmnge04q5000djwratkdvi5z6",
+      "patch": "26.6",
+      "sourceKind": "PRO_SEED",
+      "sourceTier": "unknown",
+      "championSlug": "jhin",
+      "role": "ADC",
+      "generationStatus": "no_viable_snapshot_found",
+      "selectedSnapshotIndex": null,
+      "minute": 9.29,
+      "gold": 244,
+      "candidatePoolSize": 0,
+      "qualityScore": 0,
+      "failureReason": "good-answer-unresolved",
+      "rejectionReasons": [
+        "good-answer-unresolved"
+      ],
+      "observedRejectionReasons": [
+        "good-answer-unresolved",
+        "good-answer-unresolved",
+        "good-answer-unresolved",
+        "good-answer-unresolved",
+        "good-answer-unresolved",
+        "good-answer-unresolved",
+        "low-confidence",
+        "good-answer-too-cheap",
+        "good-answer-unresolved"
+      ],
+      "attemptsEvaluated": 8,
+      "successfulSnapshots": 0,
+      "selectedSnapshotHistoryKey": null,
+      "selectedSnapshotSegment": null,
+      "lowConfidence": false,
+      "draft": false,
+      "resultSlug": null
+    },
+    {
+      "index": 9,
+      "importedMatchId": "cmnf22fpg04rr9crauy95r6fp",
+      "requestId": "cmnge055m000ejwraidophoj8",
+      "patch": "26.6",
+      "sourceKind": "PRO_SEED",
+      "sourceTier": "unknown",
+      "championSlug": "ambessa",
+      "role": "JUNGLE",
+      "generationStatus": "no_viable_snapshot_found",
+      "selectedSnapshotIndex": null,
+      "minute": 9.02,
+      "gold": 156,
+      "candidatePoolSize": 0,
+      "qualityScore": 0,
+      "failureReason": "good-answer-unresolved",
+      "rejectionReasons": [
+        "good-answer-unresolved"
+      ],
+      "observedRejectionReasons": [
+        "good-answer-unresolved",
+        "low-confidence",
+        "good-answer-incoherent-with-champion",
+        "good-answer-too-cheap",
+        "low-confidence",
+        "good-answer-incoherent-with-champion",
+        "good-answer-too-cheap",
+        "good-answer-unresolved",
+        "good-answer-unresolved",
+        "good-answer-unresolved",
+        "good-answer-unresolved",
+        "good-answer-unresolved"
+      ],
+      "attemptsEvaluated": 8,
+      "successfulSnapshots": 0,
+      "selectedSnapshotHistoryKey": null,
+      "selectedSnapshotSegment": null,
+      "lowConfidence": false,
+      "draft": false,
+      "resultSlug": null
+    },
+    {
+      "index": 10,
+      "importedMatchId": "cmnf22dtr04r59cras9vykpll",
+      "requestId": "cmnge05ih000fjwrap5lmptta",
+      "patch": "26.1",
+      "sourceKind": "PRO_SEED",
+      "sourceTier": "unknown",
+      "championSlug": "jax",
+      "role": "TOP",
+      "generationStatus": "no_viable_snapshot_found",
+      "selectedSnapshotIndex": null,
+      "minute": 12.16,
+      "gold": 431,
+      "candidatePoolSize": 11,
+      "qualityScore": 0,
+      "failureReason": "good-answer-too-cheap",
+      "rejectionReasons": [
+        "good-answer-too-cheap"
+      ],
+      "observedRejectionReasons": [
+        "good-answer-too-cheap",
+        "good-answer-unresolved",
+        "good-answer-unresolved",
+        "low-confidence",
+        "good-answer-too-cheap",
+        "low-confidence",
+        "good-answer-too-cheap",
+        "low-confidence",
+        "good-answer-too-cheap",
+        "low-confidence",
+        "good-answer-too-cheap",
+        "low-confidence",
+        "good-answer-too-cheap"
+      ],
+      "attemptsEvaluated": 8,
+      "successfulSnapshots": 0,
+      "selectedSnapshotHistoryKey": null,
+      "selectedSnapshotSegment": null,
+      "lowConfidence": false,
+      "draft": false,
+      "resultSlug": null
+    }
+  ],
+  "reproduction": {
+    "commands": [
+      "npm run ml:export-raw",
+      "cd ml",
+      ".\\.venv\\Scripts\\python.exe scripts\\tasks.py build-dataset",
+      ".\\.venv\\Scripts\\python.exe scripts\\tasks.py train-baseline",
+      "npm run audit:match-based-validation -- --sample-size 10"
+    ]
+  }
+}

@@ -1656,3 +1656,32 @@ Lire ce fichier au debut de chaque nouvelle conversation sur ce repo, puis le me
   - `ml/configs/base.yaml` doit rester aligne sur les prefixes `26.*`
   - si des fichiers sous `ml/` sont modifies pour cette logique, rebuild Docker ML obligatoire:
     - `docker compose --profile ml up --build -d ml-api`
+
+## 2026-04-01 Validation Match-Based
+
+- Objectif:
+  - instrumenter une phase de validation produit post-retrain sur le flow `generated-puzzles/match`
+  - ne pas modifier le coeur ML, seulement mesurer et diagnostiquer
+- Script:
+  - `scripts/evaluateMatchBasedValidation.ts`
+  - commande npm: `npm run audit:match-based-validation -- --sample-size 10`
+- Selection:
+  - prend des `ImportedMatch` avec timeline valide et patch `26.*`
+  - privilegie les matchs avec le moins de generations precedentes pour l'utilisateur d'evaluation
+- Artefacts:
+  - JSON: `reports/match-based-validation-report.json`
+  - Markdown: `reports/match-based-validation-report.md`
+- Journalisation par generation:
+  - `generationStatus`
+  - `selectedSnapshotIndex`
+  - `minute`
+  - `gold`
+  - `candidatePoolSize`
+  - `qualityScore`
+  - `failureReason` si `no_viable_snapshot_found`
+- Resume final:
+  - `completedRate`
+  - `noViableSnapshotFoundRate`
+  - `rejectionReasonCounts`
+  - `distinctSelectedSnapshotCount`
+  - `snapshotSegmentCounts`

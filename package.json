@@ -40,6 +40,7 @@
     "ml:export-raw": "tsx scripts/exportImportedMatchesForMl.ts",
     "ml:archive-legacy-raw": "tsx scripts/archiveLegacyRawMatches.ts",
     "audit:premium-v1-dataset": "tsx scripts/auditPremiumV1Dataset.ts",
+    "audit:match-based-validation": "tsx scripts/evaluateMatchBasedValidation.ts",
     "backfill:legacy-scenarios": "tsx scripts/backfillLegacyScenarioSnapshots.ts",
     "repair:generated-scenario-teams": "tsx scripts/repairGeneratedScenarioTeams.ts",
     "jobs:daily-reminders": "tsx scripts/sendDailyReminders.ts"
