@@ -19,6 +19,19 @@ MAGIC_TAGS = {"Mage", "Support"}
 FRONTLINE_TAGS = {"Tank", "Fighter"}
 
 
+def _patch_bucket(
+    patch: Any,
+    strict_prefixes: list[str],
+    adjacent_prefixes: list[str],
+) -> str:
+    value = str(patch or "")
+    if any(value.startswith(prefix) for prefix in strict_prefixes):
+        return "exact_target_patch"
+    if any(value.startswith(prefix) for prefix in adjacent_prefixes):
+        return "adjacent_recent_patch"
+    return "out_of_target_patch"
+
+
 @dataclass(slots=True)
 class DatasetBuildSummary:
     matches_seen: int
@@ -172,8 +185,8 @@ def _split_dataset(
 def build_analytic_dataset(config: AppConfig) -> DatasetBuildSummary:
     raw_matches = _load_jsonl(config.paths.raw_matches_path)
     manifest = load_manifest(config.paths.export_manifest_path)
-    rows: list[dict[str, Any]] = []
-    ranking_rows: list[dict[str, Any]] = []
+    all_rows: list[dict[str, Any]] = []
+    all_ranking_rows: list[dict[str, Any]] = []
     skipped_matches = 0
     matches_with_timeline = 0
     missing_actual_item_count = 0
@@ -304,6 +317,9 @@ def build_analytic_dataset(config: AppConfig) -> DatasetBuildSummary:
                     "timestamp_minutes": round(event_timestamp / 60000, 2),
                     "patch": patch,
                     "source_kind": str(record.get("sourceKind") or "unknown"),
+                    "source_tier": str(record.get("sourceTier") or "unknown"),
+                    "source_league": str(record.get("sourceLeague") or "unknown"),
+                    "source_region_hint": str(record.get("sourceRegionHint") or "unknown"),
                     "dd_version": catalog.dd_version,
                     "game_creation_at": str(record.get("gameCreationAt") or ""),
                     "champion_id": safe_int(record.get("targetChampionId")),
@@ -325,11 +341,11 @@ def build_analytic_dataset(config: AppConfig) -> DatasetBuildSummary:
                     "actual_item_cost": actual_item_cost,
                     **composition_features,
                 }
-                rows.append(row)
+                all_rows.append(row)
 
                 for candidate_item_slug in candidate_pool:
                     candidate_item_meta = catalog.item_meta_by_slug.get(candidate_item_slug, {})
-                    ranking_rows.append(
+                    all_ranking_rows.append(
                         {
                             **row,
                             "candidate_item_slug": candidate_item_slug,
@@ -351,14 +367,48 @@ def build_analytic_dataset(config: AppConfig) -> DatasetBuildSummary:
                 if after_id > 0:
                     inventory.append(after_id)
 
-    dataset = pd.DataFrame(rows)
-    if dataset.empty:
+    raw_dataset = pd.DataFrame(all_rows)
+    raw_ranking_dataset = pd.DataFrame(all_ranking_rows)
+    if raw_dataset.empty:
         raise ValueError("No analytic rows could be built from the exported raw matches.")
+
+    raw_dataset["patch_bucket"] = raw_dataset["patch"].fillna("").apply(
+        lambda value: _patch_bucket(
+            value,
+            config.dataset.strict_train_patch_prefixes,
+            config.dataset.adjacent_train_patch_prefixes,
+        )
+    )
+    raw_ranking_dataset["patch_bucket"] = raw_ranking_dataset["patch"].fillna("").apply(
+        lambda value: _patch_bucket(
+            value,
+            config.dataset.strict_train_patch_prefixes,
+            config.dataset.adjacent_train_patch_prefixes,
+        )
+    )
+
+    if config.dataset.train_patch_mode == "strict_recent_competitive":
+        dataset = raw_dataset[raw_dataset["patch_bucket"] == "exact_target_patch"].copy()
+        ranking_dataset = raw_ranking_dataset[
+            raw_ranking_dataset["patch_bucket"] == "exact_target_patch"
+        ].copy()
+    elif config.dataset.train_patch_mode == "recent_preferred_with_controlled_fallback":
+        dataset = raw_dataset[
+            raw_dataset["patch_bucket"].isin(["exact_target_patch", "adjacent_recent_patch"])
+        ].copy()
+        ranking_dataset = raw_ranking_dataset[
+            raw_ranking_dataset["patch_bucket"].isin(["exact_target_patch", "adjacent_recent_patch"])
+        ].copy()
+    else:
+        raise ValueError(f"Unsupported train_patch_mode: {config.dataset.train_patch_mode}")
+
+    if dataset.empty:
+        raise ValueError("No analytic rows match the configured training patch policy.")
 
     dataset = dataset.sort_values(
         ["game_creation_at", "timestamp", "match_id"]
     ).reset_index(drop=True)
-    ranking_dataset = pd.DataFrame(ranking_rows).sort_values(
+    ranking_dataset = ranking_dataset.sort_values(
         ["game_creation_at", "timestamp", "match_id", "candidate_item_slug"]
     ).reset_index(drop=True)
 
@@ -384,6 +434,8 @@ def build_analytic_dataset(config: AppConfig) -> DatasetBuildSummary:
             "matches_seen": len(raw_matches),
             "matches_with_timeline": matches_with_timeline,
             "skipped_matches": skipped_matches,
+            "rows_before_train_patch_filter": len(raw_dataset),
+            "rows_after_train_patch_filter": len(dataset),
             "unique_labels": len(label_counts),
             "top_labels": label_counts.most_common(15),
             "null_role_rows": int((dataset["role"] == "UNKNOWN").sum()),
@@ -392,8 +444,17 @@ def build_analytic_dataset(config: AppConfig) -> DatasetBuildSummary:
             "test_rows": len(test_frame),
             "ranking_rows": len(ranking_dataset),
             "patches": sorted(str(value) for value in dataset["patch"].dropna().unique().tolist()),
+            "strict_train_patch_prefixes": config.dataset.strict_train_patch_prefixes,
+            "adjacent_train_patch_prefixes": config.dataset.adjacent_train_patch_prefixes,
+            "train_patch_mode": config.dataset.train_patch_mode,
             "snapshots_by_patch": (
                 dataset["patch"].fillna("unknown").value_counts().sort_values(ascending=False).to_dict()
+            ),
+            "snapshots_by_patch_before_filter": (
+                raw_dataset["patch"].fillna("unknown").value_counts().sort_values(ascending=False).to_dict()
+            ),
+            "snapshots_by_patch_bucket": (
+                dataset["patch_bucket"].fillna("unknown").value_counts().sort_values(ascending=False).to_dict()
             ),
             "snapshots_by_role": (
                 dataset["role"].fillna("UNKNOWN").value_counts().sort_values(ascending=False).to_dict()
@@ -405,6 +466,23 @@ def build_analytic_dataset(config: AppConfig) -> DatasetBuildSummary:
                 dataset["source_kind"].fillna("unknown").value_counts().sort_values(ascending=False).to_dict()
                 if "source_kind" in dataset.columns
                 else {}
+            ),
+            "snapshots_by_source_tier": (
+                dataset["source_tier"].fillna("unknown").value_counts().sort_values(ascending=False).to_dict()
+                if "source_tier" in dataset.columns
+                else {}
+            ),
+            "snapshots_by_source_league": (
+                dataset["source_league"].fillna("unknown").value_counts().head(20).to_dict()
+                if "source_league" in dataset.columns
+                else {}
+            ),
+            "snapshots_exact_target_patch": int((dataset["patch_bucket"] == "exact_target_patch").sum()),
+            "snapshots_adjacent_recent_patch": int((dataset["patch_bucket"] == "adjacent_recent_patch").sum()),
+            "snapshots_out_of_target_patch": int((dataset["patch_bucket"] == "out_of_target_patch").sum()),
+            "snapshots_trainable_strict": int((raw_dataset["patch_bucket"] == "exact_target_patch").sum()),
+            "snapshots_trainable_preferred_fallback": int(
+                raw_dataset["patch_bucket"].isin(["exact_target_patch", "adjacent_recent_patch"]).sum()
             ),
             "patch_catalogs": manifest.get("patchCatalogs", {}),
             "quality": quality_summary.to_report_payload(),

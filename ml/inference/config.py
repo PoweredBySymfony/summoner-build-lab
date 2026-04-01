@@ -55,6 +55,9 @@ class DatasetConfig(BaseModel):
     max_gold_incoherent_ratio: float
     max_unknown_role_ratio: float
     min_candidate_pool_median: float
+    strict_train_patch_prefixes: list[str]
+    adjacent_train_patch_prefixes: list[str]
+    train_patch_mode: str
 
 
 class TrainingConfig(BaseModel):

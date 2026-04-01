@@ -159,6 +159,10 @@ npm run sync:items
 npm run sync:assets
 npm run sync:all
 npm run audit:static-data
+npm run riot:prepare-competitive-seeds -- --pro-only
+npm run riot:import-competitive -- --owner-email you@example.com
+npm run riot:report-competitive
+npm run ml:export-raw
 
 npm run jobs:daily-reminders
 ```
@@ -195,6 +199,151 @@ Regle pratique:
 - lancer cet audit avant un retrain ML
 - lancer cet audit avant une release
 - traiter les anomalies `error` avant de considerer le catalogue comme fiable
+
+## Ingestion competitive premium 2026
+
+Objectif:
+
+- prioriser la saison actuelle
+- prioriser les patchs `26.x`
+- prioriser les sources `pro`, puis `elite`, puis `fallback`
+- ne pas diluer le dataset ML avec des parties hors meta recente
+
+Manifest versionne:
+
+- `data/seeds/competitive-seeds-2026.json`
+- schema unifie:
+  - `playerName`
+  - `team`
+  - `league`
+  - `competition`
+  - `region`
+  - `riotId`
+  - `riotIdCandidates`
+  - `puuid`
+  - `priorityTier`
+  - `priorityScore`
+  - `discoverySource`
+  - `seedSetVersion`
+  - `platformHint`
+  - `cluster`
+  - `season`
+  - `sourceTournamentDate`
+
+Scripts:
+
+- `npm run riot:prepare-competitive-seeds`
+- `npm run riot:import-competitive`
+- `npm run riot:report-competitive`
+
+Commandes recommandees:
+
+1. Generer ou rafraichir les seeds
+
+```bash
+npm run riot:prepare-competitive-seeds -- --pro-only
+```
+
+Pour activer aussi le fallback ladder Riot:
+
+```bash
+npm run riot:prepare-competitive-seeds
+```
+
+2. Importer les matchs recents competitifs
+
+```bash
+npm run riot:import-competitive -- --owner-email you@example.com
+```
+
+Options utiles:
+
+- `--target-matches 600`
+- `--target-matches 2000`
+- `--queue-whitelist 420`
+- `--patch-prefixes 26.`
+- `--start-time 1767225600`
+
+3. Produire un rapport d'ingestion
+
+```bash
+npm run riot:report-competitive
+```
+
+Runtime genere:
+
+- checkpoint: `data/runtime/competitive-ingestion/checkpoint.json`
+- rapport JSON: `data/runtime/competitive-ingestion/report.json`
+- rapport markdown: `data/runtime/competitive-ingestion/report.md`
+
+Politique d'ingestion:
+
+- mode operationnel par defaut: `recent_preferred_with_controlled_fallback`
+- policy versionnee: `data/config/competitive-ingestion-policy-2026.json`
+- fenetre par defaut: saison 2026
+- ordre d'ouverture:
+  - `tier1`: pro + patch exact target + queue preferee
+  - `tier2`: pro + patch adjacent recent + queue preferee/fallback
+  - `tier3`: elite + patch exact target + queue preferee
+  - `tier4`: elite + patch adjacent recent + queue preferee/fallback
+- queues:
+  - preferee: `420`
+  - fallback controle: `440`
+- patches:
+  - exact target: `26.x`
+  - adjacent recent acceptes par defaut: `16.6`, `16.5`, `16.4`, `16.3`, `16.2`
+- le fallback est explicite et trace dans les logs et rapports:
+  - `fallback-opened: pro_adjacent_patch`
+  - `fallback-opened: elite_exact_patch`
+  - `fallback-opened: elite_adjacent_patch`
+- dedup stricte sur `riotMatchId`
+- provenance stockee dans `ImportedMatch.sourceKind` et `ImportedMatch.sourceMetadata`
+
+## Pipeline ML recent competitive
+
+Export brut:
+
+```bash
+npm run ml:export-raw
+```
+
+Build dataset:
+
+```bash
+ml\.venv\Scripts\python.exe ml\scripts\tasks.py build-dataset
+```
+
+Train baseline:
+
+```bash
+ml\.venv\Scripts\python.exe ml\scripts\tasks.py train-baseline
+```
+
+Regles 2026:
+
+- le raw export porte maintenant `sourceKind`, `sourceTier`, `sourceLeague`, `sourceRegionHint`
+- l'import policy et la training policy sont separees
+- le dataset analytique supporte:
+  - `strict_recent_competitive`
+  - `recent_preferred_with_controlled_fallback`
+- le rapport dataset expose:
+  - `rows_before_train_patch_filter`
+  - `rows_after_train_patch_filter`
+  - `strict_train_patch_prefixes`
+  - `adjacent_train_patch_prefixes`
+  - `train_patch_mode`
+  - `snapshots_exact_target_patch`
+  - `snapshots_adjacent_recent_patch`
+  - `snapshots_trainable_strict`
+  - `snapshots_trainable_preferred_fallback`
+
+Avant un retrain ou une release ML:
+
+1. `npm run audit:static-data`
+2. `npm run riot:report-competitive`
+3. `npm run ml:export-raw`
+4. `ml\.venv\Scripts\python.exe ml\scripts\tasks.py build-dataset`
+5. `ml\.venv\Scripts\python.exe ml\scripts\tasks.py train-baseline`
 
 ## Flux de données LoL
 

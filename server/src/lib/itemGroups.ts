@@ -1,4 +1,4 @@
-import type { Item } from "@prisma/client";
+import type { Prisma } from "@prisma/client";
 
 type ItemGroupId =
   | "Annul"
@@ -24,6 +24,14 @@ const FATALITY_ITEM_IDS = new Set([6676]);
 const STASIS_ITEM_IDS = new Set([2420, 2421, 3157]);
 const BOOTS_RELATED_ITEM_IDS = new Set([1001, 3006, 3009, 3020, 3047, 3111, 3158, 3170, 3171, 3172, 3173, 3174, 3175]);
 
+type ItemGroupInput = {
+  name: string;
+  riotItemId: number;
+  isBoots: boolean;
+  buildsFrom: Prisma.JsonValue;
+  fullDescription: string | null;
+};
+
 const normalizeText = (value?: string | null) =>
   (value ?? "")
     .normalize("NFD")
@@ -32,9 +40,10 @@ const normalizeText = (value?: string | null) =>
     .trim()
     .toLowerCase();
 
-const hasDescriptionKeyword = (item: Item, keyword: RegExp) => keyword.test(normalizeText(item.fullDescription));
+const hasDescriptionKeyword = (item: ItemGroupInput, keyword: RegExp) =>
+  keyword.test(normalizeText(item.fullDescription));
 
-export const getItemGroups = (item: Item): ItemGroupId[] => {
+export const getItemGroups = (item: ItemGroupInput): ItemGroupId[] => {
   const groups = new Set<ItemGroupId>();
   const normalizedName = normalizeText(item.name);
 

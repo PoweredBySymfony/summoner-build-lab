@@ -33,6 +33,15 @@ dataset:
   max_gold_incoherent_ratio: 0.65
   max_unknown_role_ratio: 0.2
   min_candidate_pool_median: 3
+  strict_train_patch_prefixes:
+    - "26."
+  adjacent_train_patch_prefixes:
+    - "16.6"
+    - "16.5"
+    - "16.4"
+    - "16.3"
+    - "16.2"
+  train_patch_mode: strict_recent_competitive
 
 training:
   random_seed: 42

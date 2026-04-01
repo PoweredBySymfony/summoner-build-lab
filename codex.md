@@ -1356,3 +1356,171 @@ Lire ce fichier au debut de chaque nouvelle conversation sur ce repo, puis le me
   - `slugs` contient la mini-serie complete, dans un ordre demarrant par le primary
 - Tests de garde:
   - `src/test/mlPuzzleOrchestration.test.ts`
+
+## Ingestion competitive premium 2026 (2026-04-01)
+
+- Intention produit:
+  - construire un dataset premium recent, competitif et patch-coherent
+  - priorite a la saison `2026`
+  - priorite aux patchs `26.x`
+  - priorite au `pro` recent, puis `elite` ladder Riot, puis `fallback` limite
+- Nouveau manifest versionne:
+  - fichier: `data/seeds/competitive-seeds-2026.json`
+  - schema unifie:
+    - `playerName`
+    - `team`
+    - `league`
+    - `competition`
+    - `role`
+    - `region`
+    - `riotId`
+    - `riotIdCandidates`
+    - `puuid`
+    - `priorityTier`
+    - `priorityScore`
+    - `discoverySource`
+    - `seedSetVersion`
+    - `platformHint`
+    - `cluster`
+    - `season`
+    - `sourceTournamentDate`
+- Sources code:
+  - seed sourcing: `server/src/lib/riot/competitiveSeeds.ts`
+  - import batch: `scripts/importCompetitiveMatches.ts`
+  - reporting: `scripts/reportCompetitiveIngestion.ts`
+  - scoring / checkpoint / policy: `server/src/lib/riot/competitiveIngestion.ts`
+  - Riot client enrichi: `server/src/lib/riot/riotApiClient.ts`
+- Scripts npm:
+  - `npm run riot:prepare-competitive-seeds`
+  - `npm run riot:import-competitive`
+  - `npm run riot:report-competitive`
+- Politique par defaut:
+  - policy versionnee: `data/config/competitive-ingestion-policy-2026.json`
+  - mode operationnel: `recent_preferred_with_controlled_fallback`
+  - saison courante seulement via `startTime = 2026-01-01`
+  - queues:
+    - preferee: `420`
+    - fallback controle: `440`
+  - patches:
+    - exact target: `26.x`
+    - adjacent recent acceptes par defaut le `2026-04-01`: `16.6`, `16.5`, `16.4`, `16.3`, `16.2`
+  - ordre d'ouverture des tiers:
+    - `tier1`: pro + exact target + queue preferee
+    - `tier2`: pro + adjacent recent + queue preferee/fallback
+    - `tier3`: elite + exact target + queue preferee
+    - `tier4`: elite + adjacent recent + queue preferee/fallback
+    - `tier5`: fallback exact target desactive par defaut
+  - logs attendus:
+    - `fallback-opened: pro_adjacent_patch`
+    - `fallback-opened: elite_exact_patch`
+    - `fallback-opened: elite_adjacent_patch`
+- Provenance / observabilite:
+  - `ImportedMatch.sourceKind` accepte maintenant aussi:
+    - `PRO_SEED`
+    - `ELITE_SEED`
+    - `FALLBACK_SEED`
+  - `ImportedMatch.sourceMetadata` doit garder:
+    - seed:
+      - joueur / team / league / competition / role / region
+      - `riotId`
+      - `puuid`
+      - `priorityTier`
+      - `priorityScore`
+      - `discoverySource`
+      - `seedSetVersion`
+    - ingestion:
+      - `queueId`
+      - `matchPriorityScore`
+      - `acceptedByPolicy`
+      - `acceptedReason`
+      - `rejectionReason`
+      - `fallbackReason`
+      - `policyMode`
+      - `patchBucket`
+      - `queueBucket`
+      - `sourceBucket`
+      - `priorityBand`
+- Checkpoint runtime:
+  - `data/runtime/competitive-ingestion/checkpoint.json`
+  - version `2`
+  - garde:
+    - `policyMode`
+    - `openedFallbackTiers`
+    - `seedResolutionSummary`
+    - `seedDiscoverySummary`
+    - `policyDecisionByMatchId`
+    - `importCountsByTier`
+    - `importCountsByPatchBucket`
+    - `importCountsByQueueBucket`
+    - `resolvedSeeds`
+    - `discoveredMatches`
+    - `attemptedMatchIds`
+    - `importedMatchIds`
+    - `rejectedMatchIds`
+    - `failedMatches`
+- Rapports runtime:
+  - `data/runtime/competitive-ingestion/report.json`
+  - `data/runtime/competitive-ingestion/report.md`
+  - KPI attendus:
+    - `matchesImportedExactTargetPatch`
+    - `matchesImportedAdjacentRecentPatch`
+    - `matchesImportedPro`
+    - `matchesImportedElite`
+    - `resolvedButNoMatches`
+    - `resolvedButRejectedByPolicy`
+    - `discovered`
+    - `policyAccepted`
+    - `rejectedByPolicy`
+    - repartition `tier`
+    - repartition `league`
+    - repartition `region`
+    - repartition `queue`
+    - repartition `patchBucket`
+    - top raisons d'echec
+- Integration ML:
+  - `scripts/exportImportedMatchesForMl.ts` exporte maintenant aussi:
+    - `sourceTier`
+    - `sourceLeague`
+    - `sourceRegionHint`
+  - `ml/features/analytics.py` separe maintenant import policy et training policy
+  - config par defaut:
+    - `ml/configs/base.yaml`
+    - `dataset.train_patch_mode = strict_recent_competitive`
+  - le rapport dataset Python doit exposer:
+    - `rows_before_train_patch_filter`
+    - `rows_after_train_patch_filter`
+    - `snapshots_by_patch_before_filter`
+    - `snapshots_by_source_tier`
+    - `snapshots_by_source_league`
+    - `snapshots_exact_target_patch`
+    - `snapshots_adjacent_recent_patch`
+    - `snapshots_trainable_strict`
+    - `snapshots_trainable_preferred_fallback`
+- Commandes canonique premium:
+  - seed prep:
+    - `npm run riot:prepare-competitive-seeds -- --pro-only`
+    - ou `npm run riot:prepare-competitive-seeds` pour inclure le fallback ladder Riot
+  - import:
+    - `npm run riot:import-competitive -- --owner-email <email>`
+  - rapport ingestion:
+    - `npm run riot:report-competitive`
+  - export raw:
+    - `npm run ml:export-raw`
+  - build dataset:
+    - `ml\.venv\Scripts\python.exe ml\scripts\tasks.py build-dataset`
+  - train baseline:
+    - `ml\.venv\Scripts\python.exe ml\scripts\tasks.py train-baseline`
+- Regle de validation:
+  - ne pas considerer l'ingestion premium valide tant que le reporting n'affiche pas clairement la part `26.x` et la provenance `pro/elite/fallback`
+  - etat mesure localement apres assouplissement le `2026-04-01`:
+    - un run reel borne sur `82` seeds pro 2026 avec `targetMatches=5` a produit `105` matchs acceptes par policy sur `166` decouverts
+    - `fallback-opened: pro_adjacent_patch` s'est active
+    - la base est passee de `607` a `610` `ImportedMatch`
+    - la sous-base competitive est passee de `598` a `601`
+    - les nouveaux imports traces sont `adjacent_recent_patch`, `preferred_queue`, `tier2`, `sourceBucket=pro`
+  - avant un retrain ML, lancer dans l'ordre:
+    - `npm run audit:static-data`
+    - `npm run riot:report-competitive`
+    - `npm run ml:export-raw`
+    - `ml\.venv\Scripts\python.exe ml\scripts\tasks.py build-dataset`
+    - `ml\.venv\Scripts\python.exe ml\scripts\tasks.py train-baseline`

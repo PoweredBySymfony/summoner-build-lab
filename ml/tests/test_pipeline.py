@@ -57,6 +57,9 @@ def make_config(tmp_path: Path) -> AppConfig:
             max_gold_incoherent_ratio=0.6,
             max_unknown_role_ratio=0.5,
             min_candidate_pool_median=1,
+            strict_train_patch_prefixes=["26."],
+            adjacent_train_patch_prefixes=["25.24", "25.23", "25.22", "25.21"],
+            train_patch_mode="strict_recent_competitive",
         ),
         training=TrainingConfig(
             random_seed=7,
@@ -160,33 +163,37 @@ def make_raw_export(tmp_path: Path) -> AppConfig:
         "exportedAt": "2026-03-31T10:00:00Z",
         "matchCount": 1,
         "matchesWithTimeline": 1,
-        "latestDataDragonVersion": "15.6.1",
+        "latestDataDragonVersion": "26.1.1",
         "patchCatalogs": {
-            "15.6": {
-                "itemCatalogPath": "catalogs/15.6/item_catalog.json",
-                "championCatalogPath": "catalogs/15.6/champion_catalog.json",
-                "ddVersion": "15.6.1",
+            "26.1": {
+                "itemCatalogPath": "catalogs/26.1/item_catalog.json",
+                "championCatalogPath": "catalogs/26.1/champion_catalog.json",
+                "ddVersion": "26.1.1",
             }
         },
     }
     write_json(config.paths.export_manifest_path, manifest)
     write_json(
-        tmp_path / "raw" / "catalogs" / "15.6" / "item_catalog.json",
+        tmp_path / "raw" / "catalogs" / "26.1" / "item_catalog.json",
         json.loads(config.paths.item_catalog_path.read_text(encoding="utf-8")),
     )
     write_json(
-        tmp_path / "raw" / "catalogs" / "15.6" / "champion_catalog.json",
+        tmp_path / "raw" / "catalogs" / "26.1" / "champion_catalog.json",
         json.loads(config.paths.champion_catalog_path.read_text(encoding="utf-8")),
     )
 
     match_record = {
         "riotMatchId": "EUW1_1",
-        "patch": "15.6",
+        "patch": "26.1",
         "targetPuuid": "player-1",
         "targetChampionId": 222,
         "targetChampionSlug": "jinx",
         "targetRole": "ADC",
         "gameCreationAt": "2026-03-30T10:00:00+00:00",
+        "sourceKind": "PRO_SEED",
+        "sourceTier": "pro",
+        "sourceLeague": "LoL Champions Korea",
+        "sourceRegionHint": "KR",
         "matchData": {
             "raw": {
                 "info": {
@@ -307,8 +314,12 @@ def write_split_dataset(config: AppConfig) -> None:
             "match_id": f"EUW1_{index}",
             "timestamp": 60000 + index * 1000,
             "timestamp_minutes": 1.0 + index / 60.0,
-            "patch": "15.6",
-            "dd_version": "15.6.1",
+            "patch": "26.1",
+            "source_kind": "PRO_SEED",
+            "source_tier": "pro",
+            "source_league": "LoL Champions Korea",
+            "source_region_hint": "KR",
+            "dd_version": "26.1.1",
             "game_creation_at": f"2026-03-{(index % 28) + 1:02d}T10:00:00+00:00",
             "champion_id": 222,
             "champion_slug": "jinx",
@@ -375,6 +386,10 @@ def test_build_analytic_dataset_creates_snapshots(tmp_path: Path) -> None:
     report = json.loads(config.paths.dataset_report_path.read_text(encoding="utf-8"))
     assert report["quality"]["gold_incoherent_ratio"] == 0.5
     assert report["quality"]["candidate_pool_median"] == 1.5
+    assert report["train_patch_mode"] == "strict_recent_competitive"
+    assert report["snapshots_by_source_tier"] == {"pro": 2}
+    assert report["snapshots_exact_target_patch"] == 2
+    assert report["snapshots_adjacent_recent_patch"] == 0
 
 
 def test_train_baseline_creates_model_and_reports(tmp_path: Path) -> None:

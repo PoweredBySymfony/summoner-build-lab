@@ -235,6 +235,30 @@ async function main() {
     .map((entry) =>
       JSON.stringify({
         ...entry,
+        sourceTier:
+          typeof entry.sourceMetadata === "object"
+          && entry.sourceMetadata !== null
+          && !Array.isArray(entry.sourceMetadata)
+          && typeof (entry.sourceMetadata as Record<string, unknown>).seed === "object"
+          && (entry.sourceMetadata as Record<string, unknown>).seed !== null
+            ? (((entry.sourceMetadata as Record<string, unknown>).seed as Record<string, unknown>).priorityTier ?? null)
+            : null,
+        sourceLeague:
+          typeof entry.sourceMetadata === "object"
+          && entry.sourceMetadata !== null
+          && !Array.isArray(entry.sourceMetadata)
+          && typeof (entry.sourceMetadata as Record<string, unknown>).seed === "object"
+          && (entry.sourceMetadata as Record<string, unknown>).seed !== null
+            ? (((entry.sourceMetadata as Record<string, unknown>).seed as Record<string, unknown>).league ?? null)
+            : null,
+        sourceRegionHint:
+          typeof entry.sourceMetadata === "object"
+          && entry.sourceMetadata !== null
+          && !Array.isArray(entry.sourceMetadata)
+          && typeof (entry.sourceMetadata as Record<string, unknown>).seed === "object"
+          && (entry.sourceMetadata as Record<string, unknown>).seed !== null
+            ? (((entry.sourceMetadata as Record<string, unknown>).seed as Record<string, unknown>).region ?? null)
+            : null,
         gameCreationAt: toIsoString(entry.gameCreationAt),
         timelineFetchedAt: toIsoString(entry.timelineFetchedAt),
         createdAt: toIsoString(entry.createdAt),

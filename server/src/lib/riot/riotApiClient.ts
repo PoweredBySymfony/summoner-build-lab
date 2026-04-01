@@ -22,11 +22,18 @@ type RiotApiClientMetrics = {
 
 const DEFAULT_RATE_LIMIT_BACKOFF_MS = 5_000;
 
+function sleep(ms: number) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
 export class RiotApiClient {
   private readonly region = env.RIOT_REGION;
   private readonly platform = env.RIOT_PLATFORM;
   private readonly baseDelayMs = Math.max(0, env.RIOT_API_BASE_DELAY_MS);
   private readonly concurrency = Math.max(1, env.RIOT_API_CONCURRENCY);
+  private readonly retryCount = Math.max(0, env.RIOT_API_RETRY_COUNT);
   private readonly schedulers = new Map<string, RiotRequestScheduler>();
   private readonly metrics: RiotApiClientMetrics = {
     totalRequests: 0,
@@ -88,65 +95,73 @@ export class RiotApiClient {
     const scopeKey = this.getScopeKey(path, options);
 
     return this.schedule(scopeKey, async () => {
-      this.metrics.totalRequests += 1;
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), options.timeoutMs ?? 8000);
+      for (let attempt = 0; attempt <= this.retryCount; attempt += 1) {
+        this.metrics.totalRequests += 1;
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), options.timeoutMs ?? 8000);
 
-      try {
-        const response = await fetch(this.buildUrl(path, options), {
-          headers: {
-            "X-Riot-Token": env.RIOT_API_KEY!,
-          },
-          signal: controller.signal,
-        });
+        try {
+          const response = await fetch(this.buildUrl(path, options), {
+            headers: {
+              "X-Riot-Token": env.RIOT_API_KEY!,
+            },
+            signal: controller.signal,
+          });
 
-        if (!response.ok) {
-          const retryAfter = response.headers.get("Retry-After");
-          const retryAfterSeconds = retryAfter && Number.isFinite(Number(retryAfter)) ? Number(retryAfter) : undefined;
-          const retryAfterMs = response.status === 429
-            ? resolveRetryAfterMs(retryAfter, DEFAULT_RATE_LIMIT_BACKOFF_MS)
-            : undefined;
-          const details = {
-            statusText: response.statusText,
-            retryAfterSeconds,
-            retryAfterMs,
-          };
+          if (!response.ok) {
+            const retryAfter = response.headers.get("Retry-After");
+            const retryAfterSeconds = retryAfter && Number.isFinite(Number(retryAfter)) ? Number(retryAfter) : undefined;
+            const retryAfterMs = response.status === 429
+              ? resolveRetryAfterMs(retryAfter, DEFAULT_RATE_LIMIT_BACKOFF_MS)
+              : undefined;
+            const details = {
+              statusText: response.statusText,
+              retryAfterSeconds,
+              retryAfterMs,
+            };
 
-          switch (response.status) {
-            case 401:
-              throw new HttpError(401, "Riot API authentication failed.", details);
-            case 403:
-              throw new HttpError(403, "Riot API access forbidden for this key or route.", details);
-            case 404:
-              throw new HttpError(404, "Riot resource not found.", details);
-            case 429:
-              this.metrics.rateLimitResponses += 1;
-              if (!retryAfter) {
-                this.metrics.retryAfterFallbacks += 1;
-              }
-              this.metrics.totalBackoffMs += retryAfterMs ?? DEFAULT_RATE_LIMIT_BACKOFF_MS;
-              this.getScheduler(scopeKey).defer(retryAfterMs ?? DEFAULT_RATE_LIMIT_BACKOFF_MS);
-              throw new HttpError(429, "Riot API rate limit exceeded.", details);
-            default:
-              throw new HttpError(response.status, "Riot API request failed.", details);
+            switch (response.status) {
+              case 401:
+                throw new HttpError(401, "Riot API authentication failed.", details);
+              case 403:
+                throw new HttpError(403, "Riot API access forbidden for this key or route.", details);
+              case 404:
+                throw new HttpError(404, "Riot resource not found.", details);
+              case 429:
+                this.metrics.rateLimitResponses += 1;
+                if (!retryAfter) {
+                  this.metrics.retryAfterFallbacks += 1;
+                }
+                this.metrics.totalBackoffMs += retryAfterMs ?? DEFAULT_RATE_LIMIT_BACKOFF_MS;
+                this.getScheduler(scopeKey).defer(retryAfterMs ?? DEFAULT_RATE_LIMIT_BACKOFF_MS);
+                if (attempt < this.retryCount) {
+                  await sleep(retryAfterMs ?? DEFAULT_RATE_LIMIT_BACKOFF_MS);
+                  continue;
+                }
+                throw new HttpError(429, "Riot API rate limit exceeded.", details);
+              default:
+                throw new HttpError(response.status, "Riot API request failed.", details);
+            }
           }
-        }
 
-        this.metrics.successfulRequests += 1;
-        return (await response.json()) as T;
-      } catch (error) {
-        if (error instanceof HttpError) {
-          throw error;
-        }
+          this.metrics.successfulRequests += 1;
+          return (await response.json()) as T;
+        } catch (error) {
+          if (error instanceof HttpError) {
+            throw error;
+          }
 
-        if (error instanceof Error && error.name === "AbortError") {
-          throw new HttpError(504, "Riot API request timed out.");
-        }
+          if (error instanceof Error && error.name === "AbortError") {
+            throw new HttpError(504, "Riot API request timed out.");
+          }
 
-        throw new HttpError(502, "Unable to reach Riot API.");
-      } finally {
-        clearTimeout(timeout);
+          throw new HttpError(502, "Unable to reach Riot API.");
+        } finally {
+          clearTimeout(timeout);
+        }
       }
+
+      throw new HttpError(502, "Riot API request failed after retries.");
     });
   }
 
@@ -159,6 +174,13 @@ export class RiotApiClient {
   getAccountByRiotIdOnRegion(gameName: string, tagLine: string, region: RiotRegion) {
     return this.request<{ puuid: string; gameName: string; tagLine: string }>(
       `/riot/account/v1/accounts/by-riot-id/${encodeURIComponent(gameName)}/${encodeURIComponent(tagLine)}`,
+      { region },
+    );
+  }
+
+  getAccountByPuuidOnRegion(puuid: string, region: RiotRegion) {
+    return this.request<{ puuid: string; gameName?: string; tagLine?: string }>(
+      `/riot/account/v1/accounts/by-puuid/${encodeURIComponent(puuid)}`,
       { region },
     );
   }
@@ -176,16 +198,60 @@ export class RiotApiClient {
     );
   }
 
+  getSummonerBySummonerIdOnPlatform(summonerId: string, platform: RiotPlatform) {
+    return this.request<{ puuid: string; gameName?: string; profileIconId?: number; summonerLevel?: number }>(
+      `/lol/summoner/v4/summoners/${encodeURIComponent(summonerId)}`,
+      { platform },
+    );
+  }
+
+  getLeagueEntriesByQueueOnPlatform(
+    platform: RiotPlatform,
+    queue: "RANKED_SOLO_5x5",
+    tier: "challenger" | "grandmaster" | "master",
+  ) {
+    return this.request<{
+      tier: string;
+      queue: string;
+      entries: Array<{
+        summonerId: string;
+        summonerName?: string;
+        leaguePoints: number;
+        wins: number;
+        losses: number;
+      }>;
+    }>(
+      `/lol/league/v4/${tier}leagues/by-queue/${encodeURIComponent(queue)}`,
+      { platform },
+    );
+  }
+
   getMatchIdsByPuuid(puuid: string, count = 10) {
     return this.request<string[]>(`/lol/match/v5/matches/by-puuid/${encodeURIComponent(puuid)}/ids`, {
       query: { count },
     });
   }
 
-  getMatchIdsByPuuidOnRegion(puuid: string, region: RiotRegion, count = 10) {
+  getMatchIdsByPuuidOnRegion(
+    puuid: string,
+    region: RiotRegion,
+    count = 10,
+    options?: {
+      start?: number;
+      startTime?: number;
+      endTime?: number;
+      queue?: number;
+    },
+  ) {
     return this.request<string[]>(`/lol/match/v5/matches/by-puuid/${encodeURIComponent(puuid)}/ids`, {
       region,
-      query: { count },
+      query: {
+        count,
+        start: options?.start,
+        startTime: options?.startTime,
+        endTime: options?.endTime,
+        queue: options?.queue,
+      },
     });
   }
 

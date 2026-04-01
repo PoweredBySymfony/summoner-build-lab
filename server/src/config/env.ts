@@ -20,6 +20,7 @@ const envSchema = z.object({
   RIOT_PLATFORM: z.string().default("euw1"),
   RIOT_API_BASE_DELAY_MS: z.coerce.number().default(120),
   RIOT_API_CONCURRENCY: z.coerce.number().default(1),
+  RIOT_API_RETRY_COUNT: z.coerce.number().default(3),
   ML_ENABLED: z.coerce.boolean().default(false),
   ML_API_URL: z.string().optional(),
   ML_API_TIMEOUT_MS: z.coerce.number().default(4000),
