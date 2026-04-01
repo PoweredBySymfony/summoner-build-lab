@@ -1138,3 +1138,31 @@ Lire ce fichier au debut de chaque nouvelle conversation sur ce repo, puis le me
 - Test de garde:
   - `src/test/scenarioInventory.test.ts`
   - couvre achat / vente / destruction / undo
+
+## Presentation des items - convention stats vs effets (2026-04-01)
+
+- Source de verite des stats de base:
+  - `src/lib/itemPresentation.ts` doit prioriser `item.stats` (Data Dragon / payload sync) pour produire `getItemStatLines()`
+  - comme `item.stats` Riot est incomplet pour certaines familles (ex: acceleration, penetration, tenacite, regen de base, soins/boucliers), le parseur peut completer depuis les lignes de tete de `fullDescription`, mais seulement pour des stats de base explicitement reconnues
+  - `fullDescription` ne doit jamais "inventer" une stat critique ou passive si la ligne correspond a un effet et non a une stat de base
+- Regle de separation:
+  - `getItemStatLines()` = stats de base uniquement
+  - `getItemEffectBlocks()` = passifs / actifs / effets uniquement
+  - si `fullDescription` commence par un bloc de stats, il faut retirer toutes les lignes de tete reconnues comme vraies stats de base
+  - une ligne d'effet numerique restante (ex: `+30% degats de coup critique`) doit rester dans les effets si elle ne fait pas partie des stats de base reconnues
+- Ambiguite critique a eviter:
+  - distinguer explicitement `chances de coup critique` et `degats de coup critique`
+  - ne jamais mapper une ligne de degats critiques vers la stat de chance critique
+  - les effets de `degats de coup critique` doivent porter l'icone `crit` dans le tooltip
+- Tests de garde:
+  - `src/test/itemPresentation.test.ts`
+  - `src/test/itemPresentationCatalog.test.ts`
+  - couvrir au minimum un item crit, un AP, un tank, un support, plus un audit catalogue branche sur la table `Item`
+- Audit catalogue:
+  - commande: `npm run audit:items`
+  - script: `scripts/auditItemPresentation.ts`
+  - helper partage: `src/lib/itemPresentationAudit.ts`
+  - objectif courant verifie localement le `2026-04-01`: `211/211` items sans anomalie de presentation detectee
+- Diagnostic environnement local:
+  - si le front affiche `ERR_CONNECTION_REFUSED` sur `http://localhost:8080/...`, ce n'est pas un bug de recherche joueur Riot mais un probleme de runtime local: Vite (`:8080`) et/ou l'API Express (`:3001`) ne tournent pas
+  - `src/api/client.ts` remonte maintenant un message explicite quand l'application locale n'est pas joignable

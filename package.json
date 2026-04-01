@@ -30,6 +30,7 @@
     "riot:prepare-pro-seeds": "tsx scripts/prepareProPlayerSeeds.ts",
     "riot:import-pro": "tsx scripts/importProMatches.ts",
     "riot:report-pro": "tsx scripts/reportProIngestion.ts",
+    "audit:items": "tsx scripts/auditItemPresentation.ts",
     "ml:backfill-timelines": "tsx scripts/backfillImportedMatchTimelines.ts",
     "ml:export-raw": "tsx scripts/exportImportedMatchesForMl.ts",
     "backfill:legacy-scenarios": "tsx scripts/backfillLegacyScenarioSnapshots.ts",
