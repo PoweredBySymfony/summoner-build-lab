@@ -36,6 +36,7 @@
     "audit:items": "tsx scripts/auditItemPresentation.ts",
     "audit:static-data": "tsx scripts/auditStaticData.ts",
     "backfill:canonical-patches": "tsx scripts/backfillCanonicalImportedMatchPatches.ts",
+    "backfill:competitive-provenance": "tsx scripts/backfillCompetitiveImportedMatchProvenance.ts",
     "ml:backfill-timelines": "tsx scripts/backfillImportedMatchTimelines.ts",
     "ml:export-raw": "tsx scripts/exportImportedMatchesForMl.ts",
     "ml:archive-legacy-raw": "tsx scripts/archiveLegacyRawMatches.ts",

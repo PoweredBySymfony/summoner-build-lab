@@ -7,6 +7,11 @@ import {
   type CompetitiveDiscoveredMatch,
   type CompetitiveResolvedSeed,
 } from "../server/src/lib/riot/competitiveIngestion.js";
+import {
+  extractCompetitiveProvenance,
+  getIngestionMetadata,
+  resolveFirstExistingPath,
+} from "./lib/competitiveImportedMatchProvenance.js";
 
 function parseOptions(argv: string[]) {
   const daysIndex = argv.findIndex((arg) => arg === "--days");
@@ -24,7 +29,11 @@ function parseOptions(argv: string[]) {
 async function main() {
   const options = parseOptions(process.argv.slice(2));
   const since = new Date(Date.now() - options.days * 24 * 60 * 60 * 1_000);
-  const checkpoint = await loadCompetitiveIngestionCheckpoint(path.resolve(options.checkpointPath));
+  const checkpointPath = await resolveFirstExistingPath([
+    options.checkpointPath,
+    path.join("data", "runtime", "competitive-ingestion", "real-checkpoint.json"),
+  ]);
+  const checkpoint = await loadCompetitiveIngestionCheckpoint(checkpointPath);
 
   const matches = await prisma.importedMatch.findMany({
     where: {
@@ -46,41 +55,51 @@ async function main() {
       targetRole: true,
       sourceKind: true,
       sourceMetadata: true,
+      sourceRegion: true,
     },
   });
 
   const report = buildCompetitiveIngestionReport({
     persistedRows: matches.map((row) => {
-      const metadata = (row.sourceMetadata ?? {}) as {
-        seed?: {
-          league?: string | null;
-          competition?: string | null;
-          region?: string | null;
-          priorityTier?: string | null;
-        };
-        ingestion?: {
-          queueId?: number | null;
-          patchBucket?: "exact_target_patch" | "adjacent_recent_patch" | "out_of_target_patch" | null;
-          queueBucket?: "preferred_queue" | "fallback_queue" | "out_of_policy_queue" | null;
-          priorityBand?: "tier1" | "tier2" | "tier3" | "tier4" | "tier5" | null;
-        };
-      };
+      const provenance = extractCompetitiveProvenance(row);
+      const ingestion = getIngestionMetadata(row.sourceMetadata);
+      const metadata =
+        typeof row.sourceMetadata === "object" && row.sourceMetadata !== null && !Array.isArray(row.sourceMetadata)
+          ? (row.sourceMetadata as { seed?: { competition?: string | null } })
+          : {};
 
       return {
         patch: row.patch,
-        queueId: metadata.ingestion?.queueId ?? null,
+        queueId: typeof ingestion.queueId === "number" ? ingestion.queueId : null,
         timelineMissingReason: row.timelineMissingReason,
         gameCreationAt: row.gameCreationAt,
         timelineFetchedAt: row.timelineFetchedAt,
         targetRole: row.targetRole,
         sourceKind: row.sourceKind,
-        sourceLeague: metadata.seed?.league ?? null,
+        sourceLeague: provenance.sourceLeague,
         sourceCompetition: metadata.seed?.competition ?? null,
-        sourceRegion: metadata.seed?.region ?? null,
-        priorityTier: metadata.seed?.priorityTier ?? null,
-        patchBucket: metadata.ingestion?.patchBucket ?? null,
-        queueBucket: metadata.ingestion?.queueBucket ?? null,
-        priorityBand: metadata.ingestion?.priorityBand ?? null,
+        sourceRegion: provenance.sourceRegionHint,
+        priorityTier: provenance.priorityTier,
+        patchBucket:
+          ingestion.patchBucket === "exact_target_patch"
+          || ingestion.patchBucket === "adjacent_recent_patch"
+          || ingestion.patchBucket === "out_of_target_patch"
+            ? ingestion.patchBucket
+            : null,
+        queueBucket:
+          ingestion.queueBucket === "preferred_queue"
+          || ingestion.queueBucket === "fallback_queue"
+          || ingestion.queueBucket === "out_of_policy_queue"
+            ? ingestion.queueBucket
+            : null,
+        priorityBand:
+          ingestion.priorityBand === "tier1"
+          || ingestion.priorityBand === "tier2"
+          || ingestion.priorityBand === "tier3"
+          || ingestion.priorityBand === "tier4"
+          || ingestion.priorityBand === "tier5"
+            ? ingestion.priorityBand
+            : null,
       };
     }),
     discoveredMatches: (

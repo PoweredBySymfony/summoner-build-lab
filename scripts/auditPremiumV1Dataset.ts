@@ -2,13 +2,27 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { prisma } from "../server/src/lib/prisma.js";
+import {
+  COMPETITIVE_SOURCE_KINDS,
+  extractCompetitiveProvenance,
+  resolveFirstExistingPath,
+} from "./lib/competitiveImportedMatchProvenance.js";
 
 type CliOptions = {
   datasetReportPath: string;
   outputJsonPath: string;
   outputMarkdownPath: string;
   trainingConfigPath: string;
-  checkpointPath: string;
+  checkpointReportPath: string;
+};
+
+type AuditMatchRow = {
+  patch: string | null;
+  timelineFetchedAt: Date | null;
+  timelineMissingReason: string | null;
+  sourceKind: string | null;
+  sourceMetadata: unknown;
+  sourceRegion: string | null;
 };
 
 function parseArgs(argv: string[]): CliOptions {
@@ -17,7 +31,7 @@ function parseArgs(argv: string[]): CliOptions {
     outputJsonPath: path.join("reports", "premium-v1-dataset-audit.json"),
     outputMarkdownPath: path.join("reports", "premium-v1-dataset-audit.md"),
     trainingConfigPath: path.join("ml", "configs", "base.yaml"),
-    checkpointPath: path.join("data", "runtime", "competitive-ingestion", "report.json"),
+    checkpointReportPath: path.join("data", "runtime", "competitive-ingestion", "report.json"),
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -51,7 +65,7 @@ function parseArgs(argv: string[]): CliOptions {
         break;
       case "--checkpoint-report-path":
         if (next) {
-          options.checkpointPath = next;
+          options.checkpointReportPath = next;
         }
         index += 1;
         break;
@@ -96,47 +110,123 @@ function parseSimpleYamlScalar(raw: string, key: string) {
   return line ? line.split(":").slice(1).join(":").trim() : null;
 }
 
+function buildScopeSummary(matches: AuditMatchRow[]) {
+  const totalImportedMatches = matches.length;
+  const totalValidTimelines = matches.filter((match) => match.timelineFetchedAt && !match.timelineMissingReason).length;
+  const matchsParPatch = countBy(matches.map((match) => String(match.patch ?? "unknown"))).map(({ key, count }) => ({
+    patch: key,
+    count,
+  }));
+  const matchsParSourceKind = countBy(matches.map((match) => String(match.sourceKind ?? "unknown"))).map(({ key, count }) => ({
+    sourceKind: key,
+    count,
+  }));
+  const matchsParSourceTier = countBy(
+    matches.map((match) => extractCompetitiveProvenance(match).priorityTier),
+  ).map(({ key, count }) => ({
+    sourceTier: key,
+    count,
+  }));
+  const matchsParSourceLeague = countBy(
+    matches.map((match) => extractCompetitiveProvenance(match).sourceLeague ?? "unknown"),
+  ).map(({ key, count }) => ({
+    sourceLeague: key,
+    count,
+  }));
+  const matchsParSourceRegionHint = countBy(
+    matches.map((match) => extractCompetitiveProvenance(match).sourceRegionHint ?? "unknown"),
+  ).map(({ key, count }) => ({
+    sourceRegionHint: key,
+    count,
+  }));
+  const premiumPatchPrefixes = ["26.1", "26.2", "26.3", "26.4", "26.5", "26.6", "26.7"];
+  const premiumRecentMatches26x = matches.filter((match) =>
+    premiumPatchPrefixes.some((prefix) => String(match.patch ?? "").startsWith(prefix))
+  ).length;
+  const premiumRecentShare26x = totalImportedMatches > 0 ? Number(((premiumRecentMatches26x / totalImportedMatches) * 100).toFixed(2)) : 0;
+
+  return {
+    totalImportedMatches,
+    totalValidTimelines,
+    matchsParPatch,
+    matchsParSourceKind,
+    matchsParSourceTier,
+    matchsParSourceLeague,
+    matchsParSourceRegionHint,
+    premiumRecentMatches26x,
+    premiumRecentShare26x,
+  };
+}
+
+function renderScopeMarkdown(title: string, scope: ReturnType<typeof buildScopeSummary>) {
+  return [
+    `## ${title}`,
+    `- Total imported matches: ${scope.totalImportedMatches}`,
+    `- Total valid timelines: ${scope.totalValidTimelines}`,
+    `- Premium recent matches (26.1-26.7): ${scope.premiumRecentMatches26x}`,
+    `- Premium recent share: ${scope.premiumRecentShare26x}`,
+    "",
+    "### Match Distribution By Source Tier",
+    ...scope.matchsParSourceTier.map((entry) => `- ${entry.sourceTier}: ${entry.count}`),
+    "",
+    "### Match Distribution By Source Kind",
+    ...scope.matchsParSourceKind.map((entry) => `- ${entry.sourceKind}: ${entry.count}`),
+    "",
+    "### Match Distribution By Patch",
+    ...scope.matchsParPatch.map((entry) => `- ${entry.patch}: ${entry.count}`),
+    "",
+    "### Match Distribution By Source League",
+    ...scope.matchsParSourceLeague.slice(0, 15).map((entry) => `- ${entry.sourceLeague}: ${entry.count}`),
+    "",
+    "### Match Distribution By Source Region Hint",
+    ...scope.matchsParSourceRegionHint.map((entry) => `- ${entry.sourceRegionHint}: ${entry.count}`),
+    "",
+  ].join("\n");
+}
+
 function buildMarkdown(report: Record<string, unknown>) {
-  const patchDistribution =
-    ((report.database as { matchsParPatch?: Array<{ patch: string; count: number }> } | undefined)?.matchsParPatch) ?? [];
-  const sourceTierDistribution =
-    ((report.database as { matchsParSourceTier?: Array<{ sourceTier: string; count: number }> } | undefined)?.matchsParSourceTier) ?? [];
-  const snapshotsByPatch =
-    Object.entries((report.dataset as { snapshotsByPatch?: Record<string, number> } | undefined)?.snapshotsByPatch ?? {});
-  const snapshotsByRole =
-    Object.entries((report.dataset as { snapshotsByRole?: Record<string, number> } | undefined)?.snapshotsByRole ?? {});
-  const snapshotsByChampion =
-    Object.entries((report.dataset as { snapshotsByChampion?: Record<string, number> } | undefined)?.snapshotsByChampion ?? {});
+  const dataset = (report.dataset as Record<string, unknown> | undefined) ?? {};
+  const snapshotsByPatch = Object.entries((dataset.snapshotsByPatch as Record<string, number> | undefined) ?? {});
+  const snapshotsByRole = Object.entries((dataset.snapshotsByRole as Record<string, number> | undefined) ?? {});
+  const snapshotsByChampion = Object.entries((dataset.snapshotsByChampion as Record<string, number> | undefined) ?? {});
   const reproduction =
-    ((report.reproduction as { commands?: string[] } | undefined)?.commands ?? []).map((command) => `- \`${command}\``);
+    (((report.reproduction as { commands?: string[] } | undefined)?.commands) ?? []).map((command) => `- \`${command}\``);
+  const scopeComparison = (report.scopeComparison as Record<string, unknown> | undefined) ?? {};
+  const reportingScopes = (report.reportingScopes as Record<string, string> | undefined) ?? {};
+  const scopes = (report.scopes as Record<string, ReturnType<typeof buildScopeSummary>> | undefined) ?? {};
 
   return [
     "# Premium V1 Dataset Audit",
     "",
     `- Generated at: ${String(report.generatedAt ?? "")}`,
+    `- Competitive report path: ${String((report.ingestionCheckpoint as { resolvedCheckpointReportPath?: string } | undefined)?.resolvedCheckpointReportPath ?? "none")}`,
     `- Baseline state: ${String((report.baseline as { state?: string } | undefined)?.state ?? "")}`,
     `- Ingestion freeze: ${String((report.baseline as { ingestionFrozen?: boolean } | undefined)?.ingestionFrozen ?? false)}`,
     `- Training policy verified: ${String((report.trainingPolicy as { recentFirstVerified?: boolean } | undefined)?.recentFirstVerified ?? false)}`,
     "",
-    "## Database",
-    `- Total imported matches: ${String((report.database as { totalImportedMatches?: number } | undefined)?.totalImportedMatches ?? 0)}`,
-    `- Total valid timelines: ${String((report.database as { totalValidTimelines?: number } | undefined)?.totalValidTimelines ?? 0)}`,
-    `- Premium recent matches (26.1-26.7): ${String((report.database as { premiumRecentMatches26x?: number } | undefined)?.premiumRecentMatches26x ?? 0)}`,
-    `- Premium recent share: ${String((report.database as { premiumRecentShare26x?: number } | undefined)?.premiumRecentShare26x ?? 0)}`,
+    "## Reporting Scopes",
+    `- DB-wide: ${String(reportingScopes.dbWide ?? "")}`,
+    `- Premium-only: ${String(reportingScopes.premiumOnly ?? "")}`,
+    `- Competitive report: ${String(reportingScopes.competitiveReport ?? "")}`,
     "",
-    "## Match Distribution By Patch",
-    ...patchDistribution.map((entry) => `- ${entry.patch}: ${entry.count}`),
+    "## Scope Gap",
+    `- DB-wide total matches: ${String(scopeComparison.dbWideTotalMatches ?? 0)}`,
+    `- Competitive matches in DB: ${String(scopeComparison.competitiveMatchesInDb ?? 0)}`,
+    `- Premium-only matches: ${String(scopeComparison.premiumOnlyMatches ?? 0)}`,
+    `- Excluded from premium-only because non-competitive: ${String(scopeComparison.excludedNonCompetitiveMatches ?? 0)}`,
+    `- Excluded from premium-only because source tier still unknown: ${String(scopeComparison.excludedCompetitiveUnknownTierMatches ?? 0)}`,
+    `- Unknown source tier among competitive matches: ${String(scopeComparison.competitiveUnknownTierCount ?? 0)}`,
+    `- Explanation: ${String(scopeComparison.explanation ?? "")}`,
     "",
-    "## Match Distribution By Source Tier",
-    ...sourceTierDistribution.map((entry) => `- ${entry.sourceTier}: ${entry.count}`),
-    "",
+    renderScopeMarkdown("DB-wide", scopes.dbWide ?? buildScopeSummary([])),
+    renderScopeMarkdown("Premium-only", scopes.premiumOnly ?? buildScopeSummary([])),
     "## Dataset",
-    `- Total snapshots generated: ${String((report.dataset as { totalSnapshotsGenerated?: number } | undefined)?.totalSnapshotsGenerated ?? 0)}`,
-    `- Snapshots trainable strict recents: ${String((report.dataset as { snapshotsTrainableStrictRecents?: number } | undefined)?.snapshotsTrainableStrictRecents ?? 0)}`,
-    `- Candidate pool median: ${String((report.dataset as { candidatePoolMedian?: number } | undefined)?.candidatePoolMedian ?? 0)}`,
-    `- Candidate pool p95: ${String((report.dataset as { candidatePoolP95?: number } | undefined)?.candidatePoolP95 ?? 0)}`,
-    `- Gold incoherent ratio: ${String((report.dataset as { goldIncoherentRatio?: number } | undefined)?.goldIncoherentRatio ?? 0)}`,
-    `- Missing actual item ratio: ${String((report.dataset as { missingActualItemRatio?: number } | undefined)?.missingActualItemRatio ?? 0)}`,
+    `- Total snapshots generated: ${String(dataset.totalSnapshotsGenerated ?? 0)}`,
+    `- Snapshots trainable strict recents: ${String(dataset.snapshotsTrainableStrictRecents ?? 0)}`,
+    `- Candidate pool median: ${String(dataset.candidatePoolMedian ?? 0)}`,
+    `- Candidate pool p95: ${String(dataset.candidatePoolP95 ?? 0)}`,
+    `- Gold incoherent ratio: ${String(dataset.goldIncoherentRatio ?? 0)}`,
+    `- Missing actual item ratio: ${String(dataset.missingActualItemRatio ?? 0)}`,
     "",
     "## Snapshots By Patch",
     ...snapshotsByPatch.map(([patch, count]) => `- ${patch}: ${count}`),
@@ -157,9 +247,14 @@ async function main() {
   const options = parseArgs(process.argv.slice(2));
   const datasetReport = JSON.parse(await readFile(path.resolve(options.datasetReportPath), "utf-8")) as Record<string, unknown>;
   const trainingConfig = await readFile(path.resolve(options.trainingConfigPath), "utf-8");
+  const resolvedCheckpointReportPath = await resolveFirstExistingPath([
+    options.checkpointReportPath,
+    path.join("data", "runtime", "competitive-ingestion", "real-report.json"),
+  ]);
+
   let checkpointReport: Record<string, unknown> = {};
   try {
-    checkpointReport = JSON.parse(await readFile(path.resolve(options.checkpointPath), "utf-8")) as Record<string, unknown>;
+    checkpointReport = JSON.parse(await readFile(resolvedCheckpointReportPath, "utf-8")) as Record<string, unknown>;
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
       throw error;
@@ -176,51 +271,16 @@ async function main() {
       timelineMissingReason: true,
       sourceKind: true,
       sourceMetadata: true,
+      sourceRegion: true,
     },
   });
 
-  const totalImportedMatches = matches.length;
-  const totalValidTimelines = matches.filter((match) => match.timelineFetchedAt && !match.timelineMissingReason).length;
-  const matchsParPatch = countBy(matches.map((match) => String(match.patch ?? "unknown"))).map(({ key, count }) => ({
-    patch: key,
-    count,
-  }));
-  const matchsParSourceTier = countBy(
-    matches.map((match) => {
-      const metadata =
-        typeof match.sourceMetadata === "object" && match.sourceMetadata !== null && !Array.isArray(match.sourceMetadata)
-          ? (match.sourceMetadata as Record<string, unknown>)
-          : {};
-      const seed =
-        typeof metadata.seed === "object" && metadata.seed !== null && !Array.isArray(metadata.seed)
-          ? (metadata.seed as Record<string, unknown>)
-          : {};
-      return String(seed.priorityTier ?? "unknown");
-    }),
-  ).map(({ key, count }) => ({
-    sourceTier: key,
-    count,
-  }));
+  const competitiveMatches = matches.filter((match) =>
+    COMPETITIVE_SOURCE_KINDS.includes((match.sourceKind ?? "") as (typeof COMPETITIVE_SOURCE_KINDS)[number])
+  );
+  const premiumOnlyMatches = competitiveMatches.filter((match) => extractCompetitiveProvenance(match).hasKnownTier);
+  const competitiveUnknownTierCount = competitiveMatches.filter((match) => !extractCompetitiveProvenance(match).hasKnownTier).length;
 
-  const premiumPatchPrefixes = ["26.1", "26.2", "26.3", "26.4", "26.5", "26.6", "26.7"];
-  const premiumRecentMatches26x = matches.filter((match) =>
-    premiumPatchPrefixes.some((prefix) => String(match.patch ?? "").startsWith(prefix))
-  ).length;
-  const premiumRecentShare26x = totalImportedMatches > 0 ? Number(((premiumRecentMatches26x / totalImportedMatches) * 100).toFixed(2)) : 0;
-
-  const snapshotsByPatch = (datasetReport.snapshots_by_patch as Record<string, number> | undefined) ?? {};
-  const snapshotsByRole = (datasetReport.snapshots_by_role as Record<string, number> | undefined) ?? {};
-  const snapshotsByChampion = (datasetReport.snapshots_by_champion as Record<string, number> | undefined) ?? {};
-  const quality = (datasetReport.quality as {
-    candidate_pool_median?: number;
-    candidate_pool_p95?: number;
-    gold_incoherent_ratio?: number;
-    missing_actual_item_ratio?: number;
-  } | undefined) ?? {};
-  const candidatePoolMedian = Number(quality.candidate_pool_median ?? 0);
-  const candidatePoolP95 = Number(quality.candidate_pool_p95 ?? 0);
-  const goldIncoherentRatio = Number(quality.gold_incoherent_ratio ?? 0);
-  const missingActualItemRatio = Number(quality.missing_actual_item_ratio ?? 0);
   const strictPrefixes = parseSimpleYamlListBlock(trainingConfig, "strict_train_patch_prefixes");
   const adjacentPrefixes = parseSimpleYamlListBlock(trainingConfig, "adjacent_train_patch_prefixes");
   const trainPatchMode = parseSimpleYamlScalar(trainingConfig, "train_patch_mode");
@@ -233,23 +293,34 @@ async function main() {
       ingestionFrozen: true,
       note: "Ne pas relancer l'ingestion competitive tant que l'evaluation premium v1 n'est pas terminee.",
     },
-    database: {
-      totalImportedMatches,
-      totalValidTimelines,
-      matchsParPatch,
-      matchsParSourceTier,
-      premiumRecentMatches26x,
-      premiumRecentShare26x,
+    reportingScopes: {
+      dbWide: "Tous les ImportedMatch de la base, quelle que soit la provenance.",
+      premiumOnly: "Sous-ensemble premium exploitable: sourceKind competitif + sourceTier connu.",
+      competitiveReport: "Rapport pipeline competitif source-filtered, limite aux imports competitifs observes par le checkpoint/report.",
+    },
+    scopeComparison: {
+      dbWideTotalMatches: matches.length,
+      competitiveMatchesInDb: competitiveMatches.length,
+      premiumOnlyMatches: premiumOnlyMatches.length,
+      excludedNonCompetitiveMatches: matches.length - competitiveMatches.length,
+      excludedCompetitiveUnknownTierMatches: competitiveUnknownTierCount,
+      competitiveUnknownTierCount,
+      explanation:
+        "Le mismatch venait du fait que le report competitif ne couvre que les imports competitifs, alors que l'audit ML exportait toute la base. Le scope premium-only rend maintenant cet ecart explicite.",
+    },
+    scopes: {
+      dbWide: buildScopeSummary(matches),
+      premiumOnly: buildScopeSummary(premiumOnlyMatches),
     },
     dataset: {
       totalSnapshotsGenerated: Number(datasetReport.rows ?? 0),
-      snapshotsByPatch,
-      snapshotsByRole,
-      snapshotsByChampion,
-      candidatePoolMedian,
-      candidatePoolP95,
-      goldIncoherentRatio,
-      missingActualItemRatio,
+      snapshotsByPatch: (datasetReport.snapshots_by_patch as Record<string, number> | undefined) ?? {},
+      snapshotsByRole: (datasetReport.snapshots_by_role as Record<string, number> | undefined) ?? {},
+      snapshotsByChampion: (datasetReport.snapshots_by_champion as Record<string, number> | undefined) ?? {},
+      candidatePoolMedian: Number(((datasetReport.quality as Record<string, unknown> | undefined)?.candidate_pool_median ?? 0)),
+      candidatePoolP95: Number(((datasetReport.quality as Record<string, unknown> | undefined)?.candidate_pool_p95 ?? 0)),
+      goldIncoherentRatio: Number(((datasetReport.quality as Record<string, unknown> | undefined)?.gold_incoherent_ratio ?? 0)),
+      missingActualItemRatio: Number(((datasetReport.quality as Record<string, unknown> | undefined)?.missing_actual_item_ratio ?? 0)),
       snapshotsTrainableStrictRecents: Number(datasetReport.snapshots_trainable_strict ?? 0),
       rowsBeforeTrainPatchFilter: Number(datasetReport.rows_before_train_patch_filter ?? 0),
       rowsAfterTrainPatchFilter: Number(datasetReport.rows_after_train_patch_filter ?? 0),
@@ -261,12 +332,15 @@ async function main() {
       recentFirstVerified: trainPatchMode === "strict_recent_competitive" && strictPrefixes.includes("26."),
     },
     ingestionCheckpoint: {
+      resolvedCheckpointReportPath,
       totalCompetitiveMatchesInDb: Number(checkpointReport.totalCompetitiveMatchesInDb ?? 0),
       createdMatches: Number(checkpointReport.createdMatches ?? 0),
       discoveredUniqueMatches: Number(checkpointReport.discoveredUniqueMatches ?? 0),
+      tierDistribution: checkpointReport.tierDistribution ?? [],
     },
     reproduction: {
       commands: [
+        "npm run backfill:competitive-provenance",
         "npm run riot:report-competitive",
         "npm run ml:export-raw",
         "ml\\.venv\\Scripts\\python.exe ml\\scripts\\tasks.py build-dataset",

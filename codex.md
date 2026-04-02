@@ -1904,6 +1904,86 @@ Lire ce fichier au debut de chaque nouvelle conversation sur ce repo, puis le me
     - segments:
       - `early:5, mid:4, late:3, none:8`
     - gate:
-      - `PASS`
-      - decision:
-        - `OK pour relancer import vers 2000`
+  - `PASS`
+  - decision:
+    - `OK pour relancer import vers 2000`
+
+## 2026-04-02 Competitive Provenance Backfill + Premium Audit Scope
+
+- Objectif:
+  - rendre `sourceTier`, `sourceLeague` et `sourceRegionHint` fiables pour les imports competitifs
+  - expliquer clairement l'ecart entre:
+    - le report competitif source-filtered
+    - l'audit premium DB-wide issu de l'export ML
+- Changements code:
+  - `scripts/importCompetitiveMatches.ts`
+    - ajoute `seed.sourceUrl` dans `sourceMetadata`
+    - repare explicitement `ImportedMatch.sourceKind`, `sourceRegion`, `sourceMetadata` juste apres chaque import competitif
+    - couvre aussi le cas `existing-match-different-target`
+  - `scripts/backfillCompetitiveImportedMatchProvenance.ts`
+    - nouveau script de backfill provenance
+    - source par defaut:
+      - `data/runtime/competitive-ingestion/checkpoint.json`
+      - fallback automatique vers `data/runtime/competitive-ingestion/real-checkpoint.json`
+    - strategie:
+      - rattachement match -> checkpoint quand possible
+      - sinon fallback explicite par `sourceKind` pour au minimum fixer `priorityTier`
+      - normalisation `sourceRegionHint` via `league` pour eviter les clusters Riot (`asia/europe`) quand un hint competitif deterministe existe
+  - `scripts/lib/competitiveImportedMatchProvenance.ts`
+    - helpers partages de merge/extraction de provenance
+    - fallback `sourceTier` depuis `sourceKind`
+    - inference `sourceRegionHint` depuis `league`
+  - `scripts/auditPremiumV1Dataset.ts`
+    - produit maintenant 2 scopes explicites:
+      - `DB-wide`
+      - `premium-only` = `sourceKind` competitif + `sourceTier` connu
+    - ajoute un bloc `scopeComparison` pour rendre visible:
+      - total DB
+      - total competitif
+      - total premium-only
+      - exclus non competitifs
+      - exclus competitifs encore `unknown`
+    - fallback automatique vers `data/runtime/competitive-ingestion/real-report.json`
+  - `scripts/reportCompetitiveIngestion.ts`
+    - fallback automatique vers `real-checkpoint.json`
+    - alignement du calcul `sourceRegion` / `sourceTier` avec les helpers de provenance
+  - `package.json`
+    - nouvelle commande:
+      - `npm run backfill:competitive-provenance`
+- Verification executee:
+  - `npx tsc -p tsconfig.server.json --noEmit`
+  - `npx eslint scripts/importCompetitiveMatches.ts scripts/auditPremiumV1Dataset.ts scripts/backfillCompetitiveImportedMatchProvenance.ts scripts/lib/competitiveImportedMatchProvenance.ts scripts/reportCompetitiveIngestion.ts`
+  - `npm run backfill:competitive-provenance`
+  - `npm run audit:premium-v1-dataset`
+  - `npm run riot:report-competitive`
+- Chiffres de sortie:
+  - backfill:
+    - `competitiveMatchesScanned: 601`
+    - `updatedCount: 601`
+    - `checkpointBackfilledCount: 104`
+    - `sourceKindOnlyBackfilledCount: 497`
+    - `remainingUnknownTierCount: 0`
+  - audit premium:
+    - ancien signal problematique:
+      - `sourceTier unknown = 602 / 610`
+    - nouveau signal explicite:
+      - `competitiveUnknownTierCount = 0 / 601`
+      - `premiumOnlyMatches = 601`
+      - `excludedNonCompetitiveMatches = 11`
+    - `premium-only sourceTier`:
+      - `pro: 601`
+    - `premium-only sourceLeague`:
+      - `First Stand: 210`
+      - `World Championship: 188`
+      - `League of Legends Championship of The Americas: 86`
+      - `LoL Champions Korea: 72`
+      - `Mid-Season Invitational: 45`
+    - `premium-only sourceRegionHint`:
+      - `International: 443`
+      - `Americas: 86`
+      - `Korea: 72`
+- Conclusion:
+  - la chute de `sourceTier unknown` est nette sur les matchs competitifs: `0 / 601`
+  - le mismatch report vs audit est maintenant explicite:
+    - le report competitif reste un scope source-filtered
+    - l'audit premium expose separement `DB-wide` et `premium-only`

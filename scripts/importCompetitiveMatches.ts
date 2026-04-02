@@ -34,6 +34,9 @@ import {
 } from "../server/src/lib/riot/competitiveSeeds.js";
 import { riotApiClient } from "../server/src/lib/riot/riotApiClient.js";
 import { riotSyncService } from "../server/src/services/riotSyncService.js";
+import {
+  mergeCompetitiveSourceMetadata,
+} from "./lib/competitiveImportedMatchProvenance.js";
 
 type CliOptions = {
   ownerUserId?: string;
@@ -657,6 +660,7 @@ function buildSourceMetadata(
       seedSetVersion: seed.seedSetVersion,
       season: seed.season,
       sourceTournamentDate: seed.sourceTournamentDate,
+      sourceUrl: seed.sourceUrl ?? null,
     },
     ingestion: {
       queueId: candidate.queueId,
@@ -678,6 +682,28 @@ function buildSourceMetadata(
       seasonWindowEnd: policy.seasonWindowEnd,
     },
   } as Prisma.InputJsonObject;
+}
+
+async function repairImportedMatchProvenance(input: {
+  riotMatchId: string;
+  sourceKind: string;
+  sourceRegion: string | null;
+  sourceMetadata: Prisma.InputJsonObject;
+}) {
+  await prisma.importedMatch.updateMany({
+    where: {
+      riotMatchId: input.riotMatchId,
+    },
+    data: {
+      sourceKind: input.sourceKind,
+      sourceRegion: input.sourceRegion,
+      sourceMetadata: mergeCompetitiveSourceMetadata({
+        sourceKind: input.sourceKind,
+        sourceRegion: input.sourceRegion,
+        existingMetadata: input.sourceMetadata,
+      }),
+    },
+  });
 }
 
 function renderMarkdownReport(report: Record<string, unknown>) {
@@ -934,6 +960,8 @@ async function main() {
 
       attemptedMatchIds.add(candidate.matchId);
       try {
+        const sourceKind = toSourceKind(seed.priorityTier);
+        const sourceMetadata = buildSourceMetadata(seed, candidate, policy);
         const imported = await riotSyncService.importMatchForIdentity(
           ownerUserId,
           candidate.matchId,
@@ -945,11 +973,18 @@ async function main() {
             platform: seed.platformHint ?? "euw1",
           },
           {
-            sourceKind: toSourceKind(seed.priorityTier),
-            sourceMetadata: buildSourceMetadata(seed, candidate, policy),
+            sourceKind,
+            sourceMetadata,
             skipExistingWithDifferentTarget: true,
           },
         );
+
+        await repairImportedMatchProvenance({
+          riotMatchId: candidate.matchId,
+          sourceKind,
+          sourceRegion: seed.region,
+          sourceMetadata,
+        });
 
         if (imported.created) {
           importedMatchIds.add(imported.riotMatchId);
