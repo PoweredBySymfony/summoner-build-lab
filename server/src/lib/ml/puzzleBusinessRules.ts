@@ -48,10 +48,12 @@ export type MlPuzzleBusinessRulesResult = {
     allowedProfiles: ItemProfile[];
     goldFilter: {
       minGold: number;
+      relaxedMinGold: number;
       maxGold: number;
       referenceGold: number;
       applied: boolean;
     };
+    goodAnswerGoldAssessment: "in-window" | "legitimate-component" | "too-cheap" | "too-expensive";
     preferredSignature: string | null;
     previousSignatureCount: number;
     historyAvoided: boolean;
@@ -179,13 +181,46 @@ function buildGoldWindow(snapshot: MlPuzzleSnapshot, goodAnswer: MlChoiceItem) {
     ? Math.max(snapshot.goldAvailable, Math.min(goodAnswer.goldTotal, Math.round(snapshot.goldAvailable * 1.35)))
     : goodAnswer.goldTotal;
   const minGold = applied ? Math.max(900, Math.round(referenceGold * 0.58)) : 0;
+  const relaxedMinGold = applied ? Math.max(750, Math.round(referenceGold * 0.42)) : 0;
   const maxGold = applied ? Math.max(minGold + 600, Math.round(referenceGold * 1.45)) : Number.MAX_SAFE_INTEGER;
   return {
     applied,
     referenceGold,
     minGold,
+    relaxedMinGold,
     maxGold,
   };
+}
+
+function isLegitimateCheapComponent(input: {
+  item: MlChoiceItem;
+  goodAnswer: MlChoiceItem;
+  allowedProfiles: ItemProfile[];
+  goldFilter: ReturnType<typeof buildGoldWindow>;
+}) {
+  // Do not reject every sub-threshold item: some mid-game component buys are productively "cheap"
+  // without being trivial. We only exempt coherent, non-boot, non-consumable components that stay
+  // reasonably close to the snapshot budget.
+  if (!input.goldFilter.applied) {
+    return false;
+  }
+  if (input.item.goldTotal >= input.goldFilter.minGold) {
+    return false;
+  }
+  if (input.item.goldTotal < input.goldFilter.relaxedMinGold) {
+    return false;
+  }
+  if (input.item.isLegendary || input.item.isBoots || input.item.isConsumable || input.item.isStarter || input.item.isTrinket) {
+    return false;
+  }
+
+  const sharedCategory = Boolean(input.item.category) && input.item.category === input.goodAnswer.category;
+  const itemProfiles = inferItemProfiles(input.item);
+  const goodProfiles = inferItemProfiles(input.goodAnswer);
+  const sharedProfile = [...itemProfiles].some((profile) => goodProfiles.has(profile) && input.allowedProfiles.includes(profile));
+  const sameUpgradeFamily = input.item.itemGroups.some((group) => input.goodAnswer.itemGroups.includes(group));
+
+  return sharedCategory || sharedProfile || sameUpgradeFamily;
 }
 
 function scoreCandidate(item: MlChoiceItem, goodAnswer: MlChoiceItem, rankedIndex: Map<string, number>, seed: string) {
@@ -380,7 +415,13 @@ export function buildMlPuzzleBusinessRules(
   if (!isItemCoherent(input.goodAnswer, allowedProfiles)) {
     goodAnswerViolations.push("incoherent-with-champion");
   }
-  if (goldFilter.applied && input.goodAnswer.goldTotal < goldFilter.minGold) {
+  const goodAnswerIsLegitimateCheapComponent = isLegitimateCheapComponent({
+    item: input.goodAnswer,
+    goodAnswer: input.goodAnswer,
+    allowedProfiles,
+    goldFilter,
+  });
+  if (goldFilter.applied && input.goodAnswer.goldTotal < goldFilter.minGold && !goodAnswerIsLegitimateCheapComponent) {
     goodAnswerViolations.push("too-cheap");
   }
   if (goldFilter.applied && input.goodAnswer.goldTotal > goldFilter.maxGold) {
@@ -438,7 +479,15 @@ export function buildMlPuzzleBusinessRules(
     if (!goldFilter.applied) {
       return true;
     }
-    if (item.goldTotal < goldFilter.minGold) {
+    if (
+      item.goldTotal < goldFilter.minGold
+      && !isLegitimateCheapComponent({
+        item,
+        goodAnswer: input.goodAnswer,
+        allowedProfiles,
+        goldFilter,
+      })
+    ) {
       filterReasonCounts["too-cheap"] += 1;
       return false;
     }
@@ -502,6 +551,14 @@ export function buildMlPuzzleBusinessRules(
       restrictedCandidateSamples,
       allowedProfiles,
       goldFilter,
+      goodAnswerGoldAssessment:
+        goodAnswerViolations.includes("too-expensive")
+          ? "too-expensive"
+          : goodAnswerViolations.includes("too-cheap")
+            ? "too-cheap"
+            : goodAnswerIsLegitimateCheapComponent
+              ? "legitimate-component"
+              : "in-window",
       preferredSignature: selected.signature,
       previousSignatureCount: input.previousChoiceSignatures.length,
       historyAvoided: selected.historyAvoided,

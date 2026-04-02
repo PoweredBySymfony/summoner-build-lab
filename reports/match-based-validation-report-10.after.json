@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-04-02T07:23:24.280Z",
+  "generatedAt": "2026-04-02T07:33:10.904Z",
   "baseline": {
     "state": "premium-v1-frozen",
     "note": "Validation match-based apres retrain baseline sans modifier le coeur ML."
@@ -41,6 +41,7 @@
     "distinctSelectedSnapshotCount": 4,
     "distinctSelectedSnapshotSignatureCount": 4,
     "reusedSelectedSnapshotSignatureCount": 0,
+    "patchCatalogFallbackOccurrences": 0,
     "distinctChampionCount": 10,
     "snapshotSegmentCounts": [
       {
@@ -91,7 +92,7 @@
     {
       "index": 1,
       "importedMatchId": "cmnf2133604ar9crag4ukrc6c",
-      "requestId": "cmnh5eesi0000wwraw3v669zs",
+      "requestId": "cmnh5qzqs0000c4ra6hgszwy4",
       "patch": "26.6",
       "sourceKind": "PRO_SEED",
       "sourceTier": "unknown",
@@ -129,7 +130,7 @@
     {
       "index": 2,
       "importedMatchId": "cmnf2123704ag9cra3zu95jrf",
-      "requestId": "cmnh5ef3r0001wwran8wm97u9",
+      "requestId": "cmnh5r01b0001c4raswe3shdk",
       "patch": "26.6",
       "sourceKind": "PRO_SEED",
       "sourceTier": "unknown",
@@ -172,7 +173,7 @@
     {
       "index": 3,
       "importedMatchId": "cmnf2110l04a59cra9v07y64k",
-      "requestId": "cmnh5eflt0002wwracldib35r",
+      "requestId": "cmnh5r0js0002c4rabx3nhfkh",
       "patch": "26.6",
       "sourceKind": "PRO_SEED",
       "sourceTier": "unknown",
@@ -183,7 +184,7 @@
       "minute": 24.9,
       "gold": 1258,
       "candidatePoolSize": 11,
-      "qualityScore": 91.96,
+      "qualityScore": 87.96,
       "failureReason": null,
       "rejectionReasons": [
         "low-confidence"
@@ -205,12 +206,12 @@
       "selectedSnapshotSegment": "late",
       "lowConfidence": false,
       "draft": false,
-      "resultSlug": "jayce-ai-generated-1775114600986-24-1"
+      "resultSlug": "jayce-ai-generated-1775115187954-24-1"
     },
     {
       "index": 4,
       "importedMatchId": "cmnf2101t049u9craju95zfco",
-      "requestId": "cmnh5eg5u000fwwraysjftbpk",
+      "requestId": "cmnh5r12l000fc4rafsl9jeiu",
       "patch": "26.6",
       "sourceKind": "PRO_SEED",
       "sourceTier": "unknown",
@@ -241,7 +242,7 @@
     {
       "index": 5,
       "importedMatchId": "cmnf20zi9049j9cradp4wu6ul",
-      "requestId": "cmnh5eg83000gwwrarg3fgw32",
+      "requestId": "cmnh5r14q000gc4ra19goptrh",
       "patch": "26.6",
       "sourceKind": "PRO_SEED",
       "sourceTier": "unknown",
@@ -272,18 +273,18 @@
     {
       "index": 6,
       "importedMatchId": "cmnf20yw004989crar5t7izt3",
-      "requestId": "cmnh5egax000hwwra3z3my921",
+      "requestId": "cmnh5r17k000hc4radz5m6ltx",
       "patch": "26.6",
       "sourceKind": "PRO_SEED",
       "sourceTier": "unknown",
       "championSlug": "naafiri",
       "role": "JUNGLE",
       "generationStatus": "completed",
-      "selectedSnapshotIndex": 23,
-      "minute": 21.46,
-      "gold": 1280,
+      "selectedSnapshotIndex": 18,
+      "minute": 17.81,
+      "gold": 2356,
       "candidatePoolSize": 11,
-      "qualityScore": 99.23,
+      "qualityScore": 86.13,
       "failureReason": null,
       "rejectionReasons": [
         "low-confidence"
@@ -300,17 +301,17 @@
       ],
       "attemptsEvaluated": 8,
       "successfulSnapshots": 2,
-      "selectedSnapshotHistoryKey": "23:21.46",
-      "selectedSnapshotSignature": "JUNGLE::21.46::1280::arc-axiomatique|balise-de-controle|danse-de-la-mort|orgueil",
+      "selectedSnapshotHistoryKey": "18:17.81",
+      "selectedSnapshotSignature": "JUNGLE::17.81::2356::arc-axiomatique|orgueil",
       "selectedSnapshotSegment": "mid",
       "lowConfidence": false,
       "draft": false,
-      "resultSlug": "naafiri-ai-generated-1775114601819-23-1"
+      "resultSlug": "naafiri-ai-generated-1775115188796-18-1"
     },
     {
       "index": 7,
       "importedMatchId": "cmnf20x71048g9crafttft9rr",
-      "requestId": "cmnh5egs9000owwrapnf5a2ip",
+      "requestId": "cmnh5r1p5000oc4raqy8x5hy6",
       "patch": "26.6",
       "sourceKind": "PRO_SEED",
       "sourceTier": "unknown",
@@ -354,7 +355,7 @@
     {
       "index": 8,
       "importedMatchId": "cmnf20wf104859crad1g0g09v",
-      "requestId": "cmnh5ehbn000pwwra3r6a7vn3",
+      "requestId": "cmnh5r26i000pc4rahhm8bbmj",
       "patch": "26.6",
       "sourceKind": "PRO_SEED",
       "sourceTier": "unknown",
@@ -386,12 +387,12 @@
       "selectedSnapshotSegment": "early",
       "lowConfidence": false,
       "draft": false,
-      "resultSlug": "seraphine-ai-generated-1775114603071-12-1"
+      "resultSlug": "seraphine-ai-generated-1775115189902-12-1"
     },
     {
       "index": 9,
       "importedMatchId": "cmnf20w0z047u9crad1ulpt0z",
-      "requestId": "cmnh5ehr0000wwwrajzlrk2vu",
+      "requestId": "cmnh5r2jv000wc4ra1be44pmm",
       "patch": "26.6",
       "sourceKind": "PRO_SEED",
       "sourceTier": "unknown",
@@ -431,18 +432,18 @@
     {
       "index": 10,
       "importedMatchId": "cmnf20uyb047j9craomy9wv0t",
-      "requestId": "cmnh5ei1v000xwwra6nqta63n",
+      "requestId": "cmnh5r2s2000xc4raiowjbhlq",
       "patch": "26.6",
       "sourceKind": "PRO_SEED",
       "sourceTier": "unknown",
       "championSlug": "aatrox",
       "role": "JUNGLE",
       "generationStatus": "completed",
-      "selectedSnapshotIndex": 22,
-      "minute": 26.5,
-      "gold": 2282,
+      "selectedSnapshotIndex": 23,
+      "minute": 26.52,
+      "gold": 1182,
       "candidatePoolSize": 11,
-      "qualityScore": 101.93,
+      "qualityScore": 89.4,
       "failureReason": null,
       "rejectionReasons": [
         "low-confidence"
@@ -461,12 +462,12 @@
       ],
       "attemptsEvaluated": 8,
       "successfulSnapshots": 3,
-      "selectedSnapshotHistoryKey": "22:26.50",
-      "selectedSnapshotSignature": "JUNGLE::26.50::2282::ciel-eventre|coques-en-acier|epee-longue|gage-de-sterak",
+      "selectedSnapshotHistoryKey": "23:26.52",
+      "selectedSnapshotSignature": "JUNGLE::26.52::1182::ciel-eventre|coques-en-acier|epee-longue|gage-de-sterak|sceau-dacier",
       "selectedSnapshotSegment": "late",
       "lowConfidence": false,
       "draft": false,
-      "resultSlug": "aatrox-ai-generated-1775114604213-22-1"
+      "resultSlug": "aatrox-ai-generated-1775115190862-23-1"
     }
   ],
   "reproduction": {

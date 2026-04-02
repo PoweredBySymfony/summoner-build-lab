@@ -1782,3 +1782,128 @@ Lire ce fichier au debut de chaque nouvelle conversation sur ce repo, puis le me
   - le rerun confirme la baisse durable de `gold_incoherent_ratio`
   - `good-answer-unresolved` reste marginal
   - le premier axe d'amelioration restant est toujours `good-answer-too-cheap`
+
+## 2026-04-02 Anti-Repetition + Too-Cheap v2
+
+- Objectif:
+  - reduire la repetition du meme snapshot sur une meme partie sans redemarrage serveur
+  - assouplir `good-answer-too-cheap` quand la prediction est un composant legitime et jouable
+  - rejouer `audit:match-based-validation` sur un echantillon fige pour produire un vrai delta
+- Selection snapshot:
+  - `server/src/services/mlPuzzleGenerationService.ts` stocke maintenant pour chaque snapshot:
+    - `snapshotSignature`
+    - `createdAt` dans l'historique de reuse
+  - l'anti-repetition ne regarde plus seulement `snapshotIndex + minute`
+  - une penalite de reuse est appliquee sur:
+    - match exact historique
+    - signature identique
+    - occurrences recentes sur 24h
+  - logs structures ajoutes:
+    - `[ml-puzzle] generation-history`
+    - `reuse` detaille dans `[ml-puzzle] selected-snapshots`
+    - `snapshotSignature` sur chaque `snapshot-attempt`
+  - fallback conserve:
+    - un snapshot deja vu reste selectable si aucune meilleure alternative viable n'existe
+- Regle `good-answer-too-cheap`:
+  - `server/src/lib/ml/puzzleBusinessRules.ts` distingue maintenant:
+    - achat trivial vraiment trop cheap
+    - `legitimate-component` sous le seuil strict mais encore credible
+  - nouveau principe:
+    - fenetre gold stricte inchangée pour les vrais achats triviaux
+    - fenetre assouplie (`relaxedMinGold`) pour les composants non legendaires, non boots, non consommables, coherents avec le profil et encore assez proches du budget
+  - debug expose maintenant:
+    - `goldFilter.relaxedMinGold`
+    - `goodAnswerGoldAssessment`
+- Audit match-based:
+  - `scripts/evaluateMatchBasedValidation.ts` supporte maintenant:
+    - `--baseline-report`
+    - echantillon fige derive du baseline
+    - metriques de diversite par `snapshotSignature`
+    - `delta` integre au JSON final
+- Tests:
+  - `src/test/mlPuzzleBusinessRules.test.ts`
+    - couvre le cas `legitimate-component`
+  - `src/test/mlPuzzleOrchestration.test.ts`
+    - couvre la penalisation d'une signature de snapshot recemment servie
+    - couvre l'interface enrichie `previousSnapshots`
+- Verification executee:
+  - `npx vitest run src/test/mlPuzzleOrchestration.test.ts src/test/mlPuzzleBusinessRules.test.ts`
+  - `npx tsc -p tsconfig.server.json --noEmit`
+  - `npx eslint server/src/lib/ml/puzzleBusinessRules.ts server/src/services/mlPuzzleGenerationService.ts scripts/evaluateMatchBasedValidation.ts src/test/mlPuzzleBusinessRules.test.ts src/test/mlPuzzleOrchestration.test.ts`
+  - `npm run audit:match-based-validation -- --sample-size 10 --baseline-report reports/match-based-validation-report.before-2026-04-02.json`
+- Delta mesure sur le meme set de 10 matchs:
+  - `good-answer-too-cheap`: `44 -> 38` (`-6`)
+  - `good-answer-incoherent-with-champion`: `5 -> 2` (`-3`)
+  - `averageCandidatePoolSize`: `8.8 -> 9.9`
+  - `distinctSelectedSnapshotSignatureCount`: `0 -> 4` (nouvelle metrique)
+  - `reusedSelectedSnapshotSignatureCount`: `0`
+  - contrepartie actuelle:
+    - `completedRate`: `0.6 -> 0.4`
+    - `low-confidence`: `25 -> 36`
+    - `good-answer-unresolved`: `3 -> 4`
+- Verification produit directe sans redemarrage:
+  - sur `cmnf20uyb047j9craomy9wv0t` (`aatrox`, `JUNGLE`), deux generations consecutives ont selectionne:
+    - run 1: snapshot `23` a `26.52`
+    - run 2: snapshot `22` a `26.50`
+  - le log `[ml-puzzle] snapshots-excluded-for-repetition` montre bien l'exclusion du snapshot precedemment servi quand une alternative viable existe
+- Conclusion:
+  - la diversité snapshot progresse bien et le serveur n'a plus besoin d'un redemarrage pour varier certains cas
+  - la baisse de `too-cheap` est reelle mais incomplete
+  - la prochaine passe doit cibler le couple `low-confidence` + certains cas encore rejectes trop tot cote snapshots supports/mages
+
+## 2026-04-02 Match-Based Validation Delta
+
+- Nouvelle commande npm:
+  - `npm run audit:match-based-validation:delta`
+- Script associe:
+  - `scripts/auditMatchBasedValidationDelta.ts`
+- Entrees par defaut:
+  - sample 10 before:
+    - `reports/match-based-validation-report.before-2026-04-02.json`
+  - sample 10 after:
+    - `reports/match-based-validation-report-10.after.json`
+  - sample 20 after:
+    - `reports/match-based-validation-report-20.after.json`
+- Sorties:
+  - JSON:
+    - `reports/match-based-validation-delta-report.json`
+  - Markdown:
+    - `reports/match-based-validation-delta-report.md`
+- Le delta report compare maintenant:
+  - `completedRate` avant/apres
+  - top rejection reasons avant/apres
+  - occurrences `patch-catalog-fallback` avant/apres
+  - distribution des segments `early/mid/late/none`
+- `scripts/evaluateMatchBasedValidation.ts` compte maintenant:
+  - `patchCatalogFallbackOccurrences`
+  - la valeur est stockee dans `summary`
+- Seuil de passage produit:
+  - si `completedRate >= 0.4` sur `sample-size 20`:
+    - OK pour relancer import vers `2000`
+  - sinon:
+    - continuer qualite / integration
+- Reruns executes:
+  - `npm run audit:match-based-validation -- --sample-size 10 --baseline-report reports/match-based-validation-report.before-2026-04-02.json --output-json reports/match-based-validation-report-10.after.json --output-markdown reports/match-based-validation-report-10.after.md`
+  - `npm run audit:match-based-validation -- --sample-size 20 --output-json reports/match-based-validation-report-20.after.json --output-markdown reports/match-based-validation-report-20.after.md`
+  - `npm run audit:match-based-validation:delta`
+- Chiffres pilotes:
+  - sample 10:
+    - `completedRate: 0.6 -> 0.4`
+    - `good-answer-too-cheap: 44 -> 38`
+    - `patchCatalogFallbackOccurrences: n/a -> 0`
+    - segments:
+      - before: `early:0, mid:6, late:0, none:4`
+      - after: `early:1, mid:1, late:2, none:6`
+  - sample 20:
+    - `completedRate: 0.6`
+    - `patchCatalogFallbackOccurrences: 0`
+    - top rejection reasons:
+      - `low-confidence: 96`
+      - `good-answer-too-cheap: 76`
+      - `good-answer-unresolved: 7`
+    - segments:
+      - `early:5, mid:4, late:3, none:8`
+    - gate:
+      - `PASS`
+      - decision:
+        - `OK pour relancer import vers 2000`

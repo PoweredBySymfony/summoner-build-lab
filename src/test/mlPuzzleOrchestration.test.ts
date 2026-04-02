@@ -3,6 +3,16 @@ import { describe, expect, it } from "vitest";
 
 import { mlPuzzleGenerationServiceTestables } from "../../server/src/services/mlPuzzleGenerationService";
 
+function createPreviousSnapshotEntry(input: { snapshotIndex: number; snapshotMinute: number; signature?: string }) {
+  return {
+    snapshotIndex: input.snapshotIndex,
+    snapshotMinute: input.snapshotMinute,
+    key: `${input.snapshotIndex}:${input.snapshotMinute.toFixed(2)}`,
+    signature: input.signature ?? `ADC::${input.snapshotMinute.toFixed(2)}::1800::item-${input.snapshotIndex}`,
+    createdAt: new Date("2026-04-02T08:00:00.000Z"),
+  };
+}
+
 function createSnapshotCandidate(input: {
   snapshotIndex: number;
   minute: number;
@@ -97,6 +107,7 @@ function createAcceptedAttempt(input: {
       snapshotMinute: 18 + input.snapshotIndex,
       patch: "16.6",
       goldAvailable: 1800,
+      snapshotSignature: `ADC::${18 + input.snapshotIndex}.00::1800::item-${input.snapshotIndex}`,
       rawCandidatePoolSize: 9,
       filteredCandidatePoolSize: 9,
       goodAnswer: "item-a",
@@ -129,6 +140,7 @@ function createRejectedAttempt(snapshotIndex: number, reason: string) {
       snapshotMinute: 12 + snapshotIndex,
       patch: "16.6",
       goldAvailable: 1000,
+      snapshotSignature: `ADC::${12 + snapshotIndex}.00::1000::item-${snapshotIndex}`,
       rawCandidatePoolSize: 3,
       filteredCandidatePoolSize: 2,
       goodAnswer: null,
@@ -291,7 +303,7 @@ describe("mlPuzzleGenerationService orchestration", () => {
         },
       ],
       allowLowConfidenceDraft: false,
-      previousSnapshotKeys: [],
+      previousSnapshots: [],
     });
 
     expect(selection.draft).toBe(false);
@@ -319,7 +331,7 @@ describe("mlPuzzleGenerationService orchestration", () => {
         },
       ],
       allowLowConfidenceDraft: false,
-      previousSnapshotKeys: ["0:18.20"],
+      previousSnapshots: [createPreviousSnapshotEntry({ snapshotIndex: 0, snapshotMinute: 18.2, signature: "ADC::18.20::1800::item-0" })],
     });
 
     expect(selection.primaryAttempt?.snapshotIndex).toBe(1);
@@ -346,10 +358,46 @@ describe("mlPuzzleGenerationService orchestration", () => {
         },
       ],
       allowLowConfidenceDraft: false,
-      previousSnapshotKeys: ["3:26.60"],
+      previousSnapshots: [createPreviousSnapshotEntry({ snapshotIndex: 3, snapshotMinute: 26.6, signature: "ADC::26.60::1800::item-3" })],
     });
 
     expect(selection.primaryAttempt?.snapshotIndex).toBe(3);
     expect(selection.segmentSummaries.find((entry) => entry.segment === "late")?.selectedFromHistoryFallback).toBe(true);
+  });
+
+  it("penalizes recently reused snapshot signatures even when the minute differs slightly", () => {
+    const baseAttempt = {
+      ...createAcceptedAttempt({ snapshotIndex: 0, qualityScore: 88 }),
+      snapshot: {
+        ...createAcceptedAttempt({ snapshotIndex: 0, qualityScore: 88 }).snapshot,
+        timestampMinutes: 18.24,
+      },
+      debugSummary: {
+        ...createAcceptedAttempt({ snapshotIndex: 0, qualityScore: 88 }).debugSummary,
+        snapshotMinute: 18.24,
+        snapshotSignature: "ADC::18.24::1800::item-0",
+      },
+    };
+    const alternativeAttempt = {
+      ...createAcceptedAttempt({ snapshotIndex: 1, qualityScore: 81 }),
+      snapshot: {
+        ...createAcceptedAttempt({ snapshotIndex: 1, qualityScore: 81 }).snapshot,
+        timestampMinutes: 19.1,
+      },
+      debugSummary: {
+        ...createAcceptedAttempt({ snapshotIndex: 1, qualityScore: 81 }).debugSummary,
+        snapshotMinute: 19.1,
+        snapshotSignature: "ADC::19.10::1800::item-1",
+      },
+    };
+
+    const selection = mlPuzzleGenerationServiceTestables.selectAttemptsForSeries({
+      attempts: [baseAttempt, alternativeAttempt],
+      allowLowConfidenceDraft: false,
+      previousSnapshots: [createPreviousSnapshotEntry({ snapshotIndex: 9, snapshotMinute: 18.24, signature: "ADC::18.24::1800::item-0" })],
+      now: new Date("2026-04-02T10:00:00.000Z"),
+    });
+
+    expect(selection.primaryAttempt?.snapshotIndex).toBe(1);
   });
 });

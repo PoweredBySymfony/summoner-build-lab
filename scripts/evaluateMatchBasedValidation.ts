@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { puzzleGenerationService } from "../server/src/services/puzzleGenerationService.js";
@@ -10,6 +10,8 @@ type CliOptions = {
   outputJsonPath: string;
   outputMarkdownPath: string;
   userEmail: string | null;
+  importedMatchIds: string[] | null;
+  baselineReportPath: string | null;
 };
 
 type JsonRecord = Record<string, unknown>;
@@ -19,6 +21,7 @@ type AttemptSummary = {
   snapshotMinute: number;
   patch: string;
   goldAvailable: number;
+  snapshotSignature?: string;
   rawCandidatePoolSize: number;
   filteredCandidatePoolSize: number;
   goodAnswer: string | null;
@@ -50,6 +53,7 @@ type EvaluationRow = {
   attemptsEvaluated: number;
   successfulSnapshots: number;
   selectedSnapshotHistoryKey: string | null;
+  selectedSnapshotSignature: string | null;
   selectedSnapshotSegment: string | null;
   lowConfidence: boolean | null;
   draft: boolean | null;
@@ -63,6 +67,8 @@ function parseArgs(argv: string[]): CliOptions {
     outputJsonPath: path.join("reports", "match-based-validation-report.json"),
     outputMarkdownPath: path.join("reports", "match-based-validation-report.md"),
     userEmail: null,
+    importedMatchIds: null,
+    baselineReportPath: null,
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -97,6 +103,18 @@ function parseArgs(argv: string[]): CliOptions {
       case "--user-email":
         if (next) {
           options.userEmail = next;
+        }
+        index += 1;
+        break;
+      case "--imported-match-ids":
+        if (next) {
+          options.importedMatchIds = next.split(",").map((entry) => entry.trim()).filter(Boolean);
+        }
+        index += 1;
+        break;
+      case "--baseline-report":
+        if (next) {
+          options.baselineReportPath = next;
         }
         index += 1;
         break;
@@ -146,6 +164,11 @@ function countBy(values: string[]) {
     .sort((left, right) => right.count - left.count || left.key.localeCompare(right.key));
 }
 
+async function loadJsonFile(filePath: string) {
+  const raw = await readFile(path.resolve(filePath), "utf-8");
+  return JSON.parse(raw) as JsonRecord;
+}
+
 function toAttemptSummary(value: unknown): AttemptSummary | null {
   const record = asObject(value);
   if (!record) {
@@ -157,6 +180,7 @@ function toAttemptSummary(value: unknown): AttemptSummary | null {
     snapshotMinute: Number(record.snapshotMinute ?? 0),
     patch: String(record.patch ?? "unknown"),
     goldAvailable: Number(record.goldAvailable ?? 0),
+    snapshotSignature: asString(record.snapshotSignature) ?? undefined,
     rawCandidatePoolSize: Number(record.rawCandidatePoolSize ?? 0),
     filteredCandidatePoolSize: Number(record.filteredCandidatePoolSize ?? 0),
     goodAnswer: asString(record.goodAnswer),
@@ -215,6 +239,8 @@ function buildMarkdown(input: {
     `- Completed rate: ${String(summary.completedRate ?? 0)}`,
     `- No viable snapshot found rate: ${String(summary.noViableSnapshotFoundRate ?? 0)}`,
     `- Distinct selected snapshots: ${String(summary.distinctSelectedSnapshotCount ?? 0)}`,
+    `- Distinct selected snapshot signatures: ${String(summary.distinctSelectedSnapshotSignatureCount ?? 0)}`,
+    `- Reused selected snapshot signatures: ${String(summary.reusedSelectedSnapshotSignatureCount ?? 0)}`,
     `- Distinct champions covered: ${String(summary.distinctChampionCount ?? 0)}`,
     "",
     "## Rejection Reasons",
@@ -245,6 +271,24 @@ function buildMarkdown(input: {
 
 async function main() {
   const options = parseArgs(process.argv.slice(2));
+  let patchCatalogFallbackOccurrences = 0;
+  const originalInfo = console.info;
+  const originalWarn = console.warn;
+  const trackPatchCatalogFallback = (args: unknown[]) => {
+    if (typeof args[0] === "string" && args[0].includes("[ml-puzzle] patch-catalog-fallback")) {
+      patchCatalogFallbackOccurrences += 1;
+    }
+  };
+  console.info = (...args: Parameters<typeof console.info>) => {
+    trackPatchCatalogFallback(args);
+    originalInfo(...args);
+  };
+  console.warn = (...args: Parameters<typeof console.warn>) => {
+    trackPatchCatalogFallback(args);
+    originalWarn(...args);
+  };
+
+  try {
   const evaluationUser = options.userEmail
     ? await prisma.user.findUnique({
         where: { email: options.userEmail },
@@ -263,11 +307,22 @@ async function main() {
     throw new Error("No user found in database. Provide --user-email or create a user first.");
   }
 
+  const baselineReport = options.baselineReportPath ? await loadJsonFile(options.baselineReportPath) : null;
+  const baselineGenerations = asArray(asObject(baselineReport)?.generations)
+    .map(asObject)
+    .filter((entry): entry is JsonRecord => entry !== null);
+  const forcedImportedMatchIds = options.importedMatchIds
+    ?? baselineGenerations
+      .map((entry) => asString(entry.importedMatchId))
+      .filter((entry): entry is string => Boolean(entry));
+
   const candidateMatches = await prisma.importedMatch.findMany({
     where: {
       timelineFetchedAt: { not: null },
       timelineMissingReason: null,
-      patch: { startsWith: options.strictPatchPrefix },
+      ...(forcedImportedMatchIds.length > 0
+        ? { id: { in: forcedImportedMatchIds } }
+        : { patch: { startsWith: options.strictPatchPrefix } }),
     },
     orderBy: [
       { createdAt: "desc" },
@@ -307,16 +362,20 @@ async function main() {
     return accumulator;
   }, {});
 
-  const matches = [...candidateMatches]
-    .sort((left, right) => {
-      const leftCount = requestCountByMatchId[left.id] ?? 0;
-      const rightCount = requestCountByMatchId[right.id] ?? 0;
-      if (leftCount !== rightCount) {
-        return leftCount - rightCount;
-      }
-      return right.createdAt.getTime() - left.createdAt.getTime();
-    })
-    .slice(0, options.sampleSize);
+  const matches = forcedImportedMatchIds.length > 0
+    ? forcedImportedMatchIds
+      .map((matchId) => candidateMatches.find((match) => match.id === matchId) ?? null)
+      .filter((entry): entry is (typeof candidateMatches)[number] => entry !== null)
+    : [...candidateMatches]
+      .sort((left, right) => {
+        const leftCount = requestCountByMatchId[left.id] ?? 0;
+        const rightCount = requestCountByMatchId[right.id] ?? 0;
+        if (leftCount !== rightCount) {
+          return leftCount - rightCount;
+        }
+        return right.createdAt.getTime() - left.createdAt.getTime();
+      })
+      .slice(0, options.sampleSize);
 
   const generations: EvaluationRow[] = [];
 
@@ -372,6 +431,10 @@ async function main() {
       attemptsEvaluated: asNumber(attemptsSummary?.snapshotsEvaluated) ?? attempts.length,
       successfulSnapshots: asNumber(attemptsSummary?.successfulSnapshots) ?? attempts.filter((attempt) => attempt.rejectionReasons.length === 0).length,
       selectedSnapshotHistoryKey: asString(primarySelectedSnapshotWithHistory?.historyKey),
+      selectedSnapshotSignature:
+        asString(primarySelectedSnapshotWithHistory?.snapshotSignature)
+        ?? selectedAttempt?.snapshotSignature
+        ?? null,
       selectedSnapshotSegment: asString(primarySelectedSnapshotWithHistory?.segment),
       lowConfidence: "lowConfidence" in response ? response.lowConfidence : null,
       draft: "draft" in response ? response.draft : null,
@@ -398,6 +461,10 @@ async function main() {
       .map((row) => row.selectedSnapshotHistoryKey)
       .filter((entry): entry is string => Boolean(entry)),
   );
+  const selectedSnapshotSignatures = generations
+    .map((row) => row.selectedSnapshotSignature)
+    .filter((entry): entry is string => Boolean(entry));
+  const distinctSelectedSnapshotSignatures = new Set(selectedSnapshotSignatures);
   const summary = {
     completedCount,
     noViableSnapshotFoundCount: noViableCount,
@@ -406,6 +473,9 @@ async function main() {
     noViableSnapshotFoundRate: Number((noViableCount / generations.length).toFixed(4)),
     rejectionReasonCounts,
     distinctSelectedSnapshotCount: selectedSnapshotKeys.size,
+    distinctSelectedSnapshotSignatureCount: distinctSelectedSnapshotSignatures.size,
+    reusedSelectedSnapshotSignatureCount: selectedSnapshotSignatures.length - distinctSelectedSnapshotSignatures.size,
+    patchCatalogFallbackOccurrences,
     distinctChampionCount: new Set(generations.map((row) => row.championSlug).filter((entry): entry is string => Boolean(entry))).size,
     snapshotSegmentCounts,
     averageCandidatePoolSize: Number(
@@ -417,13 +487,49 @@ async function main() {
       ).toFixed(2),
     ),
   };
+  const baselineSummary = asObject(asObject(baselineReport)?.summary);
+  const delta = baselineSummary
+    ? {
+        completedRateDelta: Number(((asNumber(summary.completedRate) ?? 0) - (asNumber(baselineSummary.completedRate) ?? 0)).toFixed(4)),
+        noViableSnapshotFoundRateDelta: Number(
+          ((asNumber(summary.noViableSnapshotFoundRate) ?? 0) - (asNumber(baselineSummary.noViableSnapshotFoundRate) ?? 0)).toFixed(4),
+        ),
+        distinctSelectedSnapshotCountDelta: (summary.distinctSelectedSnapshotCount ?? 0) - (asNumber(baselineSummary.distinctSelectedSnapshotCount) ?? 0),
+        distinctSelectedSnapshotSignatureCountDelta:
+          (summary.distinctSelectedSnapshotSignatureCount ?? 0)
+          - (asNumber(baselineSummary.distinctSelectedSnapshotSignatureCount) ?? 0),
+        averageCandidatePoolSizeDelta: Number(
+          ((asNumber(summary.averageCandidatePoolSize) ?? 0) - (asNumber(baselineSummary.averageCandidatePoolSize) ?? 0)).toFixed(2),
+        ),
+        rejectionReasonDeltas: Array.from(
+          new Set([
+            ...asArray(baselineSummary.rejectionReasonCounts)
+              .map((entry) => asString(asObject(entry)?.reason))
+              .filter((entry): entry is string => Boolean(entry)),
+            ...summary.rejectionReasonCounts.map((entry) => entry.reason),
+          ]),
+        )
+          .sort((left, right) => left.localeCompare(right))
+          .map((reason) => ({
+            reason,
+            countDelta:
+              (summary.rejectionReasonCounts.find((entry) => entry.reason === reason)?.count ?? 0)
+              - (
+                asArray(baselineSummary.rejectionReasonCounts)
+                  .map(asObject)
+                  .find((entry) => asString(entry?.reason) === reason)?.count as number | undefined
+                ?? 0
+              ),
+          })),
+      }
+    : null;
 
   const reproductionCommands = [
     "npm run ml:export-raw",
     "cd ml",
     ".\\.venv\\Scripts\\python.exe scripts\\tasks.py build-dataset",
     ".\\.venv\\Scripts\\python.exe scripts\\tasks.py train-baseline",
-    `npm run audit:match-based-validation -- --sample-size ${options.sampleSize}${options.userEmail ? ` --user-email ${options.userEmail}` : ""}`,
+    `npm run audit:match-based-validation -- --sample-size ${options.sampleSize}${options.userEmail ? ` --user-email ${options.userEmail}` : ""}${forcedImportedMatchIds.length > 0 ? ` --imported-match-ids ${forcedImportedMatchIds.join(",")}` : ""}${options.baselineReportPath ? ` --baseline-report ${options.baselineReportPath}` : ""}`,
   ];
 
   const report = {
@@ -443,6 +549,7 @@ async function main() {
       ordering: "fewest-previous-requests-first, then newest imported matches",
     },
     summary,
+    delta,
     generations,
     reproduction: {
       commands: reproductionCommands,
@@ -478,6 +585,10 @@ async function main() {
       2,
     ),
   );
+  } finally {
+    console.info = originalInfo;
+    console.warn = originalWarn;
+  }
 }
 
 main()

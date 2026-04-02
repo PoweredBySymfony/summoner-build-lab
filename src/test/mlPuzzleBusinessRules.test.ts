@@ -260,6 +260,41 @@ describe("buildMlPuzzleBusinessRules", () => {
     expect(result.debug.goodAnswerViolations).toContain("too-cheap");
     expect(result.distractorCandidates.some((item) => item.slug === "arc-aquebuse")).toBe(false);
     expect(result.debug.goldFilter.applied).toBe(true);
+    expect(result.debug.goodAnswerGoldAssessment).toBe("too-cheap");
+  });
+
+  it("keeps a coherent mid-cost component when it is a legitimate bridge purchase", () => {
+    const midCostAdcComponent = {
+      id: "12",
+      slug: "carquois-midi",
+      name: "Carquois de midi",
+      riotItemId: 6670,
+      patch: "16.6.1",
+      category: "crit",
+      tags: ["AttackSpeed", "Damage"],
+      isBoots: false,
+      isLegendary: false,
+      isConsumable: false,
+      isStarter: false,
+      isTrinket: false,
+      isActive: true,
+      goldTotal: 1200,
+      buildsFrom: ["1042"],
+      itemGroups: [],
+    } as const;
+    const result = buildMlPuzzleBusinessRules({
+      snapshot: { ...baseSnapshot },
+      championTags: ["Marksman"],
+      goodAnswer: midCostAdcComponent,
+      rankedCandidates: [midCostAdcComponent, ...availableItems],
+      availableItems: [midCostAdcComponent, ...availableItems],
+      previousChoiceSignatures: [],
+      variationSeed: "seed-legit-component",
+    });
+
+    expect(result.debug.goodAnswerViolations).not.toContain("too-cheap");
+    expect(result.debug.goodAnswerGoldAssessment).toBe("legitimate-component");
+    expect(result.distractorCandidates.some((item) => item.slug === "chapitre-perdu")).toBe(false);
   });
 
   it("builds a candidate pool of at least six items when enough coherent fallbacks exist", () => {

@@ -71,6 +71,7 @@ type AttemptDebugSummary = {
   snapshotMinute: number;
   patch: string;
   goldAvailable: number;
+  snapshotSignature: string;
   rawCandidatePoolSize: number;
   filteredCandidatePoolSize: number;
   goodAnswer: string | null;
@@ -117,6 +118,8 @@ type SnapshotHistoryEntry = {
   snapshotIndex: number;
   snapshotMinute: number;
   key: string;
+  signature: string;
+  createdAt: Date;
 };
 
 type SegmentEvaluationSummary = {
@@ -274,6 +277,20 @@ function buildSnapshotHistoryKey(input: {
   return `${input.snapshotIndex}:${input.snapshotMinute.toFixed(2)}`;
 }
 
+function buildSnapshotSignature(input: {
+  snapshotMinute: number;
+  goldAvailable: number;
+  role?: Role | null;
+  currentItems: string[];
+}) {
+  return [
+    input.role ?? "FLEX",
+    input.snapshotMinute.toFixed(2),
+    Math.max(0, Math.round(input.goldAvailable)),
+    [...input.currentItems].sort().join("|"),
+  ].join("::");
+}
+
 function getSnapshotSegment(snapshotMinute: number): SnapshotSegment | null {
   for (const entry of SNAPSHOT_SEGMENTS) {
     if (snapshotMinute >= entry.minInclusive && snapshotMinute < entry.maxExclusive) {
@@ -310,6 +327,12 @@ function buildMlRequestMetadata(input: {
             qualityScore: primaryAttempt.qualityScore,
             variationSeed: primaryAttempt.variationSeed,
             choiceSignature: primaryAttempt.choiceSignature,
+            snapshotSignature: buildSnapshotSignature({
+              snapshotMinute: primaryAttempt.snapshot.timestampMinutes,
+              goldAvailable: primaryAttempt.snapshot.goldAvailable,
+              role: primaryAttempt.snapshot.role,
+              currentItems: primaryAttempt.snapshot.currentItems,
+            }),
           }
         : null,
     selectedSnapshots:
@@ -324,6 +347,12 @@ function buildMlRequestMetadata(input: {
         historyKey: buildSnapshotHistoryKey({
           snapshotIndex: attempt.snapshotIndex,
           snapshotMinute: attempt.snapshot.timestampMinutes,
+        }),
+        snapshotSignature: buildSnapshotSignature({
+          snapshotMinute: attempt.snapshot.timestampMinutes,
+          goldAvailable: attempt.snapshot.goldAvailable,
+          role: attempt.snapshot.role,
+          currentItems: attempt.snapshot.currentItems,
         }),
       })) ?? [],
     attemptsSummary: {
@@ -716,6 +745,7 @@ async function getPreviousServedSnapshots(input: {
     },
     select: {
       parameters: true,
+      createdAt: true,
     },
   });
 
@@ -750,11 +780,70 @@ async function getPreviousServedSnapshots(input: {
           snapshotIndex,
           snapshotMinute,
         }),
+        signature:
+          typeof snapshotObject.snapshotSignature === "string" && snapshotObject.snapshotSignature.length > 0
+            ? snapshotObject.snapshotSignature
+            : buildSnapshotHistoryKey({
+              snapshotIndex,
+              snapshotMinute,
+            }),
+        createdAt: request.createdAt,
       });
     }
   }
 
   return entries;
+}
+
+function getSnapshotHistoryMetrics(input: {
+  attempt: PreparedSnapshotAttempt;
+  previousSnapshots: SnapshotHistoryEntry[];
+  now?: Date;
+}) {
+  const historyKey = buildSnapshotHistoryKey({
+    snapshotIndex: input.attempt.snapshotIndex,
+    snapshotMinute: input.attempt.snapshot.timestampMinutes,
+  });
+  const signature = buildSnapshotSignature({
+    snapshotMinute: input.attempt.snapshot.timestampMinutes,
+    goldAvailable: input.attempt.snapshot.goldAvailable,
+    role: input.attempt.snapshot.role,
+    currentItems: input.attempt.snapshot.currentItems,
+  });
+  const nowMs = (input.now ?? new Date()).getTime();
+  const signatureMatches = input.previousSnapshots.filter((entry) => entry.signature === signature);
+  const exactMatches = signatureMatches.filter((entry) => entry.key === historyKey);
+  const recentSignatureMatches = signatureMatches.filter((entry) => nowMs - entry.createdAt.getTime() <= 24 * 60 * 60 * 1000);
+  const recentExactMatches = exactMatches.filter((entry) => nowMs - entry.createdAt.getTime() <= 24 * 60 * 60 * 1000);
+
+  return {
+    historyKey,
+    signature,
+    exactMatchCount: exactMatches.length,
+    signatureMatchCount: signatureMatches.length,
+    recentExactMatchCount: recentExactMatches.length,
+    recentSignatureMatchCount: recentSignatureMatches.length,
+  };
+}
+
+function calculateSnapshotReusePenalty(input: {
+  attempt: PreparedSnapshotAttempt;
+  previousSnapshots: SnapshotHistoryEntry[];
+  now?: Date;
+}) {
+  const metrics = getSnapshotHistoryMetrics(input);
+  const penalty = (
+    metrics.exactMatchCount * 18
+    + metrics.signatureMatchCount * 8
+    + metrics.recentExactMatchCount * 18
+    + metrics.recentSignatureMatchCount * 10
+  );
+
+  return {
+    ...metrics,
+    penalty,
+    adjustedQualityScore: Number((input.attempt.qualityScore - penalty).toFixed(2)),
+  };
 }
 
 function scoreSnapshotCandidate(snapshot: MlPuzzleSnapshot) {
@@ -1101,6 +1190,12 @@ function buildRejectedAttempt(input: {
       snapshotMinute: Number(input.candidate.snapshot.timestampMinutes.toFixed(2)),
       patch: input.candidate.snapshot.patch,
       goldAvailable: input.candidate.snapshot.goldAvailable,
+      snapshotSignature: buildSnapshotSignature({
+        snapshotMinute: input.candidate.snapshot.timestampMinutes,
+        goldAvailable: input.candidate.snapshot.goldAvailable,
+        role: input.candidate.snapshot.role,
+        currentItems: input.candidate.snapshot.currentItems,
+      }),
       rawCandidatePoolSize: input.rawCandidatePoolSize,
       filteredCandidatePoolSize: input.filteredCandidatePoolSize,
       goodAnswer: input.goodAnswer,
@@ -1309,6 +1404,12 @@ async function prepareSnapshotAttempt(input: {
         snapshotMinute: Number(input.candidate.snapshot.timestampMinutes.toFixed(2)),
         patch: input.candidate.snapshot.patch,
         goldAvailable: input.candidate.snapshot.goldAvailable,
+        snapshotSignature: buildSnapshotSignature({
+          snapshotMinute: input.candidate.snapshot.timestampMinutes,
+          goldAvailable: input.candidate.snapshot.goldAvailable,
+          role: input.candidate.snapshot.role,
+          currentItems: input.candidate.snapshot.currentItems,
+        }),
         rawCandidatePoolSize: prediction.candidate_pool_size,
         filteredCandidatePoolSize: businessRules.debug.candidatePoolSizeAfterFallback,
         goodAnswer: resolvedChoices.goodAnswer.slug,
@@ -1370,12 +1471,29 @@ function selectBestAttempt(input: {
 function selectAttemptsForSeries(input: {
   attempts: SnapshotAttempt[];
   allowLowConfidenceDraft: boolean;
-  previousSnapshotKeys: string[];
+  previousSnapshots: SnapshotHistoryEntry[];
+  now?: Date;
 }): SeriesSelectionResult {
   const accepted = input.attempts.filter((attempt): attempt is PreparedSnapshotAttempt => attempt.status === "accepted");
-  const previousSnapshotKeys = new Set(input.previousSnapshotKeys);
-  const byScore = (left: PreparedSnapshotAttempt, right: PreparedSnapshotAttempt) =>
-    right.qualityScore - left.qualityScore;
+  const byAdjustedScore = (left: PreparedSnapshotAttempt, right: PreparedSnapshotAttempt) => {
+    const leftPenalty = calculateSnapshotReusePenalty({
+      attempt: left,
+      previousSnapshots: input.previousSnapshots,
+      now: input.now,
+    });
+    const rightPenalty = calculateSnapshotReusePenalty({
+      attempt: right,
+      previousSnapshots: input.previousSnapshots,
+      now: input.now,
+    });
+    if (rightPenalty.adjustedQualityScore !== leftPenalty.adjustedQualityScore) {
+      return rightPenalty.adjustedQualityScore - leftPenalty.adjustedQualityScore;
+    }
+    if (right.qualityScore !== left.qualityScore) {
+      return right.qualityScore - left.qualityScore;
+    }
+    return left.snapshot.timestampMinutes - right.snapshot.timestampMinutes;
+  };
 
   const chooseFromPool = (pool: PreparedSnapshotAttempt[]) => {
     const selectedAttempts: PreparedSnapshotAttempt[] = [];
@@ -1385,39 +1503,37 @@ function selectAttemptsForSeries(input: {
     for (const segmentConfig of SNAPSHOT_SEGMENTS) {
       const segmentAttempts = pool
         .filter((attempt) => getSnapshotSegment(attempt.snapshot.timestampMinutes) === segmentConfig.segment)
-        .sort(byScore);
-      const freshAttempts = segmentAttempts.filter(
-        (attempt) =>
-          !previousSnapshotKeys.has(
-            buildSnapshotHistoryKey({
-              snapshotIndex: attempt.snapshotIndex,
-              snapshotMinute: attempt.snapshot.timestampMinutes,
-            }),
-          ),
-      );
-
-      if (freshAttempts.length > 0) {
-        for (const repeatedAttempt of segmentAttempts) {
-          const historyKey = buildSnapshotHistoryKey({
-            snapshotIndex: repeatedAttempt.snapshotIndex,
-            snapshotMinute: repeatedAttempt.snapshot.timestampMinutes,
-          });
-          if (!previousSnapshotKeys.has(historyKey)) {
-            continue;
-          }
-          repetitionExcluded.push({
-            segment: segmentConfig.segment,
-            snapshotIndex: repeatedAttempt.snapshotIndex,
-            snapshotMinute: Number(repeatedAttempt.snapshot.timestampMinutes.toFixed(2)),
-            qualityScore: repeatedAttempt.qualityScore,
-          });
-        }
-      }
-
-      const selectedAttempt = freshAttempts[0] ?? segmentAttempts[0] ?? null;
+        .sort(byAdjustedScore);
+      const selectedAttempt = segmentAttempts[0] ?? null;
       if (selectedAttempt) {
         selectedAttempts.push(selectedAttempt);
       }
+      for (const repeatedAttempt of segmentAttempts) {
+        if (selectedAttempt && repeatedAttempt.snapshotIndex === selectedAttempt.snapshotIndex) {
+          continue;
+        }
+        const historyMetrics = getSnapshotHistoryMetrics({
+          attempt: repeatedAttempt,
+          previousSnapshots: input.previousSnapshots,
+          now: input.now,
+        });
+        if (historyMetrics.signatureMatchCount === 0 && historyMetrics.exactMatchCount === 0) {
+          continue;
+        }
+        repetitionExcluded.push({
+          segment: segmentConfig.segment,
+          snapshotIndex: repeatedAttempt.snapshotIndex,
+          snapshotMinute: Number(repeatedAttempt.snapshot.timestampMinutes.toFixed(2)),
+          qualityScore: repeatedAttempt.qualityScore,
+        });
+      }
+      const selectedHistoryMetrics = selectedAttempt
+        ? getSnapshotHistoryMetrics({
+          attempt: selectedAttempt,
+          previousSnapshots: input.previousSnapshots,
+          now: input.now,
+        })
+        : null;
       segmentSummaries.push({
         segment: segmentConfig.segment,
         totalAccepted: segmentAttempts.length,
@@ -1428,8 +1544,8 @@ function selectAttemptsForSeries(input: {
         selectedQualityScore: selectedAttempt?.qualityScore ?? null,
         selectedFromHistoryFallback:
           Boolean(selectedAttempt)
-          && freshAttempts.length === 0
-          && segmentAttempts.length > 0,
+          && Boolean(selectedHistoryMetrics)
+          && (selectedHistoryMetrics.signatureMatchCount > 0 || selectedHistoryMetrics.exactMatchCount > 0),
       });
     }
 
@@ -1443,7 +1559,7 @@ function selectAttemptsForSeries(input: {
   const publishedCandidates = accepted.filter((attempt) => !attempt.seed.lowConfidence);
   const publishedSelection = chooseFromPool(publishedCandidates);
   if (publishedSelection.selectedAttempts.length > 0) {
-    const primaryAttempt = [...publishedSelection.selectedAttempts].sort(byScore)[0] ?? null;
+    const primaryAttempt = [...publishedSelection.selectedAttempts].sort(byAdjustedScore)[0] ?? null;
     const orderedAttempts = primaryAttempt
       ? [
           primaryAttempt,
@@ -1465,7 +1581,7 @@ function selectAttemptsForSeries(input: {
     const draftCandidates = accepted.filter((attempt) => attempt.seed.lowConfidence);
     const draftSelection = chooseFromPool(draftCandidates);
     if (draftSelection.selectedAttempts.length > 0) {
-      const primaryAttempt = [...draftSelection.selectedAttempts].sort(byScore)[0] ?? null;
+      const primaryAttempt = [...draftSelection.selectedAttempts].sort(byAdjustedScore)[0] ?? null;
       const orderedAttempts = primaryAttempt
         ? [
             primaryAttempt,
@@ -1719,8 +1835,20 @@ export const mlPuzzleGenerationService = {
       const selection = selectAttemptsForSeries({
         attempts,
         allowLowConfidenceDraft,
-        previousSnapshotKeys: previousServedSnapshots.map((entry) => entry.key),
+        previousSnapshots: previousServedSnapshots,
       });
+      console.info(
+        "[ml-puzzle] generation-history",
+        JSON.stringify({
+          requestId: request.id,
+          importedMatchId,
+          userId,
+          memoryCacheHit: false,
+          previousSnapshotCount: previousServedSnapshots.length,
+          previousSnapshotKeys: previousServedSnapshots.map((entry) => entry.key),
+          previousSnapshotSignatures: [...new Set(previousServedSnapshots.map((entry) => entry.signature))].slice(0, 12),
+        }),
+      );
       console.info(
         "[ml-puzzle] segments-evaluated",
         JSON.stringify({
@@ -1780,11 +1908,36 @@ export const mlPuzzleGenerationService = {
               segment: getSnapshotSegment(attempt.snapshot.timestampMinutes),
               snapshotIndex: attempt.snapshotIndex,
               snapshotMinute: attempt.snapshot.timestampMinutes,
+              snapshotSignature: buildSnapshotSignature({
+                snapshotMinute: attempt.snapshot.timestampMinutes,
+                goldAvailable: attempt.snapshot.goldAvailable,
+                role: attempt.snapshot.role,
+                currentItems: attempt.snapshot.currentItems,
+              }),
               qualityScore: attempt.qualityScore,
+              adjustedQualityScore: calculateSnapshotReusePenalty({
+                attempt,
+                previousSnapshots: previousServedSnapshots,
+              }).adjustedQualityScore,
               historyKey: buildSnapshotHistoryKey({
                 snapshotIndex: attempt.snapshotIndex,
                 snapshotMinute: attempt.snapshot.timestampMinutes,
               }),
+            })),
+            candidates: attempts.map((attempt) => ({
+              snapshotIndex: attempt.snapshotIndex,
+              snapshotMinute: Number(attempt.snapshot.timestampMinutes.toFixed(2)),
+              snapshotSignature: attempt.debugSummary.snapshotSignature,
+              status: attempt.status,
+              qualityScore: attempt.debugSummary.qualityScore,
+              rejectionReasons: attempt.debugSummary.rejectionReasons,
+              reuse:
+                attempt.status === "accepted"
+                  ? calculateSnapshotReusePenalty({
+                    attempt,
+                    previousSnapshots: previousServedSnapshots,
+                  })
+                  : null,
             })),
             lowConfidence: selection.primaryAttempt.seed.lowConfidence,
             draft: selection.draft,
