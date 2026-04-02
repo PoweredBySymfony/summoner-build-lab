@@ -179,6 +179,11 @@ type ResolvedPatchLookup = {
   lookupCandidates: string[];
 };
 
+type ItemGoldValue = {
+  goldTotal: number;
+  goldSell: number;
+};
+
 const PHYSICAL_TAGS = new Set(["Marksman", "Assassin", "Fighter"]);
 const MAGIC_TAGS = new Set(["Mage", "Support"]);
 const FRONTLINE_TAGS = new Set(["Tank", "Fighter"]);
@@ -406,6 +411,58 @@ function asRecord(value: unknown) {
 
 function asOptionalString(value: unknown) {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+}
+
+function resolveItemGoldValue(
+  itemGoldIndex: Map<number, ItemGoldValue>,
+  itemId: number,
+) {
+  return itemGoldIndex.get(itemId) ?? {
+    goldTotal: 0,
+    goldSell: 0,
+  };
+}
+
+function calculateGoldBeforePurchaseFromFrame(input: {
+  events: Array<Record<string, unknown>>;
+  participantId: number;
+  purchaseEventIndex: number;
+  endingGold: number;
+  itemGoldIndex: Map<number, ItemGoldValue>;
+}) {
+  let workingGold = input.endingGold;
+
+  for (let index = input.events.length - 1; index >= input.purchaseEventIndex; index -= 1) {
+    const event = input.events[index];
+    if (safeInt(event.participantId) !== input.participantId) {
+      continue;
+    }
+
+    const eventType = String(event.type ?? "");
+    const itemId = safeInt(event.itemId);
+
+    if (eventType === "ITEM_PURCHASED" && itemId > 0) {
+      workingGold += resolveItemGoldValue(input.itemGoldIndex, itemId).goldTotal;
+      if (index === input.purchaseEventIndex) {
+        return workingGold;
+      }
+      continue;
+    }
+
+    if (eventType === "ITEM_SOLD" && itemId > 0) {
+      workingGold -= resolveItemGoldValue(input.itemGoldIndex, itemId).goldSell;
+      continue;
+    }
+
+    if (eventType === "ITEM_UNDO") {
+      if (index === input.purchaseEventIndex) {
+        return workingGold;
+      }
+      continue;
+    }
+  }
+
+  return workingGold;
 }
 
 function resolveEffectivePatchLookup(input: {
@@ -830,10 +887,19 @@ async function buildSnapshotCandidatesFromImportedMatch(
         select: {
           riotItemId: true,
           slug: true,
+          goldTotal: true,
+          goldSell: true,
         },
       })
     : [];
   const itemSlugIndex = new Map(itemRows.map((item) => [item.riotItemId, item.slug]));
+  const itemGoldIndex = new Map(itemRows.map((item) => [
+    item.riotItemId,
+    {
+      goldTotal: item.goldTotal,
+      goldSell: item.goldSell ?? Math.floor(item.goldTotal * 0.7),
+    },
+  ]));
 
   const allyTeamDraft: ScenarioMemberDraft[] = [];
   const enemyTeamDraft: ScenarioMemberDraft[] = [];
@@ -889,7 +955,7 @@ async function buildSnapshotCandidatesFromImportedMatch(
     const participantFrame = participantFrames?.[String(participantId)] ?? {};
     const events = Array.isArray(frame.events) ? (frame.events as Array<Record<string, unknown>>) : [];
 
-    for (const event of events) {
+    for (const [eventIndex, event] of events.entries()) {
       const eventType = String(event.type ?? "");
       const eventParticipantId = safeInt(event.participantId);
 
@@ -914,6 +980,13 @@ async function buildSnapshotCandidatesFromImportedMatch(
 
       const itemId = safeInt(event.itemId);
       if (eventType === "ITEM_PURCHASED" && itemId > 0) {
+        const goldBeforePurchase = calculateGoldBeforePurchaseFromFrame({
+          events,
+          participantId,
+          purchaseEventIndex: eventIndex,
+          endingGold: safeInt(participantFrame.currentGold),
+          itemGoldIndex,
+        });
         const currentBuild = inventory
           .map((value) => itemSlugIndex.get(value))
           .filter((value): value is string => Boolean(value));
@@ -941,7 +1014,7 @@ async function buildSnapshotCandidatesFromImportedMatch(
           patch: importedMatch.patch ?? "unknown",
           championSlug: importedMatch.targetChampionSlug ?? "",
           role: importedMatch.targetRole,
-          goldAvailable: safeInt(participantFrame.currentGold),
+          goldAvailable: goldBeforePurchase,
           level: safeInt(participantFrame.level),
           kills,
           deaths,
@@ -1782,4 +1855,5 @@ export const mlPuzzleGenerationServiceTestables = {
   getSnapshotSegment,
   selectAttemptsForSeries,
   resolveEffectivePatchLookup,
+  calculateGoldBeforePurchaseFromFrame,
 };

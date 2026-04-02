@@ -198,6 +198,52 @@ def _participant_frame(frame: dict[str, Any] | None, participant_id: int) -> dic
     return {}
 
 
+def _item_gold_values(catalog: Any, item_id: int) -> tuple[int, int]:
+    item_slug = catalog.item_slug_by_id.get(item_id)
+    if not item_slug:
+        return 0, 0
+    item_meta = catalog.item_meta_by_slug.get(item_slug, {})
+    total = safe_int(item_meta.get("goldTotal"))
+    sell = safe_int(item_meta.get("goldSell")) if item_meta.get("goldSell") is not None else int(total * 0.7)
+    return total, sell
+
+
+def _gold_before_purchase_from_frame_events(
+    *,
+    events: list[dict[str, Any]],
+    participant_id: int,
+    purchase_event_index: int,
+    ending_gold: int,
+    catalog: Any,
+) -> int:
+    working_gold = ending_gold
+
+    for index in range(len(events) - 1, purchase_event_index - 1, -1):
+        event = events[index]
+        if safe_int(event.get("participantId")) != participant_id:
+            continue
+
+        event_type = str(event.get("type") or "")
+        item_id = safe_int(event.get("itemId"))
+
+        if event_type == "ITEM_PURCHASED" and item_id > 0:
+            item_cost, _ = _item_gold_values(catalog, item_id)
+            working_gold += item_cost
+            if index == purchase_event_index:
+                return working_gold
+            continue
+
+        if event_type == "ITEM_SOLD" and item_id > 0:
+            _, sell_value = _item_gold_values(catalog, item_id)
+            working_gold -= sell_value
+            continue
+
+        if event_type == "ITEM_UNDO" and index == purchase_event_index:
+            return working_gold
+
+    return working_gold
+
+
 def _build_item_feature_payload(item_meta: dict[str, Any]) -> dict[str, Any]:
     builds_from = item_meta.get("buildsFrom", [])
     builds_into = item_meta.get("buildsInto", [])
@@ -314,7 +360,7 @@ def build_analytic_dataset(config: AppConfig) -> DatasetBuildSummary:
             key=lambda entry: (safe_int(entry.get("timestamp")), str(entry.get("type") or "")),
         )
 
-        for event in sorted_events:
+        for _, event in enumerate(sorted_events):
             event_type = str(event.get("type") or "")
             event_timestamp = safe_int(event.get("timestamp"))
 
@@ -337,6 +383,15 @@ def build_analytic_dataset(config: AppConfig) -> DatasetBuildSummary:
             if event_type == "ITEM_PURCHASED" and item_id > 0:
                 frame = _frame_for_timestamp(event_timestamp, frame_timestamps, normalized_frames)
                 participant_frame = _participant_frame(frame, participant_id)
+                frame_events = frame.get("events", []) if isinstance(frame, dict) else []
+                purchase_event_index = next(
+                    (
+                        index
+                        for index, frame_event in enumerate(frame_events)
+                        if isinstance(frame_event, dict) and frame_event is event
+                    ),
+                    0,
+                )
                 current_items = [
                     catalog.item_slug_by_id[item_id_value]
                     for item_id_value in inventory
@@ -348,7 +403,13 @@ def build_analytic_dataset(config: AppConfig) -> DatasetBuildSummary:
                     inventory.append(item_id)
                     continue
 
-                gold_available = safe_int(participant_frame.get("currentGold"))
+                gold_available = _gold_before_purchase_from_frame_events(
+                    events=[frame_event for frame_event in frame_events if isinstance(frame_event, dict)],
+                    participant_id=participant_id,
+                    purchase_event_index=purchase_event_index,
+                    ending_gold=safe_int(participant_frame.get("currentGold")),
+                    catalog=catalog,
+                )
                 actual_item_meta = catalog.item_meta_by_slug.get(actual_next_item, {})
                 actual_item_cost = safe_int(actual_item_meta.get("goldTotal"))
                 if gold_available > 0 and actual_item_cost > gold_available:

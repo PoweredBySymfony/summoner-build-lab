@@ -233,6 +233,38 @@ describe("mlPuzzleGenerationService orchestration", () => {
     expect(mlPuzzleGenerationServiceTestables.getSnapshotSegment(7.99)).toBeNull();
   });
 
+  it("reconstructs gold before purchases when multiple buys happen in the same frame", () => {
+    const goldBeforeFirstPurchase = mlPuzzleGenerationServiceTestables.calculateGoldBeforePurchaseFromFrame({
+      events: [
+        { type: "ITEM_PURCHASED", participantId: 1, itemId: 1001 },
+        { type: "ITEM_PURCHASED", participantId: 1, itemId: 2003 },
+      ],
+      participantId: 1,
+      purchaseEventIndex: 0,
+      endingGold: 150,
+      itemGoldIndex: new Map([
+        [1001, { goldTotal: 300, goldSell: 210 }],
+        [2003, { goldTotal: 50, goldSell: 20 }],
+      ]),
+    });
+    const goldBeforeSecondPurchase = mlPuzzleGenerationServiceTestables.calculateGoldBeforePurchaseFromFrame({
+      events: [
+        { type: "ITEM_PURCHASED", participantId: 1, itemId: 1001 },
+        { type: "ITEM_PURCHASED", participantId: 1, itemId: 2003 },
+      ],
+      participantId: 1,
+      purchaseEventIndex: 1,
+      endingGold: 150,
+      itemGoldIndex: new Map([
+        [1001, { goldTotal: 300, goldSell: 210 }],
+        [2003, { goldTotal: 50, goldSell: 20 }],
+      ]),
+    });
+
+    expect(goldBeforeFirstPurchase).toBe(500);
+    expect(goldBeforeSecondPurchase).toBe(200);
+  });
+
   it("selects up to one high-quality published snapshot per segment", () => {
     const selection = mlPuzzleGenerationServiceTestables.selectAttemptsForSeries({
       attempts: [

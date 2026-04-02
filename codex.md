@@ -1705,3 +1705,80 @@ Lire ce fichier au debut de chaque nouvelle conversation sur ce repo, puis le me
     - `patchItemCount > 100`: oui
     - fin du fallback global: oui
     - `good-answer-unresolved` non dominant: pas encore totalement, mais quasi a parite
+
+## 2026-04-01 Gold Before Purchase
+
+- Contexte:
+  - `dataset-report.json` remontait un `gold_incoherent_ratio` eleve (`~0.3983`)
+  - l'audit `match-based-validation` montrait encore beaucoup de rejets `good-answer-too-cheap` et `low-confidence`
+  - la cause etait un `goldAvailable` calcule avec `participantFrame.currentGold`, donc a la fin de frame, potentiellement apres plusieurs achats
+- Correction backend puzzle:
+  - `server/src/services/mlPuzzleGenerationService.ts` calcule maintenant un `goldBeforePurchase` par reverse replay des events de la frame
+  - point de depart: `participantFrame.currentGold`
+  - parcours reverse des events du participant:
+    - `ITEM_PURCHASED`: on re-ajoute `goldTotal`
+    - `ITEM_SOLD`: on retire `goldSell`
+    - `ITEM_UNDO`: traitement neutre pour ne pas empirer la reconstruction
+  - `snapshot.goldAvailable` utilise desormais `goldBeforePurchase` au lieu du gold de fin de frame
+- Alignement ML offline:
+  - `ml/features/analytics.py` applique la meme logique de replay reverse au niveau dataset builder
+  - objectif: reduire l'incoherence gold offline et rapprocher la logique d'evaluation et de generation
+- Tests:
+  - test TS ajoute dans `src/test/mlPuzzleOrchestration.test.ts`
+  - test Python ajoute dans `ml/tests/test_pipeline.py`
+  - cas couvert: 2 achats dans la meme frame avec verification que `goldBefore` varie correctement (`500` puis `200`)
+- Verification executee:
+  - `npx eslint server/src/services/mlPuzzleGenerationService.ts src/test/mlPuzzleOrchestration.test.ts`
+  - `npx tsc -p tsconfig.server.json --noEmit`
+  - `npx vitest run src/test/mlPuzzleOrchestration.test.ts`
+  - `ml\.venv\Scripts\python.exe -m pytest ml/tests/test_pipeline.py -q`
+  - `npm run ml:export-raw`
+  - `ml\.venv\Scripts\python.exe ml\scripts\tasks.py build-dataset`
+  - `ml\.venv\Scripts\python.exe ml\scripts\tasks.py train-baseline`
+  - `npm run audit:match-based-validation -- --sample-size 10`
+- Effet mesure:
+  - `gold_incoherent_ratio`: `0.3983 -> 0.3121`
+  - `candidate_pool_median`: `23 -> 35`
+  - `good-answer-unresolved`: `36 -> 3`
+  - `completedRate` sur `sample-size 10`: `0.1 -> 0.6`
+  - les raisons de rejet dominantes apres correction deviennent:
+    - `good-answer-too-cheap: 51`
+    - `low-confidence: 37`
+    - `good-answer-unresolved: 3`
+- Conclusion:
+  - le probleme de gold de fin de frame etait bien un bloqueur produit majeur
+  - la prochaine passe utile n'est plus la resolution de patch ni le gold replay, mais la logique de viabilite `good-answer-too-cheap` et le scoring de confiance
+
+## 2026-04-01 Gold Before Purchase Rerun
+
+- Rerun demande pour test:
+  - `npm run ml:export-raw`
+  - `cd ml`
+  - `.\.venv\Scripts\python.exe scripts\tasks.py build-dataset`
+  - `.\.venv\Scripts\python.exe scripts\tasks.py train-baseline`
+  - `cd ..`
+  - `npm run audit:match-based-validation -- --sample-size 10`
+- Observations:
+  - `ml:export-raw` OK: `612` matchs exportes, `612` avec timeline, `23` catalogs patch-aware
+  - `build-dataset` a re-ecrit `ml/artifacts/reports/dataset-report.json`, mais le process shell a depasse le timeout de supervision
+  - `train-baseline` OK:
+    - `ndcg_at_k: 0.4376`
+    - `map_at_k: 0.3998`
+    - `top1_accuracy: 0.2894`
+    - `topk_accuracy: 0.5473`
+  - `audit:match-based-validation` OK:
+    - `completedRate: 0.6`
+    - `noViableSnapshotFoundRate: 0.4`
+    - `good-answer-too-cheap: 44`
+    - `low-confidence: 25`
+    - `good-answer-incoherent-with-champion: 5`
+    - `good-answer-unresolved: 3`
+- Dataset report apres rerun:
+  - `rows: 12003`
+  - `gold_incoherent_ratio: 0.31217`
+  - `candidate_pool_median: 35`
+  - `candidate_pool_p95: 162.9`
+- Etat:
+  - le rerun confirme la baisse durable de `gold_incoherent_ratio`
+  - `good-answer-unresolved` reste marginal
+  - le premier axe d'amelioration restant est toujours `good-answer-too-cheap`

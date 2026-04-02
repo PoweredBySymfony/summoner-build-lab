@@ -7,7 +7,8 @@ from pathlib import Path
 import pandas as pd
 from fastapi.testclient import TestClient
 
-from features.analytics import build_analytic_dataset
+from features.analytics import build_analytic_dataset, _gold_before_purchase_from_frame_events
+from features.catalogs import CatalogBundle
 from inference.api import app
 from inference.config import (
     ApiConfig,
@@ -22,6 +23,22 @@ from inference.config import (
 from inference.puzzle_prep import build_puzzle_seed
 from inference.service import PredictionOutput, RankedPrediction, clear_model_cache
 from training.baseline import train_baseline
+
+
+def make_test_catalog() -> CatalogBundle:
+    items = [
+        {"riotItemId": 1001, "slug": "boots", "goldTotal": 300, "goldSell": 210},
+        {"riotItemId": 2003, "slug": "health-potion", "goldTotal": 50, "goldSell": 20},
+    ]
+    return CatalogBundle(
+        patch="26.1",
+        dd_version="26.1.1",
+        items=items,
+        champions=[],
+        item_slug_by_id={1001: "boots", 2003: "health-potion"},
+        item_meta_by_slug={str(item["slug"]): item for item in items},
+        champion_index={},
+    )
 
 
 def make_config(tmp_path: Path) -> AppConfig:
@@ -378,21 +395,49 @@ def test_build_analytic_dataset_creates_snapshots(tmp_path: Path) -> None:
     assert summary.ranking_rows_written >= 2
     dataset = pd.read_parquet(config.paths.analytic_dataset_path)
     assert dataset["actual_next_item"].tolist() == ["boots", "kraken-slayer"]
-    assert dataset["candidate_pool_size"].tolist() == [2, 1]
-    assert dataset["actual_item_in_candidate_pool"].tolist() == [True, False]
+    assert dataset["candidate_pool_size"].tolist() == [2, 2]
+    assert dataset["actual_item_in_candidate_pool"].tolist() == [True, True]
     ranking_dataset = pd.read_parquet(config.paths.ranking_dataset_path)
     assert "snapshot_id" in ranking_dataset.columns
-    assert set(ranking_dataset["candidate_item_slug"].tolist()) == {"boots", "long-sword"}
+    assert set(ranking_dataset["candidate_item_slug"].tolist()) == {"boots", "long-sword", "kraken-slayer"}
     assert "item_cost" in ranking_dataset.columns
     assert "label" in ranking_dataset.columns
     report = json.loads(config.paths.dataset_report_path.read_text(encoding="utf-8"))
-    assert report["quality"]["gold_incoherent_ratio"] == 0.5
-    assert report["quality"]["candidate_pool_median"] == 1.5
+    assert report["quality"]["gold_incoherent_ratio"] == 0.0
+    assert report["quality"]["candidate_pool_median"] == 2.0
     assert report["train_patch_mode"] == "strict_recent_competitive"
     assert report["snapshots_by_source_tier"] == {"pro": 2}
     assert report["snapshots_by_patch_format"] == {"legacy_patch": 2}
     assert report["snapshots_exact_target_patch"] == 2
     assert report["snapshots_adjacent_recent_patch"] == 0
+
+
+def test_gold_before_purchase_replays_multiple_buys_within_same_frame() -> None:
+    catalog = make_test_catalog()
+
+    first_purchase_gold = _gold_before_purchase_from_frame_events(
+        events=[
+            {"type": "ITEM_PURCHASED", "participantId": 1, "itemId": 1001},
+            {"type": "ITEM_PURCHASED", "participantId": 1, "itemId": 2003},
+        ],
+        participant_id=1,
+        purchase_event_index=0,
+        ending_gold=150,
+        catalog=catalog,
+    )
+    second_purchase_gold = _gold_before_purchase_from_frame_events(
+        events=[
+            {"type": "ITEM_PURCHASED", "participantId": 1, "itemId": 1001},
+            {"type": "ITEM_PURCHASED", "participantId": 1, "itemId": 2003},
+        ],
+        participant_id=1,
+        purchase_event_index=1,
+        ending_gold=150,
+        catalog=catalog,
+    )
+
+    assert first_purchase_gold == 500
+    assert second_purchase_gold == 200
 
 
 def test_train_baseline_creates_model_and_reports(tmp_path: Path) -> None:
