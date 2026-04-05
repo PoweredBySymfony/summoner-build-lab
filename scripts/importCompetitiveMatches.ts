@@ -59,6 +59,9 @@ type CliOptions = {
   adjacentPatchPrefixes?: string[];
 };
 
+const PROGRESS_PERSIST_ATTEMPT_INTERVAL = 50;
+const PROGRESS_PERSIST_CREATED_INTERVAL = 10;
+
 function parseArgs(argv: string[]): CliOptions {
   const options: CliOptions = {
     seedPath: path.join("data", "seeds", "competitive-seeds-2026.json"),
@@ -891,6 +894,7 @@ async function main() {
   };
 
   await refreshDiscoveryState();
+  await persistIntermediateProgress("discovery-initial");
 
   workingSeeds = await maybeEnrichEliteSeeds({
     manifestPlayers: workingSeeds,
@@ -901,6 +905,7 @@ async function main() {
   if (workingSeeds.length !== manifest.players.length) {
     resolvedSeeds = await resolveSeeds(workingSeeds, resolvedSeedCache);
     await refreshDiscoveryState();
+    await persistIntermediateProgress("discovery-elite-refresh");
   }
 
   const attemptedMatchIds = new Set(checkpoint.attemptedMatchIds);
@@ -923,6 +928,127 @@ async function main() {
 
   const duplicateLikeReasons = new Set(["existing-match-different-target"]);
   let discoveryPass = 0;
+  let lastPersistedAttemptCount = attemptedMatchIds.size;
+  let lastPersistedCreatedCount = createdCandidates.length;
+
+  const persistIntermediateProgress = async (progressStage: string) => {
+    const seedSummaries = buildSeedSummaries({
+      resolvedSeeds,
+      discoveries,
+      discoveredMatches,
+    });
+    const rejectedMatches = buildRejectedMatches(discoveredMatches);
+    const createdCountsByTier = createdCandidates.reduce<Record<string, number>>((accumulator, candidate) => {
+      const key = candidate.priorityBand ?? "unknown";
+      accumulator[key] = (accumulator[key] ?? 0) + 1;
+      return accumulator;
+    }, {});
+    const createdCountsByPatchBucket = createdCandidates.reduce<Record<string, number>>((accumulator, candidate) => {
+      accumulator[candidate.policyBucket] = (accumulator[candidate.policyBucket] ?? 0) + 1;
+      return accumulator;
+    }, {});
+    const createdCountsByQueueBucket = createdCandidates.reduce<Record<string, number>>((accumulator, candidate) => {
+      accumulator[candidate.queueBucket] = (accumulator[candidate.queueBucket] ?? 0) + 1;
+      return accumulator;
+    }, {});
+    const policyDecisionByMatchId = discoveredMatches.reduce<NonNullable<CompetitiveIngestionCheckpoint["policyDecisionByMatchId"]>>(
+      (accumulator, match) => {
+        accumulator[match.matchId] = {
+          acceptedByPolicy: match.acceptedByPolicy,
+          acceptedReason: match.acceptedReason,
+          rejectionReason: match.rejectionReason,
+          fallbackReason: match.fallbackReason,
+          policyMode: match.policyMode,
+          policyBucket: match.policyBucket,
+          queueBucket: match.queueBucket,
+          sourceBucket: match.sourceBucket,
+          priorityBand: match.priorityBand,
+        };
+        return accumulator;
+      },
+      {},
+    );
+
+    await saveCompetitiveIngestionCheckpoint(checkpointPath, {
+      version: 3,
+      generatedAt: new Date().toISOString(),
+      seedSetVersion: manifest.seedSetVersion,
+      targetUniqueMatches: remainingTargetMatches,
+      queueWhitelist: [...policy.preferredQueues, ...policy.acceptedFallbackQueues],
+      patchAllowPrefixes: [...policy.preferredPatchPrefixes, ...policy.acceptedAdjacentPatchPrefixes],
+      seasonWindow: {
+        startTime,
+        endTime,
+      },
+      policyMode: policy.mode,
+      openedFallbackTiers: lastFallbackPlan.openedFallbackTiers,
+      seedResolutionSummary: seedSummaries.seedResolutionSummary,
+      seedDiscoverySummary: seedSummaries.seedDiscoverySummary,
+      policyDecisionByMatchId,
+      importCountsByTier: createdCountsByTier,
+      importCountsByPatchBucket: createdCountsByPatchBucket,
+      importCountsByQueueBucket: createdCountsByQueueBucket,
+      matchMetadataById: Object.fromEntries(matchMetadataCache.entries()),
+      resolvedSeeds,
+      discoveredMatches: discoveries,
+      attemptedMatchIds: [...attemptedMatchIds],
+      importedMatchIds: [...importedMatchIds],
+      rejectedMatchIds: rejectedMatches,
+      failedMatches,
+    });
+
+    const totalImportedMatchesOverall = options.dryRun ? baselineTotalMatchesBefore : await prisma.importedMatch.count();
+    const totalCompetitiveMatchesInDb = options.dryRun
+      ? baselineCompetitiveMatchesBefore + createdCandidates.length
+      : await prisma.importedMatch.count({
+        where: {
+          sourceKind: {
+            in: ["PRO_SEED", "ELITE_SEED", "FALLBACK_SEED"],
+          },
+        },
+      });
+
+    const progressPayload = {
+      generatedAt: new Date().toISOString(),
+      progressStage,
+      policyMode: policy.mode,
+      checkpointPath,
+      seedPath: seedAbsolutePath,
+      targetMatches: options.targetMatches,
+      targetCreatesNeeded: remainingTargetMatches,
+      totalSeeds: workingSeeds.length,
+      resolvedSeedCount: seedSummaries.seedResolutionSummary.resolved,
+      unresolvedSeedCount: seedSummaries.seedResolutionSummary.unresolved,
+      resolvedButNoMatches: seedSummaries.seedDiscoverySummary.resolvedButNoMatches,
+      resolvedButRejectedByPolicy: seedSummaries.seedDiscoverySummary.resolvedButRejectedByPolicy,
+      resolvedWithAcceptedMatches: seedSummaries.seedDiscoverySummary.resolvedWithAcceptedMatches,
+      discoveredUniqueMatches: new Set(discoveredMatches.map((entry) => entry.matchId)).size,
+      policyAcceptedMatches: new Set(discoveredMatches.filter((entry) => entry.acceptedByPolicy).map((entry) => entry.matchId)).size,
+      attemptedMatches: attemptedMatchIds.size,
+      createdMatches: Math.max(0, totalImportedMatchesOverall - baselineTotalMatchesBefore),
+      createdCandidatesCount: createdCandidates.length,
+      failedMatchesCount: failedMatches.length,
+      totalImportedMatchesOverall,
+      totalCompetitiveMatchesInDb,
+      importCountsByTier: createdCountsByTier,
+      importCountsByPatchBucket: createdCountsByPatchBucket,
+      importCountsByQueueBucket: createdCountsByQueueBucket,
+      fallbackActivations: lastFallbackPlan.openedFallbackTiers,
+      riotApiMetrics: riotApiClient.getMetricsSnapshot(),
+      progressDiscoveryPass: discoveryPass,
+      progressIdsPerSeed: currentTargetIdsPerSeed,
+    };
+
+    await mkdir(path.dirname(reportPath), { recursive: true });
+    await Promise.all([
+      writeFile(reportPath, JSON.stringify(progressPayload, null, 2), "utf-8"),
+      writeFile(markdownReportPath, renderMarkdownReport(progressPayload), "utf-8"),
+    ]);
+
+    console.info(
+      `[competitive-ingestion] persisted-progress stage=${progressStage} pass=${discoveryPass} attempted=${attemptedMatchIds.size} created=${progressPayload.createdMatches} competitiveDb=${totalCompetitiveMatchesInDb}`,
+    );
+  };
 
   while (createdCandidates.length < remainingTargetMatches) {
     discoveryPass += 1;
@@ -1003,6 +1129,11 @@ async function main() {
           importedMatchIds.add(imported.riotMatchId);
           createdCandidates.push(candidate);
           passCreated += 1;
+          if (createdCandidates.length % PROGRESS_PERSIST_CREATED_INTERVAL === 0) {
+            console.info(
+              `[competitive-ingestion] created-progress created=${createdCandidates.length}/${remainingTargetMatches} attempted=${attemptedMatchIds.size} latest=${candidate.matchId} tier=${candidate.priorityTier} patch=${candidate.patch ?? "unknown"} queue=${candidate.queueId ?? "unknown"}`,
+            );
+          }
         } else if (imported.skippedReason === null || duplicateLikeReasons.has(imported.skippedReason)) {
           passDuplicateLike += 1;
         }
@@ -1059,7 +1190,21 @@ async function main() {
           failureReason: error instanceof Error ? error.message : String(error),
         });
       }
+
+      const shouldPersistMidPass =
+        attemptedMatchIds.size - lastPersistedAttemptCount >= PROGRESS_PERSIST_ATTEMPT_INTERVAL
+        || createdCandidates.length - lastPersistedCreatedCount >= PROGRESS_PERSIST_CREATED_INTERVAL;
+
+      if (shouldPersistMidPass) {
+        await persistIntermediateProgress("import-mid-pass");
+        lastPersistedAttemptCount = attemptedMatchIds.size;
+        lastPersistedCreatedCount = createdCandidates.length;
+      }
     }
+
+    await persistIntermediateProgress("import-pass-complete");
+    lastPersistedAttemptCount = attemptedMatchIds.size;
+    lastPersistedCreatedCount = createdCandidates.length;
 
     const remainingTarget = remainingTargetMatches - createdCandidates.length;
     const shouldDeepenDiscovery =
@@ -1088,6 +1233,7 @@ async function main() {
     );
     currentTargetIdsPerSeed = nextTargetIdsPerSeed;
     await refreshDiscoveryState();
+    await persistIntermediateProgress("discovery-deepened");
   }
 
   const seedSummaries = buildSeedSummaries({
