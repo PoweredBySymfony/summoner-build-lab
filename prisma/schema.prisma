@@ -388,6 +388,10 @@ model ImportedMatch {
   gameDurationSeconds Int?
   timelineFetchedAt   DateTime?
   timelineMissingReason String?
+  mongoMatchImportRef String?
+  mongoTimelineRef    String?
+  mongoSnapshotRef    String?
+  mongoBackfilledAt   DateTime?
   matchData           Json
   timelineData        Json?
   createdAt           DateTime  @default(now())
@@ -403,6 +407,8 @@ model ImportedMatch {
   @@index([targetChampionSlug])
   @@index([targetRole])
   @@index([gameCreationAt])
+  @@index([mongoMatchImportRef])
+  @@index([mongoTimelineRef])
 }
 
 model GeneratedPuzzleRequest {

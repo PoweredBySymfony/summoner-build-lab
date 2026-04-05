@@ -64,6 +64,7 @@ AUTH_SECRET=
 SESSION_COOKIE_NAME=summoner_build_lab_session
 
 RIOT_API_KEY=
+RIOT_API_KEY_2=
 RIOT_REGION=europe
 RIOT_PLATFORM=euw1
 
@@ -92,6 +93,7 @@ Règles:
 - ne jamais hardcoder la clé Riot
 - tout secret passe par `process.env`
 - aucune clé n'est loggée
+- `RIOT_API_KEY` reste la clé primaire; `RIOT_API_KEY_2` est un fallback optionnel utilisé seulement si la première répond en `401/403`
 
 ## Démarrage
 

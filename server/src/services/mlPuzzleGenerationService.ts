@@ -35,6 +35,7 @@ import {
 } from "../lib/ml/puzzleChoiceResolution.js";
 import { resolveItemSlug } from "../lib/itemSlugAliases.js";
 import { prisma } from "../lib/prisma.js";
+import { importedMatchArchiveRepository } from "../repositories/importedMatchArchiveRepository.js";
 import { slugify } from "../lib/slug.js";
 import { HttpError } from "../utils/http.js";
 
@@ -62,6 +63,12 @@ type SnapshotCandidate = {
   snapshot: MlPuzzleSnapshot;
   scenario: ScenarioSnapshot;
   relevanceScore: number;
+  actualPurchase: {
+    itemSlug: string | null;
+    goldTotal: number | null;
+    burstPurchaseIndex: number;
+    timestampMinutes: number;
+  };
 };
 
 type SnapshotSegment = "early" | "mid" | "late";
@@ -72,6 +79,7 @@ type AttemptDebugSummary = {
   patch: string;
   goldAvailable: number;
   snapshotSignature: string;
+  rerollDistanceScore?: number;
   rawCandidatePoolSize: number;
   filteredCandidatePoolSize: number;
   goodAnswer: string | null;
@@ -80,10 +88,16 @@ type AttemptDebugSummary = {
   lowConfidence: boolean;
   confidenceScore: number;
   confidenceGap: number;
+  technicalViable: boolean;
+  publishable: boolean;
+  publishabilityScore: number;
+  publishabilityReasons: string[];
+  goodAnswerSource?: "ml-prediction" | "actual-purchase-fallback";
 };
 
 type PreparedSnapshotAttempt = {
   status: "accepted";
+  technicalViable: true;
   snapshotIndex: number;
   rawPurchaseIndex: number;
   snapshot: MlPuzzleSnapshot;
@@ -109,6 +123,7 @@ type RejectedSnapshotAttempt = {
   seed: MlPuzzleSeed | null;
   rejectionReasons: string[];
   debugSummary: AttemptDebugSummary;
+  technicalViable: boolean;
   details?: Prisma.InputJsonValue;
 };
 
@@ -143,6 +158,7 @@ type SeriesSelectionResult = {
     snapshotIndex: number;
     snapshotMinute: number;
     qualityScore: number;
+    rerollDistanceScore?: number;
   }>;
 };
 
@@ -159,7 +175,8 @@ type MatchGenerationCompletedResponse = {
 };
 
 type MatchGenerationNoViableResponse = {
-  generationStatus: "no_viable_snapshot_found";
+  generationStatus: "no_viable_snapshot_found" | "no_publishable_snapshot_found";
+  failureCode: "no_viable_snapshot_found" | "no_publishable_snapshot_found";
   requestId: string;
   slug: null;
   slugs: [];
@@ -168,6 +185,11 @@ type MatchGenerationNoViableResponse = {
   lowConfidence: false;
   draft: false;
   retrySuggested: true;
+  snapshotsEvaluated: number;
+  viableSnapshots: number;
+  publishableSnapshots: number;
+  nonPublishableButViableSnapshots: number;
+  dominantRejectionReasons: string[];
   message: string;
 };
 
@@ -192,8 +214,10 @@ const MAGIC_TAGS = new Set(["Mage", "Support"]);
 const FRONTLINE_TAGS = new Set(["Tank", "Fighter"]);
 const MIN_SNAPSHOT_MINUTE = 8;
 const MAX_SNAPSHOT_MINUTE = 32;
-const MAX_SNAPSHOT_CANDIDATES = 8;
-const MAX_SNAPSHOT_CANDIDATES_PER_SEGMENT = 3;
+const MAX_SNAPSHOT_CANDIDATES = 12;
+const MAX_SNAPSHOT_CANDIDATES_PER_SEGMENT = 4;
+const SHOP_BURST_WINDOW_MS = 45_000;
+const MIN_MEANINGFUL_PURCHASE_GOLD = 900;
 const SNAPSHOT_SEGMENTS: ReadonlyArray<{
   segment: SnapshotSegment;
   minInclusive: number;
@@ -291,6 +315,20 @@ function buildSnapshotSignature(input: {
   ].join("::");
 }
 
+function computeSnapshotDistanceScore(input: {
+  current: { snapshotMinute: number; goldAvailable: number; currentItems: string[] };
+  previous: { snapshotMinute: number; goldAvailable: number; currentItems: string[] };
+}) {
+  const minuteDelta = Math.min(1, Math.abs(input.current.snapshotMinute - input.previous.snapshotMinute) / 8);
+  const goldDelta = Math.min(1, Math.abs(input.current.goldAvailable - input.previous.goldAvailable) / 1800);
+  const currentItems = new Set(input.current.currentItems);
+  const previousItems = new Set(input.previous.currentItems);
+  const overlapCount = [...currentItems].filter((item) => previousItems.has(item)).length;
+  const unionCount = new Set([...currentItems, ...previousItems]).size || 1;
+  const itemDistance = 1 - overlapCount / unionCount;
+  return Number((((minuteDelta * 0.4) + (goldDelta * 0.25) + (itemDistance * 0.35)) * 100).toFixed(2));
+}
+
 function getSnapshotSegment(snapshotMinute: number): SnapshotSegment | null {
   for (const entry of SNAPSHOT_SEGMENTS) {
     if (snapshotMinute >= entry.minInclusive && snapshotMinute < entry.maxExclusive) {
@@ -302,6 +340,7 @@ function getSnapshotSegment(snapshotMinute: number): SnapshotSegment | null {
 
 function buildMlRequestMetadata(input: {
   generationStatus: MatchGenerationResponse["generationStatus"];
+  failureCode?: MatchGenerationNoViableResponse["failureCode"];
   selectedAttempts?: PreparedSnapshotAttempt[];
   attemptSummaries: AttemptDebugSummary[];
   payload?: Record<string, unknown>;
@@ -312,12 +351,20 @@ function buildMlRequestMetadata(input: {
     snapshotIndex: number;
     snapshotMinute: number;
     qualityScore: number;
+    rerollDistanceScore?: number;
   }>;
+  dominantRejectionReasons?: string[];
+  snapshotsEvaluated?: number;
+  viableSnapshots?: number;
+  publishableSnapshots?: number;
+  nonPublishableButViableSnapshots?: number;
+  prevalidationRejectedBySnapshot?: Record<number, string[]>;
   draft?: boolean;
 }) {
   const primaryAttempt = input.selectedAttempts?.[0];
   return {
     generationStatus: input.generationStatus,
+    failureCode: input.failureCode ?? null,
     selectedSnapshot:
       primaryAttempt
         ? {
@@ -325,6 +372,7 @@ function buildMlRequestMetadata(input: {
             rawPurchaseIndex: primaryAttempt.rawPurchaseIndex,
             snapshotMinute: primaryAttempt.snapshot.timestampMinutes,
             qualityScore: primaryAttempt.qualityScore,
+            rerollDistanceScore: primaryAttempt.debugSummary.rerollDistanceScore ?? null,
             variationSeed: primaryAttempt.variationSeed,
             choiceSignature: primaryAttempt.choiceSignature,
             snapshotSignature: buildSnapshotSignature({
@@ -341,6 +389,7 @@ function buildMlRequestMetadata(input: {
         rawPurchaseIndex: attempt.rawPurchaseIndex,
         snapshotMinute: attempt.snapshot.timestampMinutes,
         qualityScore: attempt.qualityScore,
+        rerollDistanceScore: attempt.debugSummary.rerollDistanceScore ?? null,
         variationSeed: attempt.variationSeed,
         choiceSignature: attempt.choiceSignature,
         segment: getSnapshotSegment(attempt.snapshot.timestampMinutes),
@@ -356,10 +405,17 @@ function buildMlRequestMetadata(input: {
         }),
       })) ?? [],
     attemptsSummary: {
-      snapshotsEvaluated: input.attemptSummaries.length,
-      successfulSnapshots: input.attemptSummaries.filter((entry) => entry.rejectionReasons.length === 0).length,
+      snapshotsEvaluated: input.snapshotsEvaluated ?? input.attemptSummaries.length,
+      successfulSnapshots: input.attemptSummaries.filter((entry) => entry.publishable).length,
       attempts: input.attemptSummaries,
     },
+    dominantRejectionReasons: input.dominantRejectionReasons ?? [],
+    viableSnapshots: input.viableSnapshots ?? input.attemptSummaries.filter((entry) => entry.technicalViable).length,
+    publishableSnapshots: input.publishableSnapshots ?? input.attemptSummaries.filter((entry) => entry.publishable).length,
+    nonPublishableButViableSnapshots:
+      input.nonPublishableButViableSnapshots
+      ?? input.attemptSummaries.filter((entry) => entry.technicalViable && !entry.publishable).length,
+    prevalidationRejectedBySnapshot: input.prevalidationRejectedBySnapshot ?? {},
     draft: input.draft ?? false,
     segmentsEvaluated: input.segmentSummaries ?? [],
     repetitionExcluded: input.repetitionExcluded ?? [],
@@ -863,6 +919,163 @@ function scoreSnapshotCandidate(snapshot: MlPuzzleSnapshot) {
   return score;
 }
 
+function isMeaningfulPurchaseSnapshotCandidate(candidate: SnapshotCandidate) {
+  if (candidate.snapshot.currentItems.length < 1 || candidate.snapshot.currentItems.length > 5) {
+    return false;
+  }
+  if (candidate.snapshot.level < 6) {
+    return false;
+  }
+  const publishabilityFloor = getPublishabilityFloorGold(candidate.snapshot.goldAvailable);
+  if (
+    candidate.actualPurchase.burstPurchaseIndex > 0
+    && (candidate.actualPurchase.goldTotal ?? 0) < Math.max(MIN_MEANINGFUL_PURCHASE_GOLD, publishabilityFloor)
+  ) {
+    return false;
+  }
+  return true;
+}
+
+function countReasons(reasons: string[]) {
+  return reasons.reduce<Record<string, number>>((accumulator, reason) => {
+    accumulator[reason] = (accumulator[reason] ?? 0) + 1;
+    return accumulator;
+  }, {});
+}
+
+function sortReasonEntries(entries: Record<string, number>) {
+  return Object.entries(entries)
+    .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
+    .map(([reason]) => reason);
+}
+
+function getPublishabilityFloorGold(snapshotGold: number) {
+  return Math.max(900, Math.round(Math.max(0, snapshotGold) * 0.35));
+}
+
+function getDistractorDecisionBand(goodAnswerGold: number, snapshotGold: number) {
+  const baseline = Math.max(goodAnswerGold, getPublishabilityFloorGold(snapshotGold));
+  return Math.max(750, Math.round(baseline * 0.55));
+}
+
+function assessSnapshotPublishability(input: {
+  snapshot: MlPuzzleSnapshot;
+  goodAnswer: MlChoiceItem;
+  distractors: MlChoiceItem[];
+  businessRules: ReturnType<typeof buildMlPuzzleBusinessRules>;
+}) {
+  const reasons: string[] = [];
+  const floorGold = getPublishabilityFloorGold(input.snapshot.goldAvailable);
+  const goodAnswerAssessment = input.businessRules.debug.goodAnswerGoldAssessment;
+  const goodAnswerIsLegitimateComponent = goodAnswerAssessment === "legitimate-component";
+  const goodAnswerIsTrivial =
+    input.goodAnswer.goldTotal < floorGold
+    && !goodAnswerIsLegitimateComponent;
+
+  if (goodAnswerIsTrivial) {
+    reasons.push("publishability-trivial-good-answer");
+  }
+
+  const allowedGap = getDistractorDecisionBand(input.goodAnswer.goldTotal, input.snapshot.goldAvailable);
+  const credibleDistractors = input.distractors.filter((item) => {
+    const costGap = Math.abs(item.goldTotal - input.goodAnswer.goldTotal);
+    return costGap <= allowedGap;
+  });
+
+  if (credibleDistractors.length < 3) {
+    reasons.push("publishability-insufficient-credible-distractors");
+  }
+
+  const publishabilityScore =
+    (goodAnswerIsTrivial ? 0 : 60)
+    + Math.min(40, credibleDistractors.length * 13)
+    - Math.max(0, input.businessRules.debug.goodAnswerViolations.length * 20);
+
+  return {
+    publishable: reasons.length === 0,
+    reasons,
+    publishabilityScore: Number(Math.max(0, publishabilityScore).toFixed(2)),
+    floorGold,
+    credibleDistractorCount: credibleDistractors.length,
+    distractorBandMaxGap: allowedGap,
+  };
+}
+
+function summarizeNoViableDiagnostics(input: {
+  snapshotCandidates: SnapshotCandidate[];
+  attempts: SnapshotAttempt[];
+  prevalidationRejections?: Record<number, string[]>;
+}) {
+  const reasonCounts: Record<string, number> = {};
+
+  for (const reasons of Object.values(input.prevalidationRejections ?? {})) {
+    for (const [reason, count] of Object.entries(countReasons(reasons))) {
+      reasonCounts[reason] = (reasonCounts[reason] ?? 0) + count;
+    }
+  }
+
+  for (const attempt of input.attempts) {
+    if (attempt.status !== "rejected") {
+      continue;
+    }
+    for (const [reason, count] of Object.entries(countReasons(attempt.rejectionReasons))) {
+      reasonCounts[reason] = (reasonCounts[reason] ?? 0) + count;
+    }
+  }
+
+  return {
+    snapshotsEvaluated: input.snapshotCandidates.length,
+    viableSnapshots: input.attempts.filter((attempt) => attempt.status === "accepted" || attempt.technicalViable).length,
+    publishableSnapshots: input.attempts.filter((attempt) => attempt.status === "accepted").length,
+    nonPublishableButViableSnapshots: input.attempts.filter((attempt) => attempt.status === "rejected" && attempt.technicalViable).length,
+    dominantRejectionReasons: sortReasonEntries(reasonCounts).slice(0, 5),
+  };
+}
+
+function prevalidateSnapshotCandidate(input: {
+  candidate: SnapshotCandidate;
+  patchChoiceItems: MlChoiceItem[];
+  championTags: string[];
+}) {
+  const actualPurchaseSlug = input.candidate.actualPurchase.itemSlug;
+  if (!actualPurchaseSlug) {
+    return {
+      allowed: false,
+      rejectionReasons: ["actual-next-item-unresolved"],
+    };
+  }
+
+  const actualGoodAnswer = resolveMlChoiceItemRef(actualPurchaseSlug, input.patchChoiceItems);
+  if (!actualGoodAnswer) {
+    return {
+      allowed: false,
+      rejectionReasons: ["actual-next-item-unresolved"],
+    };
+  }
+
+  const businessRules = buildMlPuzzleBusinessRules({
+    snapshot: input.candidate.snapshot,
+    championTags: input.championTags,
+    goodAnswer: actualGoodAnswer,
+    rankedCandidates: [actualGoodAnswer],
+    availableItems: input.patchChoiceItems,
+    previousChoiceSignatures: [],
+    variationSeed: `prevalidation:${input.candidate.snapshotIndex}`,
+  });
+
+  const rejectionReasons = [
+    ...businessRules.debug.goodAnswerViolations.map((reason) => `good-answer-${reason}`),
+  ];
+  if (businessRules.debug.candidatePoolSizeAfterFallback < 6) {
+    rejectionReasons.push("candidate-pool-too-small");
+  }
+
+  return {
+    allowed: rejectionReasons.length === 0,
+    rejectionReasons,
+  };
+}
+
 function dedupeAndRankSnapshots(candidates: SnapshotCandidate[]) {
   const sorted = [...candidates]
     .sort((left, right) => right.relevanceScore - left.relevanceScore)
@@ -919,8 +1132,13 @@ function dedupeAndRankSnapshots(candidates: SnapshotCandidate[]) {
 async function buildSnapshotCandidatesFromImportedMatch(
   importedMatch: NonNullable<ImportedMatchForMl>,
 ): Promise<SnapshotCandidate[]> {
-  const matchData = importedMatch.matchData as Prisma.JsonObject;
-  const timelineData = importedMatch.timelineData as Prisma.JsonObject | null;
+  const storedBundle = await importedMatchArchiveRepository.getImportedMatchBundle({
+    riotMatchId: importedMatch.riotMatchId,
+    fallbackMatchData: importedMatch.matchData,
+    fallbackTimelineData: importedMatch.timelineData,
+  });
+  const matchData = storedBundle.matchData as Prisma.JsonObject;
+  const timelineData = storedBundle.timelineData as Prisma.JsonObject | null;
   const matchRaw = matchData.raw as Prisma.JsonObject | undefined;
   const timelineRaw = timelineData?.raw as Prisma.JsonObject | undefined;
   const info = matchRaw?.info as Prisma.JsonObject | undefined;
@@ -1038,6 +1256,8 @@ async function buildSnapshotCandidatesFromImportedMatch(
   let deaths = 0;
   let assists = 0;
   const rawCandidates: SnapshotCandidate[] = [];
+  let lastPurchaseTimestamp = Number.NEGATIVE_INFINITY;
+  let burstPurchaseIndex = 0;
 
   for (const frame of sortedFrames) {
     const participantFrames = frame.participantFrames as Record<string, Record<string, unknown>> | undefined;
@@ -1069,6 +1289,12 @@ async function buildSnapshotCandidatesFromImportedMatch(
 
       const itemId = safeInt(event.itemId);
       if (eventType === "ITEM_PURCHASED" && itemId > 0) {
+        const purchaseTimestamp = safeInt(event.timestamp);
+        burstPurchaseIndex =
+          purchaseTimestamp - lastPurchaseTimestamp <= SHOP_BURST_WINDOW_MS
+            ? burstPurchaseIndex + 1
+            : 0;
+        lastPurchaseTimestamp = purchaseTimestamp;
         const goldBeforePurchase = calculateGoldBeforePurchaseFromFrame({
           events,
           participantId,
@@ -1120,6 +1346,12 @@ async function buildSnapshotCandidatesFromImportedMatch(
           enemyPhysicalDamageCount,
           enemySupportCount,
         } satisfies MlPuzzleSnapshot;
+        const actualPurchase = {
+          itemSlug: itemSlugIndex.get(itemId) ?? null,
+          goldTotal: itemGoldIndex.get(itemId)?.goldTotal ?? null,
+          burstPurchaseIndex,
+          timestampMinutes: purchaseTimestamp / 60000,
+        };
         rawCandidates.push({
           snapshotIndex: rawCandidates.length,
           rawPurchaseIndex: rawCandidates.length,
@@ -1129,7 +1361,16 @@ async function buildSnapshotCandidatesFromImportedMatch(
             allyTeam,
             enemyTeam,
           },
-          relevanceScore: scoreSnapshotCandidate(snapshot),
+          relevanceScore:
+            scoreSnapshotCandidate(snapshot)
+            - (burstPurchaseIndex > 0 ? burstPurchaseIndex * 8 : 0)
+            - (
+              (actualPurchase.goldTotal ?? 0) < getPublishabilityFloorGold(snapshot.goldAvailable)
+                ? 24
+                : 0
+            )
+            - (burstPurchaseIndex > 0 && (actualPurchase.goldTotal ?? 0) < MIN_MEANINGFUL_PURCHASE_GOLD ? 20 : 0),
+          actualPurchase,
         });
         inventory.push(itemId);
         continue;
@@ -1147,13 +1388,34 @@ async function buildSnapshotCandidatesFromImportedMatch(
     }
   }
 
-  const filtered = rawCandidates.filter(
-    (candidate) =>
-      candidate.snapshot.currentItems.length >= 1
-      && candidate.snapshot.currentItems.length <= 5
-      && candidate.snapshot.level >= 6,
-  );
+  const filtered = rawCandidates.filter(isMeaningfulPurchaseSnapshotCandidate);
   const deduped = dedupeAndRankSnapshots(filtered);
+  const snapshotRef = await importedMatchArchiveRepository.persistSnapshotCandidates({
+    riotMatchId: importedMatch.riotMatchId,
+    importedMatchId: importedMatch.id,
+    patch: importedMatch.patch ?? null,
+    targetChampionSlug: importedMatch.targetChampionSlug ?? null,
+    targetRole: importedMatch.targetRole ?? null,
+    candidates: deduped.map((candidate) => ({
+      snapshotIndex: candidate.snapshotIndex,
+      rawPurchaseIndex: candidate.rawPurchaseIndex,
+      snapshotMinute: Number(candidate.snapshot.timestampMinutes.toFixed(2)),
+      goldAvailable: candidate.snapshot.goldAvailable,
+      currentItems: candidate.snapshot.currentItems,
+      relevanceScore: candidate.relevanceScore,
+      actualPurchaseSlug: candidate.actualPurchase.itemSlug,
+      actualPurchaseGoldTotal: candidate.actualPurchase.goldTotal,
+      purchaseBurstIndex: candidate.actualPurchase.burstPurchaseIndex,
+    })),
+  });
+  if (snapshotRef && importedMatch.mongoSnapshotRef !== snapshotRef) {
+    await prisma.importedMatch.update({
+      where: { id: importedMatch.id },
+      data: {
+        mongoSnapshotRef: snapshotRef,
+      },
+    });
+  }
 
   if (deduped.length > 0) {
     return deduped;
@@ -1174,6 +1436,10 @@ function buildRejectedAttempt(input: {
   goodAnswer: string | null;
   rejectionReasons: string[];
   qualityScore?: number;
+  technicalViable?: boolean;
+  publishabilityScore?: number;
+  publishabilityReasons?: string[];
+  goodAnswerSource?: "ml-prediction" | "actual-purchase-fallback";
   details?: Prisma.InputJsonValue;
 }): RejectedSnapshotAttempt {
   return {
@@ -1185,6 +1451,7 @@ function buildRejectedAttempt(input: {
     prediction: input.prediction ?? null,
     seed: input.seed ?? null,
     rejectionReasons: input.rejectionReasons,
+    technicalViable: Boolean(input.technicalViable),
     debugSummary: {
       snapshotIndex: input.candidate.snapshotIndex,
       snapshotMinute: Number(input.candidate.snapshot.timestampMinutes.toFixed(2)),
@@ -1204,6 +1471,11 @@ function buildRejectedAttempt(input: {
       lowConfidence: input.seed?.lowConfidence ?? false,
       confidenceScore: input.seed?.confidenceScore ?? 0,
       confidenceGap: input.seed?.confidenceGap ?? 0,
+      technicalViable: Boolean(input.technicalViable),
+      publishable: false,
+      publishabilityScore: input.publishabilityScore ?? 0,
+      publishabilityReasons: input.publishabilityReasons ?? [],
+      goodAnswerSource: input.goodAnswerSource,
     },
     details: input.details,
   };
@@ -1259,7 +1531,23 @@ async function prepareSnapshotAttempt(input: {
   try {
     const prediction = await postPrediction(payload);
     const seed = buildBackendPuzzleSeed(prediction);
-    const resolvedGoodAnswer = resolveMlChoiceItemRef(seed.goodAnswer, input.patchChoiceItems);
+    const predictedGoodAnswer = resolveMlChoiceItemRef(seed.goodAnswer, input.patchChoiceItems);
+    const actualPurchaseFallback = input.candidate.actualPurchase.itemSlug
+      ? resolveMlChoiceItemRef(input.candidate.actualPurchase.itemSlug, input.patchChoiceItems)
+      : null;
+    const actualPurchaseVerdict = prevalidateSnapshotCandidate({
+      candidate: input.candidate,
+      patchChoiceItems: input.patchChoiceItems,
+      championTags: input.championTags,
+    });
+
+    let resolvedGoodAnswer = predictedGoodAnswer;
+    let goodAnswerSource: "ml-prediction" | "actual-purchase-fallback" = "ml-prediction";
+    if (!resolvedGoodAnswer && actualPurchaseFallback && actualPurchaseVerdict.allowed) {
+      resolvedGoodAnswer = actualPurchaseFallback;
+      goodAnswerSource = "actual-purchase-fallback";
+    }
+
     if (!resolvedGoodAnswer) {
       return buildRejectedAttempt({
         candidate: input.candidate,
@@ -1270,6 +1558,10 @@ async function prepareSnapshotAttempt(input: {
         filteredCandidatePoolSize: 0,
         goodAnswer: seed.goodAnswer,
         rejectionReasons: ["good-answer-unresolved"],
+        details: {
+          actualPurchaseItemSlug: input.candidate.actualPurchase.itemSlug,
+          actualPurchaseVerdict,
+        } satisfies Prisma.InputJsonValue,
       });
     }
     const goodAnswerRestriction = getItemRestrictionDecision(resolvedGoodAnswer.slug, {
@@ -1296,6 +1588,10 @@ async function prepareSnapshotAttempt(input: {
         filteredCandidatePoolSize: 0,
         goodAnswer: resolvedGoodAnswer.slug,
         rejectionReasons: goodAnswerRestriction.reasons.map((reason) => `good-answer-${reason}`),
+        details: {
+          goodAnswerSource,
+          actualPurchaseItemSlug: input.candidate.actualPurchase.itemSlug,
+        } satisfies Prisma.InputJsonValue,
       });
     }
 
@@ -1303,7 +1599,7 @@ async function prepareSnapshotAttempt(input: {
     const rankedResolvedItems = prediction.top_k_predictions
       .map((entry) => resolveMlChoiceItemRef(entry.item_slug, input.patchChoiceItems))
       .filter((item): item is MlChoiceItem => Boolean(item));
-    const businessRules = buildMlPuzzleBusinessRules({
+    let businessRules = buildMlPuzzleBusinessRules({
       snapshot: input.candidate.snapshot,
       championTags: input.championTags,
       goodAnswer: resolvedGoodAnswer,
@@ -1312,6 +1608,26 @@ async function prepareSnapshotAttempt(input: {
       previousChoiceSignatures: input.previousChoiceSignatures,
       variationSeed,
     });
+    if (
+      goodAnswerSource === "ml-prediction"
+      && actualPurchaseFallback
+      && actualPurchaseVerdict.allowed
+      && businessRules.debug.goodAnswerViolations.some((reason) =>
+        reason === "too-cheap" || reason === "too-expensive" || reason === "incoherent-with-champion",
+      )
+    ) {
+      resolvedGoodAnswer = actualPurchaseFallback;
+      goodAnswerSource = "actual-purchase-fallback";
+      businessRules = buildMlPuzzleBusinessRules({
+        snapshot: input.candidate.snapshot,
+        championTags: input.championTags,
+        goodAnswer: resolvedGoodAnswer,
+        rankedCandidates: [resolvedGoodAnswer, ...rankedResolvedItems],
+        availableItems: input.patchChoiceItems,
+        previousChoiceSignatures: input.previousChoiceSignatures,
+        variationSeed: `${variationSeed}:actual-purchase`,
+      });
+    }
     if (businessRules.debug.restrictedCandidateSamples.length > 0) {
       console.info(
         "[ml-puzzle] restriction-reject",
@@ -1343,7 +1659,7 @@ async function prepareSnapshotAttempt(input: {
       patch: input.candidate.snapshot.patch,
       role: input.candidate.snapshot.role,
       currentItemSlugs: input.candidate.snapshot.currentItems,
-      goodAnswer: seed.goodAnswer,
+      goodAnswer: resolvedGoodAnswer.slug,
       distractors: businessRules.debug.selectedDistractors,
       rankedItemSlugs: businessRules.distractorCandidates.map((item) => item.slug),
       availableItems: input.patchChoiceItems,
@@ -1367,9 +1683,40 @@ async function prepareSnapshotAttempt(input: {
         filteredCandidatePoolSize: businessRules.debug.candidatePoolSizeAfterFallback,
         goodAnswer: resolvedGoodAnswer.slug,
         rejectionReasons,
+        goodAnswerSource,
         details: {
+          goodAnswerSource,
           businessRules: businessRules.debug,
           choiceResolution: resolvedChoices ? toChoiceDebugPayload(resolvedChoices) : null,
+        } as Prisma.InputJsonValue,
+      });
+    }
+
+    const publishabilityAssessment = assessSnapshotPublishability({
+      snapshot: input.candidate.snapshot,
+      goodAnswer: resolvedChoices.goodAnswer,
+      distractors: resolvedChoices.distractors,
+      businessRules,
+    });
+    if (!publishabilityAssessment.publishable) {
+      return buildRejectedAttempt({
+        candidate: input.candidate,
+        payload,
+        prediction,
+        seed,
+        rawCandidatePoolSize: prediction.candidate_pool_size,
+        filteredCandidatePoolSize: businessRules.debug.candidatePoolSizeAfterFallback,
+        goodAnswer: resolvedChoices.goodAnswer.slug,
+        rejectionReasons: publishabilityAssessment.reasons,
+        technicalViable: true,
+        publishabilityScore: publishabilityAssessment.publishabilityScore,
+        publishabilityReasons: publishabilityAssessment.reasons,
+        goodAnswerSource,
+        details: {
+          goodAnswerSource,
+          businessRules: businessRules.debug,
+          publishability: publishabilityAssessment,
+          choiceResolution: toChoiceDebugPayload(resolvedChoices),
         } as Prisma.InputJsonValue,
       });
     }
@@ -1387,6 +1734,7 @@ async function prepareSnapshotAttempt(input: {
 
     return {
       status: "accepted",
+      technicalViable: true,
       snapshotIndex: input.candidate.snapshotIndex,
       rawPurchaseIndex: input.candidate.rawPurchaseIndex,
       snapshot: input.candidate.snapshot,
@@ -1418,6 +1766,11 @@ async function prepareSnapshotAttempt(input: {
         lowConfidence: seed.lowConfidence,
         confidenceScore: seed.confidenceScore,
         confidenceGap: seed.confidenceGap,
+        technicalViable: true,
+        publishable: true,
+        publishabilityScore: publishabilityAssessment.publishabilityScore,
+        publishabilityReasons: [],
+        goodAnswerSource,
       },
     };
   } catch (error) {
@@ -1430,6 +1783,7 @@ async function prepareSnapshotAttempt(input: {
       rejectionReasons: [
         error instanceof HttpError ? `attempt-http-${error.status}` : error instanceof Error ? error.message : String(error),
       ],
+      goodAnswerSource: "ml-prediction",
       details:
         error instanceof HttpError
           ? ({ status: error.status, details: error.details } as Prisma.InputJsonValue)
@@ -1501,11 +1855,61 @@ function selectAttemptsForSeries(input: {
     const repetitionExcluded: SeriesSelectionResult["repetitionExcluded"] = [];
 
     for (const segmentConfig of SNAPSHOT_SEGMENTS) {
+      const previousForSegment = input.previousSnapshots
+        .filter((entry) => getSnapshotSegment(entry.snapshotMinute) === segmentConfig.segment)
+        .sort((left, right) => right.createdAt.getTime() - left.createdAt.getTime())[0];
       const segmentAttempts = pool
         .filter((attempt) => getSnapshotSegment(attempt.snapshot.timestampMinutes) === segmentConfig.segment)
-        .sort(byAdjustedScore);
+        .sort((left, right) => {
+          const leftDistance = previousForSegment
+            ? computeSnapshotDistanceScore({
+                current: {
+                  snapshotMinute: left.snapshot.timestampMinutes,
+                  goldAvailable: left.snapshot.goldAvailable,
+                  currentItems: left.snapshot.currentItems,
+                },
+                previous: {
+                  snapshotMinute: previousForSegment.snapshotMinute,
+                  goldAvailable: Number(previousForSegment.signature.split("::")[2] ?? 0),
+                  currentItems: (previousForSegment.signature.split("::")[3] ?? "").split("|").filter(Boolean),
+                },
+              })
+            : 100;
+          const rightDistance = previousForSegment
+            ? computeSnapshotDistanceScore({
+                current: {
+                  snapshotMinute: right.snapshot.timestampMinutes,
+                  goldAvailable: right.snapshot.goldAvailable,
+                  currentItems: right.snapshot.currentItems,
+                },
+                previous: {
+                  snapshotMinute: previousForSegment.snapshotMinute,
+                  goldAvailable: Number(previousForSegment.signature.split("::")[2] ?? 0),
+                  currentItems: (previousForSegment.signature.split("::")[3] ?? "").split("|").filter(Boolean),
+                },
+              })
+            : 100;
+          if (Math.abs(rightDistance - leftDistance) >= 12) {
+            return rightDistance - leftDistance;
+          }
+          return byAdjustedScore(left, right);
+        });
       const selectedAttempt = segmentAttempts[0] ?? null;
       if (selectedAttempt) {
+        selectedAttempt.debugSummary.rerollDistanceScore = previousForSegment
+          ? computeSnapshotDistanceScore({
+              current: {
+                snapshotMinute: selectedAttempt.snapshot.timestampMinutes,
+                goldAvailable: selectedAttempt.snapshot.goldAvailable,
+                currentItems: selectedAttempt.snapshot.currentItems,
+              },
+              previous: {
+                snapshotMinute: previousForSegment.snapshotMinute,
+                goldAvailable: Number(previousForSegment.signature.split("::")[2] ?? 0),
+                currentItems: (previousForSegment.signature.split("::")[3] ?? "").split("|").filter(Boolean),
+              },
+            })
+          : 100;
         selectedAttempts.push(selectedAttempt);
       }
       for (const repeatedAttempt of segmentAttempts) {
@@ -1525,6 +1929,7 @@ function selectAttemptsForSeries(input: {
           snapshotIndex: repeatedAttempt.snapshotIndex,
           snapshotMinute: Number(repeatedAttempt.snapshot.timestampMinutes.toFixed(2)),
           qualityScore: repeatedAttempt.qualityScore,
+          rerollDistanceScore: repeatedAttempt.debugSummary.rerollDistanceScore,
         });
       }
       const selectedHistoryMetrics = selectedAttempt
@@ -1817,9 +2222,25 @@ export const mlPuzzleGenerationService = {
         userId,
       });
       const championTags = Array.isArray(champion.tags) ? champion.tags.map((tag) => String(tag)) : [];
+      const prevalidation = snapshotCandidates.map((candidate) => ({
+        candidate,
+        verdict: prevalidateSnapshotCandidate({
+          candidate,
+          patchChoiceItems,
+          championTags,
+        }),
+      }));
+      const prevalidationRejectedBySnapshot = Object.fromEntries(
+        prevalidation
+          .filter((entry) => !entry.verdict.allowed)
+          .map((entry) => [entry.candidate.snapshotIndex, entry.verdict.rejectionReasons]),
+      ) satisfies Record<number, string[]>;
+      const viableSnapshotCandidates = prevalidation
+        .filter((entry) => entry.verdict.allowed)
+        .map((entry) => entry.candidate);
       const attempts: SnapshotAttempt[] = [];
 
-      for (const candidate of snapshotCandidates) {
+      for (const candidate of viableSnapshotCandidates) {
         const attempt = await prepareSnapshotAttempt({
           importedMatchId,
           userId,
@@ -1856,6 +2277,16 @@ export const mlPuzzleGenerationService = {
           importedMatchId,
           previousSnapshotKeys: previousServedSnapshots.map((entry) => entry.key),
           segments: selection.segmentSummaries,
+        }),
+      );
+      console.info(
+        "[ml-puzzle] snapshot-prevalidation",
+        JSON.stringify({
+          requestId: request.id,
+          importedMatchId,
+          candidates: snapshotCandidates.length,
+          viableCandidates: viableSnapshotCandidates.length,
+          rejectedBySnapshot: prevalidationRejectedBySnapshot,
         }),
       );
       if (selection.repetitionExcluded.length > 0) {
@@ -1956,12 +2387,24 @@ export const mlPuzzleGenerationService = {
         };
       }
 
+      const diagnostics = summarizeNoViableDiagnostics({
+        snapshotCandidates,
+        attempts,
+        prevalidationRejections: prevalidationRejectedBySnapshot,
+      });
+      const failureCode =
+        diagnostics.viableSnapshots > 0 && diagnostics.publishableSnapshots === 0
+          ? "no_publishable_snapshot_found"
+          : "no_viable_snapshot_found";
       await updateGeneratedRequest({
         requestId: request.id,
         status: GeneratedPuzzleRequestStatus.FAILED,
         parameters: buildMlRequestMetadata({
-          generationStatus: "no_viable_snapshot_found",
+          failureCode,
+          generationStatus: failureCode,
           attemptSummaries: attempts.map((attempt) => attempt.debugSummary),
+          prevalidationRejectedBySnapshot,
+          ...diagnostics,
           segmentSummaries: selection.segmentSummaries,
           repetitionExcluded: selection.repetitionExcluded,
         }),
@@ -1971,12 +2414,17 @@ export const mlPuzzleGenerationService = {
         JSON.stringify({
           requestId: request.id,
           importedMatchId,
-          snapshotsEvaluated: attempts.length,
+          snapshotsEvaluated: diagnostics.snapshotsEvaluated,
+          viableSnapshots: diagnostics.viableSnapshots,
+          publishableSnapshots: diagnostics.publishableSnapshots,
+          nonPublishableButViableSnapshots: diagnostics.nonPublishableButViableSnapshots,
+          dominantRejectionReasons: diagnostics.dominantRejectionReasons,
         }),
       );
 
       return {
-        generationStatus: "no_viable_snapshot_found",
+        generationStatus: failureCode,
+        failureCode,
         requestId: request.id,
         slug: null,
         slugs: [],
@@ -1985,7 +2433,15 @@ export const mlPuzzleGenerationService = {
         lowConfidence: false,
         draft: false,
         retrySuggested: true,
-        message: "Aucun snapshot suffisamment credible n'a ete trouve sur cette partie. Le backend a essaye plusieurs moments d'achat et tu peux relancer plus tard apres enrichissement du modele.",
+        snapshotsEvaluated: diagnostics.snapshotsEvaluated,
+        viableSnapshots: diagnostics.viableSnapshots,
+        publishableSnapshots: diagnostics.publishableSnapshots,
+        nonPublishableButViableSnapshots: diagnostics.nonPublishableButViableSnapshots,
+        dominantRejectionReasons: diagnostics.dominantRejectionReasons,
+        message:
+          failureCode === "no_publishable_snapshot_found"
+            ? "La partie a bien ete importee et certains snapshots etaient techniquement viables, mais aucun n'etait assez publiable. Le backend a rejete des moments ou la bonne reponse restait trop triviale ou les distracteurs n'etaient pas assez credibles."
+            : "La partie a bien ete importee, mais aucun snapshot suffisamment credible n'a ete trouve sur cette partie. Le backend a essaye plusieurs moments d'achat et tu peux relancer plus tard apres enrichissement du modele.",
       };
     } catch (error) {
       await updateGeneratedRequest({
@@ -2007,6 +2463,11 @@ export const mlPuzzleGenerationServiceTestables = {
   selectBestAttempt,
   getSnapshotSegment,
   selectAttemptsForSeries,
+  computeSnapshotDistanceScore,
   resolveEffectivePatchLookup,
   calculateGoldBeforePurchaseFromFrame,
+  isMeaningfulPurchaseSnapshotCandidate,
+  summarizeNoViableDiagnostics,
+  assessSnapshotPublishability,
+  getPublishabilityFloorGold,
 };

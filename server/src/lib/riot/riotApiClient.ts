@@ -18,6 +18,8 @@ type RiotApiClientMetrics = {
   rateLimitResponses: number;
   retryAfterFallbacks: number;
   totalBackoffMs: number;
+  authFallbackResponses: number;
+  authFallbackRecoveries: number;
 };
 
 const DEFAULT_RATE_LIMIT_BACKOFF_MS = 5_000;
@@ -41,12 +43,53 @@ export class RiotApiClient {
     rateLimitResponses: 0,
     retryAfterFallbacks: 0,
     totalBackoffMs: 0,
+    authFallbackResponses: 0,
+    authFallbackRecoveries: 0,
   };
+  private readonly routePreferredApiKey = new Map<string, string>();
+
+  private getConfiguredApiKeys() {
+    return [...new Set([env.RIOT_API_KEY, env.RIOT_API_KEY_2].filter((value): value is string => Boolean(value?.trim())))]
+      .map((value) => value.trim());
+  }
 
   private ensureConfigured() {
-    if (!env.RIOT_API_KEY) {
+    if (this.getConfiguredApiKeys().length === 0) {
       throw new HttpError(503, "RIOT_API_KEY is not configured.");
     }
+  }
+
+  private getRouteKey(path: string) {
+    if (path.startsWith("/lol/league/v4")) {
+      return "route:league-v4";
+    }
+    if (path.startsWith("/lol/summoner/v4")) {
+      return "route:summoner-v4";
+    }
+    if (path.startsWith("/lol/match/v5")) {
+      return "route:match-v5";
+    }
+    if (path.startsWith("/riot/account/v1")) {
+      return "route:account-v1";
+    }
+
+    const fragments = path.split("/").filter(Boolean).slice(0, 3);
+    return `route:${fragments.join("/") || "default"}`;
+  }
+
+  private getApiKeysForPath(path: string) {
+    const configuredApiKeys = this.getConfiguredApiKeys();
+    const preferredApiKey = this.routePreferredApiKey.get(this.getRouteKey(path));
+
+    if (!preferredApiKey || !configuredApiKeys.includes(preferredApiKey)) {
+      return configuredApiKeys;
+    }
+
+    return [preferredApiKey, ...configuredApiKeys.filter((apiKey) => apiKey !== preferredApiKey)];
+  }
+
+  private rememberPreferredApiKey(path: string, apiKey: string) {
+    this.routePreferredApiKey.set(this.getRouteKey(path), apiKey);
   }
 
   private buildUrl(path: string, options: RequestOptions) {
@@ -95,69 +138,90 @@ export class RiotApiClient {
     const scopeKey = this.getScopeKey(path, options);
 
     return this.schedule(scopeKey, async () => {
+      attemptLoop:
       for (let attempt = 0; attempt <= this.retryCount; attempt += 1) {
-        this.metrics.totalRequests += 1;
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), options.timeoutMs ?? 8000);
+        const apiKeys = this.getApiKeysForPath(path);
 
-        try {
-          const response = await fetch(this.buildUrl(path, options), {
-            headers: {
-              "X-Riot-Token": env.RIOT_API_KEY!,
-            },
-            signal: controller.signal,
-          });
+        for (let apiKeyIndex = 0; apiKeyIndex < apiKeys.length; apiKeyIndex += 1) {
+          const apiKey = apiKeys[apiKeyIndex]!;
+          this.metrics.totalRequests += 1;
+          const controller = new AbortController();
+          const timeout = setTimeout(() => controller.abort(), options.timeoutMs ?? 8000);
 
-          if (!response.ok) {
-            const retryAfter = response.headers.get("Retry-After");
-            const retryAfterSeconds = retryAfter && Number.isFinite(Number(retryAfter)) ? Number(retryAfter) : undefined;
-            const retryAfterMs = response.status === 429
-              ? resolveRetryAfterMs(retryAfter, DEFAULT_RATE_LIMIT_BACKOFF_MS)
-              : undefined;
-            const details = {
-              statusText: response.statusText,
-              retryAfterSeconds,
-              retryAfterMs,
-            };
+          try {
+            const response = await fetch(this.buildUrl(path, options), {
+              headers: {
+                "X-Riot-Token": apiKey,
+              },
+              signal: controller.signal,
+            });
 
-            switch (response.status) {
-              case 401:
-                throw new HttpError(401, "Riot API authentication failed.", details);
-              case 403:
-                throw new HttpError(403, "Riot API access forbidden for this key or route.", details);
-              case 404:
-                throw new HttpError(404, "Riot resource not found.", details);
-              case 429:
-                this.metrics.rateLimitResponses += 1;
-                if (!retryAfter) {
-                  this.metrics.retryAfterFallbacks += 1;
+            if (!response.ok) {
+              const retryAfter = response.headers.get("Retry-After");
+              const retryAfterSeconds = retryAfter && Number.isFinite(Number(retryAfter)) ? Number(retryAfter) : undefined;
+              const retryAfterMs = response.status === 429
+                ? resolveRetryAfterMs(retryAfter, DEFAULT_RATE_LIMIT_BACKOFF_MS)
+                : undefined;
+              const details = {
+                statusText: response.statusText,
+                retryAfterSeconds,
+                retryAfterMs,
+              };
+
+              switch (response.status) {
+                case 401:
+                case 403: {
+                  const hasFallbackApiKey = apiKeyIndex < apiKeys.length - 1;
+                  if (hasFallbackApiKey) {
+                    this.metrics.authFallbackResponses += 1;
+                    continue;
+                  }
+                  throw new HttpError(
+                    response.status,
+                    response.status === 401
+                      ? "Riot API authentication failed."
+                      : "Riot API access forbidden for this key or route.",
+                    details,
+                  );
                 }
-                this.metrics.totalBackoffMs += retryAfterMs ?? DEFAULT_RATE_LIMIT_BACKOFF_MS;
-                this.getScheduler(scopeKey).defer(retryAfterMs ?? DEFAULT_RATE_LIMIT_BACKOFF_MS);
-                if (attempt < this.retryCount) {
-                  await sleep(retryAfterMs ?? DEFAULT_RATE_LIMIT_BACKOFF_MS);
-                  continue;
-                }
-                throw new HttpError(429, "Riot API rate limit exceeded.", details);
-              default:
-                throw new HttpError(response.status, "Riot API request failed.", details);
+                case 404:
+                  throw new HttpError(404, "Riot resource not found.", details);
+                case 429:
+                  this.metrics.rateLimitResponses += 1;
+                  if (!retryAfter) {
+                    this.metrics.retryAfterFallbacks += 1;
+                  }
+                  this.metrics.totalBackoffMs += retryAfterMs ?? DEFAULT_RATE_LIMIT_BACKOFF_MS;
+                  this.getScheduler(scopeKey).defer(retryAfterMs ?? DEFAULT_RATE_LIMIT_BACKOFF_MS);
+                  if (attempt < this.retryCount) {
+                    await sleep(retryAfterMs ?? DEFAULT_RATE_LIMIT_BACKOFF_MS);
+                    continue attemptLoop;
+                  }
+                  throw new HttpError(429, "Riot API rate limit exceeded.", details);
+                default:
+                  throw new HttpError(response.status, "Riot API request failed.", details);
+              }
             }
-          }
 
-          this.metrics.successfulRequests += 1;
-          return (await response.json()) as T;
-        } catch (error) {
-          if (error instanceof HttpError) {
-            throw error;
-          }
+            if (apiKeyIndex > 0) {
+              this.metrics.authFallbackRecoveries += 1;
+            }
+            this.rememberPreferredApiKey(path, apiKey);
+            this.metrics.successfulRequests += 1;
+            return (await response.json()) as T;
+          } catch (error) {
+            if (error instanceof HttpError) {
+              throw error;
+            }
 
-          if (error instanceof Error && error.name === "AbortError") {
-            throw new HttpError(504, "Riot API request timed out.");
-          }
+            if (error instanceof Error && error.name === "AbortError") {
+              throw new HttpError(504, "Riot API request timed out.");
+            }
 
-          throw new HttpError(502, "Unable to reach Riot API.");
-        } finally {
-          clearTimeout(timeout);
+            throw new HttpError(502, "Unable to reach Riot API.");
+          } finally {
+            clearTimeout(timeout);
+          }
         }
       }
 

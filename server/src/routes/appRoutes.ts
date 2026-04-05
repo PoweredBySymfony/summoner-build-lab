@@ -3,11 +3,13 @@ import rateLimit from "express-rate-limit";
 import { z } from "zod";
 import { puzzleRepository } from "../repositories/puzzleRepository.js";
 import { env } from "../config/env.js";
+import { getMongoHealth } from "../lib/mongo.js";
 import { attachUser, requireAuth, requireSyncAccess } from "../middleware/authMiddleware.js";
 import { appService } from "../services/appService.js";
 import { authService } from "../services/authService.js";
 import { dailyChallengeService } from "../services/dailyChallengeService.js";
 import { GOOGLE_OAUTH_STATE_COOKIE, GOOGLE_OAUTH_STATE_TTL_MS, oauthService } from "../services/oauthService.js";
+import { itemExplanationService } from "../services/itemExplanationService.js";
 import { progressService } from "../services/progressService.js";
 import { puzzleGenerationService } from "../services/puzzleGenerationService.js";
 import { riotSyncService } from "../services/riotSyncService.js";
@@ -36,8 +38,9 @@ const syncLimiter = rateLimit({
 
 router.use(attachUser);
 
-router.get("/health", (_request, response) => {
-  response.json({ ok: true });
+router.get("/health", async (_request, response) => {
+  const mongo = await getMongoHealth();
+  response.json({ ok: true, mongo });
 });
 
 router.get("/auth/me", async (request, response, next) => {
@@ -301,6 +304,27 @@ router.post("/generated-puzzles/match", requireAuth, async (request, response, n
       await puzzleGenerationService.generateMatchBasedPuzzle(payload.importedMatchId, request.user!.id, {
         forceDraftOnLowConfidence: payload.forceDraftOnLowConfidence,
         actorIsAdmin: request.user!.isAdmin,
+      }),
+    );
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post("/generated-puzzles/item-explanation", async (request, response, next) => {
+  try {
+    const payload = z.object({
+      puzzleSlug: z.string().min(1),
+      selectedChoiceId: z.string().min(1).optional(),
+      comparedItemSlug: z.string().min(1).optional(),
+    }).parse(request.body);
+
+    response.status(200).json(
+      await itemExplanationService.buildExplanation({
+        puzzleSlug: payload.puzzleSlug,
+        selectedChoiceId: payload.selectedChoiceId,
+        comparedItemSlug: payload.comparedItemSlug,
+        currentUserId: request.user?.id ?? null,
       }),
     );
   } catch (error) {

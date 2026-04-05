@@ -8,14 +8,14 @@
   "acceptedFallbackQueues": [440],
   "seasonWindowStart": "2026-01-01T00:00:00.000Z",
   "seasonWindowEnd": null,
-  "autoEnrichEliteIfNeeded": true,
+  "autoEnrichEliteIfNeeded": false,
   "allowFallbackTier5": false,
   "fallbackCaps": {
-    "maxAdjacentPatchShare": 1.0,
-    "maxNonProShare": 0.7,
+    "maxAdjacentPatchShare": 0.85,
+    "maxNonProShare": 0.9,
     "maxImportsByTier": {
-      "tier3": 600,
-      "tier4": 900,
+      "tier3": 2500,
+      "tier4": 7500,
       "tier5": 0
     }
   },
@@ -67,5 +67,5 @@
     }
   ],
   "whyZeroBefore": "The previous policy hard-rejected every discovered match outside 26.x and outside queue 420, which produced zero accepted matches in practice for the currently resolved seed set.",
-  "whatWasRelaxed": "The new policy keeps 26.x and pro recent as the first target, but opens controlled fallback tiers for adjacent recent patches and then elite seeds, with explicit logging and reporting."
+  "whatWasRelaxed": "The new policy keeps 26.x and pro recent as the first target, but materializes a broader Pro + Elite seed universe up front, then opens controlled fallback tiers for adjacent recent patches with explicit caps, logging and reporting."
 }

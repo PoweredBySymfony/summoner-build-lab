@@ -149,7 +149,8 @@ export type GeneratedMatchPuzzleResponse =
       message?: string;
     }
   | {
-      generationStatus: "no_viable_snapshot_found";
+      generationStatus: "no_viable_snapshot_found" | "no_publishable_snapshot_found";
+      failureCode: "no_viable_snapshot_found" | "no_publishable_snapshot_found";
       requestId: string;
       slug: null;
       slugs: [];
@@ -158,8 +159,78 @@ export type GeneratedMatchPuzzleResponse =
       lowConfidence: boolean;
       draft: boolean;
       retrySuggested: boolean;
+      snapshotsEvaluated: number;
+      viableSnapshots: number;
+      publishableSnapshots: number;
+      nonPublishableButViableSnapshots: number;
+      dominantRejectionReasons: string[];
       message: string;
     };
+
+export interface GeneratedPuzzleItemExplanation {
+  recommendedItem: {
+    slug: string;
+    name: string;
+    goldTotal: number;
+  };
+  comparedItem: {
+    slug: string;
+    name: string;
+    goldTotal: number;
+  };
+  availableAlternatives: Array<{
+    slug: string;
+    name: string;
+    goldTotal: number;
+  }>;
+  budgetEligibleAlternatives: Array<{
+    slug: string;
+    name: string;
+    goldTotal: number;
+    blockedReasons?: Array<{
+      code: string;
+      message: string;
+    }>;
+  }>;
+  blockedReasons: Array<{
+    code: string;
+    message: string;
+  }>;
+  statRows: Array<{
+    key: string;
+    label: string;
+    recommendedValue: number;
+    comparedValue: number;
+    delta: number;
+  }>;
+  profileDeltaRows: Array<{
+    key: string;
+    label: string;
+    recommendedValue: number;
+    comparedValue: number;
+    delta: number;
+  }>;
+  exportPayload: {
+    filename: string;
+    rows: Array<{
+      type: string;
+      label: string;
+      recommended: number;
+      compared: number;
+      delta: number;
+    }>;
+  };
+  cacheHit: boolean;
+  puzzleContext: {
+    slug: string;
+    sourceType: string;
+    role: string | null;
+    patch: string;
+    level?: number | null;
+    goldAvailable: number;
+    currentBuildSlugs: string[];
+  };
+}
 
 export interface CurrentUser {
   id: string;

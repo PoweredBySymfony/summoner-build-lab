@@ -66,7 +66,8 @@ function parseArgs(argv: string[]): CliOptions {
     checkpointPath: path.join("data", "runtime", "competitive-ingestion", "checkpoint.json"),
     reportPath: path.join("data", "runtime", "competitive-ingestion", "report.json"),
     markdownReportPath: path.join("data", "runtime", "competitive-ingestion", "report.md"),
-    targetMatches: 2000,
+    ownerEmail: "xtrouche@gmail.com",
+    targetMatches: 10000,
     countPerSeed: 30,
     maxIdsPerSeed: 300,
     dryRun: false,
@@ -195,15 +196,12 @@ async function resolveOwnerUserId(options: CliOptions) {
   if (options.ownerUserId) {
     return options.ownerUserId;
   }
-  if (!options.ownerEmail) {
-    throw new Error("Provide --owner-user-id or --owner-email for competitive imports.");
-  }
   const user = await prisma.user.findUnique({
-    where: { email: options.ownerEmail },
+    where: { email: options.ownerEmail ?? "xtrouche@gmail.com" },
     select: { id: true },
   });
   if (!user) {
-    throw new Error(`No user found for owner email ${options.ownerEmail}.`);
+    throw new Error(`No user found for owner email ${options.ownerEmail ?? "xtrouche@gmail.com"}.`);
   }
   return user.id;
 }
@@ -813,11 +811,26 @@ async function main() {
         },
       },
     });
+  const existingCompetitiveMatchIds = options.dryRun
+    ? new Set<string>()
+    : new Set(
+      (
+        await prisma.importedMatch.findMany({
+          where: {
+            sourceKind: {
+              in: ["PRO_SEED", "ELITE_SEED", "FALLBACK_SEED"],
+            },
+          },
+          select: { riotMatchId: true },
+        })
+      ).map((row) => row.riotMatchId),
+    );
+  const remainingTargetMatches = Math.max(0, options.targetMatches - baselineCompetitiveMatchesBefore);
   const checkpoint = (!options.resetCheckpoint ? await loadCompetitiveIngestionCheckpoint(checkpointPath) : null) ?? {
     version: 3,
     generatedAt: new Date().toISOString(),
     seedSetVersion: manifest.seedSetVersion,
-    targetUniqueMatches: options.targetMatches,
+    targetUniqueMatches: remainingTargetMatches,
     queueWhitelist: [...policy.preferredQueues, ...policy.acceptedFallbackQueues],
     patchAllowPrefixes: [...policy.preferredPatchPrefixes, ...policy.acceptedAdjacentPatchPrefixes],
     seasonWindow: {
@@ -903,20 +916,20 @@ async function main() {
   const createdCandidates: CompetitiveDiscoveredMatch[] = [];
   let lastFallbackPlan = determineOpenedFallbackTiers({
     matches: discoveredMatches,
-    targetUniqueMatches: options.targetMatches,
-    alreadyCountedMatchIds: new Set([...attemptedMatchIds, ...importedMatchIds]),
+    targetUniqueMatches: remainingTargetMatches,
+    alreadyCountedMatchIds: new Set([...existingCompetitiveMatchIds, ...attemptedMatchIds, ...importedMatchIds]),
     policy,
   });
 
   const duplicateLikeReasons = new Set(["existing-match-different-target"]);
   let discoveryPass = 0;
 
-  while (createdCandidates.length < options.targetMatches) {
+  while (createdCandidates.length < remainingTargetMatches) {
     discoveryPass += 1;
-    const alreadyCountedMatchIds = new Set([...attemptedMatchIds, ...importedMatchIds]);
+    const alreadyCountedMatchIds = new Set([...existingCompetitiveMatchIds, ...attemptedMatchIds, ...importedMatchIds]);
     const fallbackPlan = determineOpenedFallbackTiers({
       matches: discoveredMatches,
-      targetUniqueMatches: options.targetMatches,
+      targetUniqueMatches: remainingTargetMatches,
       alreadyCountedMatchIds,
       policy,
     });
@@ -928,14 +941,14 @@ async function main() {
 
     const queue = buildCompetitiveMatchQueue({
       matches: discoveredMatches,
-      targetUniqueMatches: options.targetMatches,
+      targetUniqueMatches: remainingTargetMatches,
       policy,
       activeBands: fallbackPlan.activeBands,
       excludedMatchIds: alreadyCountedMatchIds,
     });
 
     console.info(
-      `[competitive-ingestion] pass=${discoveryPass} queueCandidates=${queue.length} createdSoFar=${createdCandidates.length} target=${options.targetMatches} idsPerSeed=${currentTargetIdsPerSeed}`,
+      `[competitive-ingestion] pass=${discoveryPass} queueCandidates=${queue.length} createdSoFar=${createdCandidates.length} targetRemaining=${remainingTargetMatches} targetTotal=${options.targetMatches} idsPerSeed=${currentTargetIdsPerSeed}`,
     );
 
     if (options.dryRun || queue.length === 0) {
@@ -946,7 +959,7 @@ async function main() {
     let passDuplicateLike = 0;
 
     for (const candidate of queue) {
-      if (createdCandidates.length >= options.targetMatches) {
+      if (createdCandidates.length >= remainingTargetMatches) {
         break;
       }
       if (attemptedMatchIds.has(candidate.matchId)) {
@@ -1048,7 +1061,7 @@ async function main() {
       }
     }
 
-    const remainingTarget = options.targetMatches - createdCandidates.length;
+    const remainingTarget = remainingTargetMatches - createdCandidates.length;
     const shouldDeepenDiscovery =
       remainingTarget > 0
       && currentTargetIdsPerSeed < options.maxIdsPerSeed
@@ -1119,7 +1132,7 @@ async function main() {
     version: 3,
     generatedAt: new Date().toISOString(),
     seedSetVersion: manifest.seedSetVersion,
-    targetUniqueMatches: options.targetMatches,
+    targetUniqueMatches: remainingTargetMatches,
     queueWhitelist: [...policy.preferredQueues, ...policy.acceptedFallbackQueues],
     patchAllowPrefixes: [...policy.preferredPatchPrefixes, ...policy.acceptedAdjacentPatchPrefixes],
     seasonWindow: {
@@ -1226,6 +1239,7 @@ async function main() {
     policyMode: policy.mode,
     seedSetVersion: manifest.seedSetVersion,
     targetMatches: options.targetMatches,
+    targetCreatesNeeded: remainingTargetMatches,
     countPerSeed: options.countPerSeed,
     maxIdsPerSeed: options.maxIdsPerSeed,
     dryRun: options.dryRun,

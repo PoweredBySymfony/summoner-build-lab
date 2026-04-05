@@ -19,6 +19,8 @@ function createSnapshotCandidate(input: {
   currentItems: string[];
   goldAvailable: number;
   relevanceScore?: number;
+  actualPurchaseGoldTotal?: number;
+  burstPurchaseIndex?: number;
 }) {
   return {
     snapshotIndex: input.snapshotIndex,
@@ -50,6 +52,12 @@ function createSnapshotCandidate(input: {
       enemyTeam: [],
     },
     relevanceScore: input.relevanceScore ?? 20,
+    actualPurchase: {
+      itemSlug: `actual-item-${input.snapshotIndex}`,
+      goldTotal: input.actualPurchaseGoldTotal ?? 1500,
+      burstPurchaseIndex: input.burstPurchaseIndex ?? 0,
+      timestampMinutes: input.minute,
+    },
   };
 }
 
@@ -60,6 +68,7 @@ function createAcceptedAttempt(input: {
 }) {
   return {
     status: "accepted" as const,
+    technicalViable: true as const,
     snapshotIndex: input.snapshotIndex,
     rawPurchaseIndex: input.snapshotIndex,
     snapshot: createSnapshotCandidate({
@@ -116,6 +125,11 @@ function createAcceptedAttempt(input: {
       lowConfidence: Boolean(input.lowConfidence),
       confidenceScore: input.lowConfidence ? 0.31 : 0.62,
       confidenceGap: input.lowConfidence ? 0.03 : 0.16,
+      technicalViable: true,
+      publishable: true,
+      publishabilityScore: 92,
+      publishabilityReasons: [],
+      goodAnswerSource: "ml-prediction",
     },
   };
 }
@@ -135,6 +149,7 @@ function createRejectedAttempt(snapshotIndex: number, reason: string) {
     prediction: null,
     seed: null,
     rejectionReasons: [reason],
+    technicalViable: false,
     debugSummary: {
       snapshotIndex,
       snapshotMinute: 12 + snapshotIndex,
@@ -149,6 +164,11 @@ function createRejectedAttempt(snapshotIndex: number, reason: string) {
       lowConfidence: false,
       confidenceScore: 0,
       confidenceGap: 0,
+      technicalViable: false,
+      publishable: false,
+      publishabilityScore: 0,
+      publishabilityReasons: [],
+      goodAnswerSource: "ml-prediction",
     },
   };
 }
@@ -399,5 +419,196 @@ describe("mlPuzzleGenerationService orchestration", () => {
     });
 
     expect(selection.primaryAttempt?.snapshotIndex).toBe(1);
+  });
+
+  it("computes a stronger reroll distance score for clearly different snapshots", () => {
+    const nearScore = mlPuzzleGenerationServiceTestables.computeSnapshotDistanceScore({
+      current: {
+        snapshotMinute: 18.4,
+        goldAvailable: 1820,
+        currentItems: ["item-a", "item-b"],
+      },
+      previous: {
+        snapshotMinute: 18.1,
+        goldAvailable: 1800,
+        currentItems: ["item-a", "item-b"],
+      },
+    });
+    const farScore = mlPuzzleGenerationServiceTestables.computeSnapshotDistanceScore({
+      current: {
+        snapshotMinute: 26.2,
+        goldAvailable: 2900,
+        currentItems: ["item-c", "item-d", "item-e"],
+      },
+      previous: {
+        snapshotMinute: 15.1,
+        goldAvailable: 1200,
+        currentItems: ["item-a"],
+      },
+    });
+
+    expect(farScore).toBeGreaterThan(nearScore);
+  });
+
+  it("drops trivial sub-purchases inside the same shopping burst", () => {
+    const meaningful = mlPuzzleGenerationServiceTestables.isMeaningfulPurchaseSnapshotCandidate(
+      createSnapshotCandidate({
+        snapshotIndex: 0,
+        minute: 18,
+        currentItems: ["item-a", "item-b"],
+        goldAvailable: 1500,
+        actualPurchaseGoldTotal: 1200,
+        burstPurchaseIndex: 0,
+      }),
+    );
+    const trivialBurstContinuation = mlPuzzleGenerationServiceTestables.isMeaningfulPurchaseSnapshotCandidate(
+      createSnapshotCandidate({
+        snapshotIndex: 1,
+        minute: 18.1,
+        currentItems: ["item-a", "item-b", "item-c"],
+        goldAvailable: 1100,
+        actualPurchaseGoldTotal: 300,
+        burstPurchaseIndex: 1,
+      }),
+    );
+
+    expect(meaningful).toBe(true);
+    expect(trivialBurstContinuation).toBe(false);
+  });
+
+  it("surfaces dominant rejection reasons when no viable snapshot remains", () => {
+    const diagnostics = mlPuzzleGenerationServiceTestables.summarizeNoViableDiagnostics({
+      snapshotCandidates: [
+        createSnapshotCandidate({ snapshotIndex: 0, minute: 12, currentItems: ["item-a"], goldAvailable: 800 }),
+        createSnapshotCandidate({ snapshotIndex: 1, minute: 18, currentItems: ["item-b"], goldAvailable: 1600 }),
+      ],
+      attempts: [createRejectedAttempt(1, "low-confidence")],
+      prevalidationRejections: {
+        0: ["good-answer-too-cheap", "good-answer-too-cheap"],
+      },
+    });
+
+    expect(diagnostics.snapshotsEvaluated).toBe(2);
+    expect(diagnostics.viableSnapshots).toBe(0);
+    expect(diagnostics.dominantRejectionReasons[0]).toBe("good-answer-too-cheap");
+  });
+
+  it("rejects publishability when the good answer is trivial and distractors are off-band", () => {
+    const assessment = mlPuzzleGenerationServiceTestables.assessSnapshotPublishability({
+      snapshot: createSnapshotCandidate({
+        snapshotIndex: 7,
+        minute: 11.8,
+        currentItems: ["lame-de-doran"],
+        goldAvailable: 2594,
+      }).snapshot,
+      goodAnswer: {
+        id: "dague",
+        slug: "dague",
+        name: "Dague",
+        riotItemId: 1042,
+        goldTotal: 250,
+        patch: "26.7",
+        category: "crit",
+        tags: ["AttackSpeed"],
+        isBoots: false,
+        isLegendary: false,
+        isConsumable: false,
+        isStarter: false,
+        isTrinket: false,
+        isActive: true,
+        buildsFrom: [],
+        itemGroups: [],
+      },
+      distractors: [
+        {
+          id: "bf",
+          slug: "bf-glaive",
+          name: "BF Glaive",
+          riotItemId: 1038,
+          goldTotal: 1300,
+          patch: "26.7",
+          category: "crit",
+          tags: ["Damage"],
+          isBoots: false,
+          isLegendary: false,
+          isConsumable: false,
+          isStarter: false,
+          isTrinket: false,
+          isActive: true,
+          buildsFrom: [],
+          itemGroups: [],
+        },
+        {
+          id: "last-whisper",
+          slug: "dernier-souffle",
+          name: "Dernier souffle",
+          riotItemId: 3035,
+          goldTotal: 1450,
+          patch: "26.7",
+          category: "crit",
+          tags: ["Damage"],
+          isBoots: false,
+          isLegendary: false,
+          isConsumable: false,
+          isStarter: false,
+          isTrinket: false,
+          isActive: true,
+          buildsFrom: [],
+          itemGroups: ["LastWhisper"],
+        },
+        {
+          id: "axiom",
+          slug: "arc-axiomatique",
+          name: "Arc axiomatique",
+          riotItemId: 6696,
+          goldTotal: 3000,
+          patch: "26.7",
+          category: "fighter",
+          tags: ["Damage"],
+          isBoots: false,
+          isLegendary: true,
+          isConsumable: false,
+          isStarter: false,
+          isTrinket: false,
+          isActive: true,
+          buildsFrom: [],
+          itemGroups: [],
+        },
+      ],
+      businessRules: {
+        debug: {
+          goodAnswerGoldAssessment: "too-cheap",
+          goodAnswerViolations: ["too-cheap"],
+        },
+      } as never,
+    });
+
+    expect(assessment.publishable).toBe(false);
+    expect(assessment.reasons).toContain("publishability-trivial-good-answer");
+    expect(assessment.reasons).toContain("publishability-insufficient-credible-distractors");
+  });
+
+  it("counts viable but non-publishable snapshots separately from accepted ones", () => {
+    const diagnostics = mlPuzzleGenerationServiceTestables.summarizeNoViableDiagnostics({
+      snapshotCandidates: [
+        createSnapshotCandidate({ snapshotIndex: 0, minute: 12, currentItems: ["item-a"], goldAvailable: 1800 }),
+      ],
+      attempts: [
+        {
+          ...createRejectedAttempt(0, "publishability-trivial-good-answer"),
+          technicalViable: true,
+          debugSummary: {
+            ...createRejectedAttempt(0, "publishability-trivial-good-answer").debugSummary,
+            technicalViable: true,
+            publishabilityReasons: ["publishability-trivial-good-answer"],
+            publishabilityScore: 24,
+          },
+        },
+      ],
+    });
+
+    expect(diagnostics.viableSnapshots).toBe(1);
+    expect(diagnostics.publishableSnapshots).toBe(0);
+    expect(diagnostics.nonPublishableButViableSnapshots).toBe(1);
   });
 });

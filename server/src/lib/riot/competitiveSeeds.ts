@@ -72,7 +72,8 @@ export type EliteSeedDiscoveryOptions = {
 };
 
 type RiotLeagueEntry = {
-  summonerId: string;
+  puuid?: string | null;
+  summonerId?: string | null;
   summonerName?: string;
   leaguePoints: number;
   wins: number;
@@ -90,13 +91,13 @@ const ROLE_ROTATION: CompetitiveSeed["role"][] = ["TOP", "JUNGLE", "MID", "ADC",
 export const DEFAULT_COMPETITIVE_SEED_SET_VERSION = "2026-premium-v1";
 export const DEFAULT_COMPETITIVE_SEASON = "2026";
 
-export const DEFAULT_ELITE_SEED_PLATFORMS: RiotPlatform[] = ["kr", "euw1"];
+export const DEFAULT_ELITE_SEED_PLATFORMS: RiotPlatform[] = ["kr", "euw1", "na1", "br1", "eun1", "jp1", "la1", "la2"];
 
 export const DEFAULT_ELITE_SEED_OPTIONS: EliteSeedDiscoveryOptions = {
   platforms: DEFAULT_ELITE_SEED_PLATFORMS,
   queue: "RANKED_SOLO_5x5",
   tiers: ["challenger", "grandmaster", "master"],
-  maxEntriesPerTier: 75,
+  maxEntriesPerTier: 150,
   season: DEFAULT_COMPETITIVE_SEASON,
   seedSetVersion: DEFAULT_COMPETITIVE_SEED_SET_VERSION,
 };
@@ -165,6 +166,16 @@ function inferRoleFromIndex(index: number): CompetitiveSeed["role"] {
   return ROLE_ROTATION[index % ROLE_ROTATION.length];
 }
 
+export function getEliteEntryIdentity(entry: Pick<RiotLeagueEntry, "puuid" | "summonerId">) {
+  const puuid = typeof entry.puuid === "string" && entry.puuid.trim() ? entry.puuid.trim() : null;
+  const summonerId = typeof entry.summonerId === "string" && entry.summonerId.trim() ? entry.summonerId.trim() : null;
+
+  return {
+    puuid,
+    summonerId,
+  };
+}
+
 async function fetchEliteSeedsForPlatform(
   platform: RiotPlatform,
   options: EliteSeedDiscoveryOptions,
@@ -173,7 +184,24 @@ async function fetchEliteSeedsForPlatform(
   const seeds: CompetitiveSeed[] = [];
 
   for (const tier of options.tiers) {
-    const response = await riotApiClient.getLeagueEntriesByQueueOnPlatform(platform, options.queue, tier);
+    let response: RiotLeagueListResponse;
+    try {
+      response = await riotApiClient.getLeagueEntriesByQueueOnPlatform(platform, options.queue, tier);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn(
+        "[competitive-seeds] elite-tier-fetch-failed",
+        JSON.stringify({
+          platform,
+          tier,
+          message,
+        }),
+      );
+      if (/forbidden/i.test(message)) {
+        break;
+      }
+      continue;
+    }
     const entries = response.entries
       .slice()
       .sort((left, right) => right.leaguePoints - left.leaguePoints || right.wins - left.wins)
@@ -181,8 +209,27 @@ async function fetchEliteSeedsForPlatform(
 
     for (const [index, entry] of entries.entries()) {
       try {
-        const summoner = await riotApiClient.getSummonerBySummonerIdOnPlatform(entry.summonerId, platform);
-        const account = await riotApiClient.getAccountByPuuidOnRegion(summoner.puuid, cluster);
+        const entryIdentity = getEliteEntryIdentity(entry);
+        let resolvedPuuid = entryIdentity.puuid;
+
+        if (!resolvedPuuid && entryIdentity.summonerId) {
+          const summoner = await riotApiClient.getSummonerBySummonerIdOnPlatform(entryIdentity.summonerId, platform);
+          resolvedPuuid = summoner.puuid;
+        }
+
+        if (!resolvedPuuid) {
+          console.warn(
+            "[competitive-seeds] elite-entry-missing-identity",
+            JSON.stringify({
+              platform,
+              tier,
+              index,
+            }),
+          );
+          continue;
+        }
+
+        const account = await riotApiClient.getAccountByPuuidOnRegion(resolvedPuuid, cluster);
         const riotId = account.gameName && account.tagLine
           ? `${account.gameName}#${account.tagLine}`
           : null;
@@ -196,7 +243,7 @@ async function fetchEliteSeedsForPlatform(
           region: platform.toUpperCase(),
           riotId,
           riotIdCandidates: riotId ? [riotId] : [],
-          puuid: summoner.puuid,
+          puuid: resolvedPuuid,
           priorityTier: "elite",
           priorityScore:
             tier === "challenger" ? 80 :
@@ -216,7 +263,8 @@ async function fetchEliteSeedsForPlatform(
           JSON.stringify({
             platform,
             tier,
-            summonerId: entry.summonerId,
+            summonerId: entry.summonerId ?? null,
+            puuid: entry.puuid ?? null,
             message: error instanceof Error ? error.message : String(error),
           }),
         );
@@ -236,7 +284,17 @@ export async function fetchEliteLadderSeeds(
   };
   const seeds: CompetitiveSeed[] = [];
   for (const platform of resolvedOptions.platforms) {
-    seeds.push(...(await fetchEliteSeedsForPlatform(platform, resolvedOptions)));
+    try {
+      seeds.push(...(await fetchEliteSeedsForPlatform(platform, resolvedOptions)));
+    } catch (error) {
+      console.warn(
+        "[competitive-seeds] elite-platform-fetch-failed",
+        JSON.stringify({
+          platform,
+          message: error instanceof Error ? error.message : String(error),
+        }),
+      );
+    }
   }
   return dedupeCompetitiveSeeds(seeds);
 }

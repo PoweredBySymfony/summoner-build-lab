@@ -5,6 +5,7 @@ import { RiotIdSearch } from "@/components/RiotIdSearch";
 import { useCurrentUser, useGenerateMatchPuzzleSeries, useImportRecentMatches, usePlayerSearch } from "@/api/hooks";
 import { savePuzzleSeries } from "@/lib/puzzleSeries";
 import { buildRiotProfileIconUrl, saveRecentRiotSearch } from "@/lib/riotSearch";
+import type { GeneratedMatchPuzzleResponse } from "@/types/domain";
 
 const PlayerProfile = () => {
   const navigate = useNavigate();
@@ -14,7 +15,7 @@ const PlayerProfile = () => {
   const { data, isLoading, error } = usePlayerSearch(riotId);
   const importRecentMatches = useImportRecentMatches();
   const generateMatchSeries = useGenerateMatchPuzzleSeries();
-  const [generationMessage, setGenerationMessage] = useState<string | null>(null);
+  const [generationResult, setGenerationResult] = useState<GeneratedMatchPuzzleResponse | null>(null);
 
   useEffect(() => {
     if (!data) {
@@ -64,7 +65,7 @@ const PlayerProfile = () => {
                       type="button"
                       className="inline-flex min-h-11 items-center gap-2 rounded-2xl bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground transition hover:opacity-90"
                       onClick={async () => {
-                        setGenerationMessage(null);
+                        setGenerationResult(null);
                         const imported = await importRecentMatches.mutateAsync({ puuid: data.profile.puuid, count: 1 });
                         if (!imported[0]) {
                           return;
@@ -77,7 +78,7 @@ const PlayerProfile = () => {
                           return;
                         }
 
-                        setGenerationMessage(series.message);
+                        setGenerationResult(series);
                       }}
                       disabled={importRecentMatches.isPending || generateMatchSeries.isPending}
                     >
@@ -86,9 +87,34 @@ const PlayerProfile = () => {
                     </button>
                   </div>
                 ) : null}
-                {generationMessage ? (
+                {generationResult
+                && (
+                  generationResult.generationStatus === "no_viable_snapshot_found"
+                  || generationResult.generationStatus === "no_publishable_snapshot_found"
+                ) ? (
                   <div className="mt-4 rounded-2xl border border-border/60 bg-background/60 px-4 py-3 text-sm text-muted-foreground">
-                    {generationMessage}
+                    <p>
+                      {generationResult.failureCode === "no_publishable_snapshot_found"
+                        ? "La partie est exploitable, mais aucun moment n'a encore passe la gate de publishability."
+                        : generationResult.message}
+                    </p>
+                    <p className="mt-2">
+                      Snapshots evalues: {generationResult.snapshotsEvaluated}
+                      {" | "}
+                      Snapshots techniquement viables: {generationResult.viableSnapshots}
+                      {" | "}
+                      Snapshots publiables: {generationResult.publishableSnapshots}
+                    </p>
+                    {generationResult.nonPublishableButViableSnapshots > 0 ? (
+                      <p className="mt-2">
+                        Snapshots viables mais refuses a la publication: {generationResult.nonPublishableButViableSnapshots}
+                      </p>
+                    ) : null}
+                    {generationResult.dominantRejectionReasons.length > 0 ? (
+                      <p className="mt-2">
+                        Rejets dominants: {generationResult.dominantRejectionReasons.join(", ")}
+                      </p>
+                    ) : null}
                   </div>
                 ) : null}
               </div>

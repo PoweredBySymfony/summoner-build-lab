@@ -42,7 +42,7 @@ function parseArgs(argv: string[]): CliOptions {
     elitePlatforms: DEFAULT_ELITE_SEED_OPTIONS.platforms,
     eliteMaxEntriesPerTier: DEFAULT_ELITE_SEED_OPTIONS.maxEntriesPerTier,
     curatedProPath: path.join("data", "seeds", "pro-curated-2026.json"),
-    enableLeaguepedia: false,
+    enableLeaguepedia: true,
     seedsCachePath: DEFAULT_SEEDS_CACHE_PATH,
     leaguepediaUserAgent: DEFAULT_LEAGUEPEDIA_USER_AGENT,
   };

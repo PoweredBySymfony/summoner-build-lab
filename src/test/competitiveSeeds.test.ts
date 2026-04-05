@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { dedupeCompetitiveSeeds } from "../../server/src/lib/riot/competitiveSeeds";
+import { dedupeCompetitiveSeeds, getEliteEntryIdentity } from "../../server/src/lib/riot/competitiveSeeds";
 
 describe("competitiveSeeds", () => {
   it("dedupes seeds by puuid and keeps the highest priority score", () => {
@@ -48,5 +48,27 @@ describe("competitiveSeeds", () => {
     expect(result).toHaveLength(1);
     expect(result[0]?.priorityTier).toBe("pro");
     expect(result[0]?.priorityScore).toBe(100);
+  });
+
+  it("prefers puuid from the ladder payload and keeps summonerId as legacy fallback", () => {
+    expect(
+      getEliteEntryIdentity({
+        puuid: "puuid-123",
+        summonerId: "legacy-summoner-id",
+      }),
+    ).toEqual({
+      puuid: "puuid-123",
+      summonerId: "legacy-summoner-id",
+    });
+
+    expect(
+      getEliteEntryIdentity({
+        puuid: "   ",
+        summonerId: "legacy-summoner-id",
+      }),
+    ).toEqual({
+      puuid: null,
+      summonerId: "legacy-summoner-id",
+    });
   });
 });

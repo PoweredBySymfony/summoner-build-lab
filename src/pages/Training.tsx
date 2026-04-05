@@ -1,9 +1,10 @@
 import { useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { CheckCircle2, Coins, Flame, ShieldAlert, Swords, Timer, Trophy, XCircle } from "lucide-react";
+import { BarChart3, CheckCircle2, Coins, Flame, ShieldAlert, Swords, Timer, Trophy, XCircle } from "lucide-react";
 import { useMutation } from "@tanstack/react-query";
 import ChampionPortrait from "@/components/ChampionPortrait";
 import { ItemIcon } from "@/components/ItemIcon";
+import { PuzzleItemExplanationDialog } from "@/components/PuzzleItemExplanationDialog";
 import { Button } from "@/components/ui/button";
 import { apiFetch } from "@/api/client";
 import { useCurrentUser, usePuzzle, usePuzzles } from "@/api/hooks";
@@ -22,6 +23,10 @@ type TeamEntry =
     };
 
 const isChampionView = (entry: TeamEntry): entry is ChampionView => "slug" in entry;
+const isChampionPortraitView = (
+  entry: ChampionView | { id: string; name: string } | undefined,
+): entry is ChampionView =>
+  Boolean(entry && typeof entry === "object" && "slug" in entry && "databaseId" in entry);
 
 const renderItem = (
   item: GameItem | { id: string; name: string },
@@ -51,7 +56,7 @@ const TeamRow = ({ entry }: { entry: TeamEntry }) => {
   return (
     <div className="grid grid-cols-[170px_1fr] items-center gap-3 rounded-2xl border border-border/60 bg-background/60 px-3 py-3">
       <div className="flex min-w-0 items-center gap-3">
-        {champion && "slug" in champion ? <ChampionPortrait champion={champion} size="sm" /> : <div className="h-10 w-10 rounded-lg bg-secondary" />}
+        {isChampionPortraitView(champion) ? <ChampionPortrait champion={champion} size="sm" /> : <div className="h-10 w-10 rounded-lg bg-secondary" />}
         <div className="min-w-0">
           <p className="truncate text-sm font-semibold text-foreground">
             {champion && "name" in champion ? champion.name : isChampionView(entry) ? entry.name : entry.name}
@@ -104,6 +109,7 @@ const Training = () => {
     globalExplanation: string;
     requiresAuth: boolean;
   }>(null);
+  const [proofOpen, setProofOpen] = useState(false);
 
   const submitAttempt = useMutation({
     mutationFn: (choiceId: string) =>
@@ -169,7 +175,7 @@ const Training = () => {
           <section className="space-y-4">
             <div className="glass-surface rounded-3xl p-6">
               <div className="flex flex-wrap items-center gap-3 text-[11px] uppercase tracking-[0.22em]">
-                <span className="font-semibold text-primary">{puzzle.mode.replaceAll("_", " ")}</span>
+                <span className="font-semibold text-primary">{puzzle.mode.replace(/_/g, " ")}</span>
                 <span className="text-muted-foreground">Patch {puzzle.patch}</span>
                 <span className="text-muted-foreground">{puzzle.difficulty}</span>
                 {puzzle.role ? <span className="text-muted-foreground">{puzzle.role}</span> : null}
@@ -346,6 +352,10 @@ const Training = () => {
                       </div>
                     ) : null}
                     <div className="flex flex-wrap gap-3 pt-2">
+                      <Button variant="outline" onClick={() => setProofOpen(true)}>
+                        <BarChart3 className="h-4 w-4" />
+                        Voir la preuve item
+                      </Button>
                       {nextPuzzle ? <Button variant="gold" onClick={() => navigate(`/training/${nextPuzzle.slug}`)}><Trophy className="h-4 w-4" />{nextPuzzle.label}</Button> : null}
                       <Link to="/dashboard"><Button variant="outline">Retour au tableau de bord</Button></Link>
                     </div>
@@ -356,6 +366,13 @@ const Training = () => {
           </aside>
         </div>
       </div>
+      <PuzzleItemExplanationDialog
+        open={proofOpen}
+        onOpenChange={setProofOpen}
+        puzzle={puzzle}
+        selectedChoiceId={selectedChoiceId}
+        result={result ? { isCorrect: result.isCorrect, correctChoiceId: result.correctChoiceId } : null}
+      />
     </div>
   );
 };

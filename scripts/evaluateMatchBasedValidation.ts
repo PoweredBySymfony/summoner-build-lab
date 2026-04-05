@@ -405,7 +405,10 @@ async function main() {
       ? null
       : attempts.find((attempt) => attempt.snapshotIndex === selectedSnapshotIndex) ?? null;
     const failureAttempt = selectFailureAttempt(attempts);
-    const failureReason = response.generationStatus === "no_viable_snapshot_found"
+    const failureReason = (
+      response.generationStatus === "no_viable_snapshot_found"
+      || response.generationStatus === "no_publishable_snapshot_found"
+    )
       ? failureAttempt?.rejectionReasons.join(", ") ?? "no-accepted-snapshot"
       : null;
     const effectiveAttempt = selectedAttempt ?? failureAttempt;
@@ -443,7 +446,10 @@ async function main() {
   }
 
   const completedCount = generations.filter((row) => row.generationStatus === "completed").length;
-  const noViableCount = generations.filter((row) => row.generationStatus === "no_viable_snapshot_found").length;
+  const noViableCount = generations.filter((row) =>
+    row.generationStatus === "no_viable_snapshot_found"
+    || row.generationStatus === "no_publishable_snapshot_found"
+  ).length;
   const rejectionReasonCounts = countBy(
     generations.flatMap((row) => row.observedRejectionReasons),
   ).map(({ key, count }) => ({

@@ -1,6 +1,7 @@
 import { Prisma, Role } from "@prisma/client";
 import { env } from "../config/env.js";
 import { prisma } from "../lib/prisma.js";
+import { importedMatchArchiveRepository } from "../repositories/importedMatchArchiveRepository.js";
 import { dataDragonClient } from "../lib/gameData/dataDragonClient.js";
 import { canonicalizePatch } from "../lib/riot/patchCanonical.js";
 import { riotApiClient } from "../lib/riot/riotApiClient.js";
@@ -526,6 +527,38 @@ function normalizeSourceKind(sourceKind?: string | null) {
   return normalized ? normalized : null;
 }
 
+function buildImportedMatchMetadata(input: {
+  riotMatchId: string;
+  patch: string | null;
+  sourceRegion: string;
+  sourceKind: string | null;
+  sourceMetadata: Prisma.InputJsonObject | null;
+  targetPuuid: string;
+  targetGameName: string | null;
+  targetTagLine: string | null;
+  participant: Record<string, unknown>;
+  championSlug: string;
+  targetRole: Role | null;
+  gameCreationAt: Date | null;
+  gameDurationSeconds: number | null;
+}) {
+  return {
+    riotMatchId: input.riotMatchId,
+    patch: input.patch,
+    sourceRegion: input.sourceRegion,
+    sourceKind: input.sourceKind,
+    sourceMetadata: input.sourceMetadata,
+    targetPuuid: input.targetPuuid,
+    targetGameName: input.targetGameName,
+    targetTagLine: input.targetTagLine,
+    targetChampionId: Number(input.participant.championId) || null,
+    targetChampionSlug: input.championSlug,
+    targetRole: input.targetRole,
+    gameCreationAt: input.gameCreationAt?.toISOString() ?? null,
+    gameDurationSeconds: input.gameDurationSeconds,
+  } satisfies Prisma.InputJsonObject;
+}
+
 async function importMatchForIdentityInternal(
   identity: ResolvedImportIdentity,
   input: {
@@ -603,9 +636,6 @@ async function importMatchForIdentityInternal(
   const patch = canonicalizePatch(info.gameVersion, gameCreationAt).patchCanonical;
   const sourceKind = normalizeSourceKind(input.sourceKind);
   const sourceMetadata = input.sourceMetadata ?? null;
-  const timelinePayload = timeline
-    ? ({ raw: timeline as Prisma.InputJsonObject } as Prisma.InputJsonObject)
-    : null;
   const resolvedTimelineMissingReason = timeline ? null : (timelineMissingReason ?? "timeline-unavailable-during-import");
   const existingMatch = await prisma.importedMatch.findUnique({
     where: { riotMatchId },
@@ -633,24 +663,64 @@ async function importMatchForIdentityInternal(
       skippedReason: "existing-match-different-target",
     };
   }
-  const matchPayload: Prisma.InputJsonObject = {
-    raw: match as Prisma.InputJsonObject,
-    metadata: {
-      riotMatchId,
-      patch,
-      sourceRegion: identity.region,
-      sourceKind,
-      sourceMetadata,
-      targetPuuid: identity.puuid,
-      targetGameName: identity.gameName,
-      targetTagLine: identity.tagLine,
-      targetChampionId: Number(participant.championId) || null,
-      targetChampionSlug: championSlug,
-      targetRole,
-      gameCreationAt: gameCreationAt?.toISOString() ?? null,
-      gameDurationSeconds: clampNumber(info.gameDuration) || null,
-      } as Prisma.InputJsonObject,
-  };
+  const matchMetadata = buildImportedMatchMetadata({
+    riotMatchId,
+    patch,
+    sourceRegion: identity.region,
+    sourceKind,
+    sourceMetadata,
+    targetPuuid: identity.puuid,
+    targetGameName: identity.gameName,
+    targetTagLine: identity.tagLine,
+    participant,
+    championSlug,
+    targetRole,
+    gameCreationAt,
+    gameDurationSeconds: clampNumber(info.gameDuration) || null,
+  });
+  const mongoRefs = await importedMatchArchiveRepository.persistImportedMatchArtifacts({
+    riotMatchId,
+    patch: patch ?? null,
+    sourceRegion: identity.region,
+    sourceKind,
+    sourceMetadata,
+    matchMetadata,
+    targetPuuid: identity.puuid,
+    targetGameName: identity.gameName,
+    targetTagLine: identity.tagLine,
+    userId: input.userId,
+    matchRaw: match as Prisma.InputJsonObject,
+    timelineRaw: timeline ? (timeline as Prisma.InputJsonObject) : null,
+    gameCreationAt,
+  });
+  const hasMongoPrimaryStorage = Boolean(mongoRefs.mongoMatchImportRef);
+  const matchPayload: Prisma.InputJsonObject = hasMongoPrimaryStorage
+    ? {
+      storage: "mongo-primary",
+      metadata: matchMetadata,
+    }
+    : {
+      raw: match as Prisma.InputJsonObject,
+      metadata: matchMetadata,
+    };
+  const timelinePayload = timeline
+    ? (
+      hasMongoPrimaryStorage
+        ? {
+          storage: "mongo-primary",
+          metadata: {
+            riotMatchId,
+            frameCount:
+              typeof timeline.info === "object" && timeline.info && Array.isArray((timeline.info as { frames?: unknown[] }).frames)
+                ? (timeline.info as { frames: unknown[] }).frames.length
+                : 0,
+          } satisfies Prisma.InputJsonObject,
+        }
+        : {
+          raw: timeline as Prisma.InputJsonObject,
+        }
+    ) as Prisma.InputJsonObject
+    : null;
 
   await prisma.importedMatch.upsert({
     where: { riotMatchId },
@@ -669,6 +739,9 @@ async function importMatchForIdentityInternal(
       gameDurationSeconds: clampNumber(info.gameDuration) || null,
       timelineFetchedAt: timeline ? new Date() : null,
       timelineMissingReason: resolvedTimelineMissingReason,
+      mongoMatchImportRef: mongoRefs.mongoMatchImportRef,
+      mongoTimelineRef: mongoRefs.mongoTimelineRef,
+      mongoBackfilledAt: mongoRefs.mongoMatchImportRef ? new Date() : null,
       matchData: matchPayload,
       timelineData: timelinePayload,
     },
@@ -689,6 +762,9 @@ async function importMatchForIdentityInternal(
       gameDurationSeconds: clampNumber(info.gameDuration) || null,
       timelineFetchedAt: timeline ? new Date() : null,
       timelineMissingReason: resolvedTimelineMissingReason,
+      mongoMatchImportRef: mongoRefs.mongoMatchImportRef,
+      mongoTimelineRef: mongoRefs.mongoTimelineRef,
+      mongoBackfilledAt: mongoRefs.mongoMatchImportRef ? new Date() : null,
       matchData: matchPayload,
       timelineData: timelinePayload,
     },
@@ -791,6 +867,21 @@ async function importRecentMatchesInternal(
       },
     });
   }
+
+  await importedMatchArchiveRepository.recordIngestionRun({
+    kind: options.sourceKind ?? "USER_SYNC",
+    targetPuuid: puuid,
+    userId,
+    requestedMatchCount: ids.length,
+    importedMatchCount: imported.length,
+    skippedMatchCount,
+    timelineOkCount: matches.filter((match) => match.timelineAvailable).length,
+    matches: matches.map((match) => ({
+      riotMatchId: match.riotMatchId,
+      timelineAvailable: match.timelineAvailable,
+      timelineMissingReason: match.timelineMissingReason,
+    })),
+  });
 
   return {
     requestedMatchCount: ids.length,

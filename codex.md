@@ -15,11 +15,153 @@ Lire ce fichier au debut de chaque nouvelle conversation sur ce repo, puis le me
   - generation de serie depuis une game importee
   - Lab d'Items dedie (`/lab`) pour comparer deux setups cote a cote en mode miroir ou duel
 
+## Roadmap Lab V2
+
+- Cible de volumetrie:
+  - `600 -> 2000 -> 5000 -> 8000 -> 10000`
+- Invariants architecture:
+  - PostgreSQL reste la source applicative canonique pour les entites produit
+  - MongoDB devient le sidecar analytique pour les imports lourds, timelines, snapshots et caches d'analyse
+  - `ImportedMatch` devient progressivement un index relationnel leger avec refs Mongo; les nouveaux imports doivent etre Mongo-first
+  - le JSON brut PostgreSQL ne reste qu'en heritage pour les imports historiques et les environnements sans Mongo configuree
+- Invariants produit:
+  - un reroll sur une meme game doit tendre vers un moment sensiblement different
+  - la diversite ne se limite plus a `snapshotSignature`; elle suit aussi une distance minute/or/inventaire
+  - la preuve item doit etre visible directement depuis la correction du puzzle
+- Etat reel de la branche `lab`:
+  - la generation multi-snapshots et l'anti-repetition existent deja
+  - le gate `OK pour relancer import vers 2000` existe deja dans les audits match-based
+  - l'Item Lab sait deja calculer stats, ecarts, restrictions de familles et comparaison de setups
+  - `Training` expose maintenant une modal de preuve item avec export CSV
+  - la generation match-based prevalide maintenant les snapshots contre l'achat reel suivant avant tentative finale
+  - les sous-achats triviaux au sein d'un meme shop burst sont desormais de-priorises ou filtres
+  - une gate de `publishability` existe maintenant en plus de la viabilite technique:
+    - une bonne reponse triviale au regard de l'or disponible est refusee
+    - des distracteurs hors bande de decision sont refuses
+    - les snapshots techniquement viables mais non publiables sont mesures separement
+  - la politique produit retenue pour les achats triviaux est `Reject and Shift`
+  - bug corrige:
+    - la resolution finale des choix pouvait encore utiliser `seed.goodAnswer` apres fallback vers un achat reel plus credible
+    - cela expliquait des puzzles triviaux confirmes, par exemple `Yunara 2594g -> Dague`
+  - les reponses `no_viable_snapshot_found` exposent maintenant:
+    - `failureCode`
+    - `snapshotsEvaluated`
+    - `viableSnapshots`
+    - `publishableSnapshots`
+    - `nonPublishableButViableSnapshots`
+    - `dominantRejectionReasons`
+  - la page profil joueur explique maintenant mieux l'echec controle d'une “derniere partie”
+  - un reporting de readiness `10k` existe:
+    - script: `scripts/reportReadiness10k.ts`
+    - commande: `npm run audit:readiness-10k`
+  - audits persistants ajoutes:
+    - `npm run audit:ai-puzzles`
+    - `npm run audit:ml-unresolved-slugs`
+    - `npm run riot:report-competitive-throughput`
+  - quarantaine AI:
+    - `npm run audit:ai-puzzles -- --apply-quarantine`
+    - au `2026-04-05`, `15` puzzles AI recents ont ete flagges puis quarantaines
+    - les cas confirmes incluent les puzzles Yunara avec `Dague` comme bonne reponse
+
+## Execution Strategy 10k + Publishability
+
+- Garde-fous deja en place:
+  - `low-confidence`
+  - `good-answer-too-cheap`
+  - `good-answer-too-expensive`
+  - `good-answer-incoherent-with-champion`
+  - `candidate-pool-too-small`
+  - restrictions patch / role / familles
+  - anti-repetition / distance de reroll
+- Ce qui etait incomplet:
+  - absence d'une vraie gate de `publishability`
+  - trou de resolution sur la bonne reponse finale apres fallback
+  - seed universe trop etroit pour une trajectoire credible vers `10k`
+- Politique puzzle:
+  - `Reject and Shift`
+  - si l'achat reel suivant est techniquement vrai mais trivial, on rejette le snapshot et on se decale dans la meme game
+- Politique volume:
+  - `Pro + Elite`
+  - pas `Pro only`
+  - pas de fallback non-pro par defaut
+- Ajustements ingestion actifs:
+  - `prepareCompetitiveSeeds` active maintenant Leaguepedia par defaut
+  - client Riot:
+    - `RIOT_API_KEY` reste la cle primaire
+    - `RIOT_API_KEY_2` est un fallback optionnel
+    - la cle 2 n'est tentee qu'apres un `401/403` de la cle 1
+    - une preference de route en memoire evite de retester inutilement une cle deja refusee sur la meme famille d'endpoint
+  - correction elite ladder `2026-04-05`:
+    - le payload Riot ladder renvoie maintenant `puuid` directement dans les entries
+    - le code attendait encore `summonerId` comme source primaire, ce qui cassait artificiellement la resolution des seeds elite
+    - `server/src/lib/riot/competitiveSeeds.ts` consomme maintenant `puuid` en priorite et garde `summonerId` en fallback legacy
+  - elite ladder par defaut:
+    - plateformes: `kr`, `euw1`, `na1`, `br1`, `eun1`, `jp1`, `la1`, `la2`
+    - tiers: `challenger`, `grandmaster`, `master`
+    - `maxEntriesPerTier = 150`
+  - `competitive-ingestion-policy-2026.json`:
+    - n'attend plus `autoEnrichEliteIfNeeded`
+    - releve les caps elite pour rendre `10k` atteignable
+- KPIs cibles de rattrapage:
+  - `mongoMatchCount >= 10000`
+  - `publishableSnapshotRate > 20%`
+  - `noViableSnapshotRate < 15%`
+  - baisse nette de `good-answer-unresolved`
+- Regle d'execution terminal:
+  - ne plus lancer les imports competitifs lourds en arriere-plan sans accord explicite
+  - privilegier un run foreground avec logs visibles directement dans le terminal utilisateur
+- Programme d'execution par paliers:
+  - phase A `2000`:
+    - objectif: atteindre `2000` matchs competitifs indexes et archives Mongo
+    - commande canonique:
+      - `npm run riot:import-competitive -- --target-matches 2000 --checkpoint-path data/runtime/competitive-ingestion/phase-2000.checkpoint.json --report-path data/runtime/competitive-ingestion/phase-2000.report.json --markdown-report-path data/runtime/competitive-ingestion/phase-2000.report.md --count-per-seed 40 --max-ids-per-seed 400`
+  - phase B `5000`:
+    - commande canonique:
+      - `npm run riot:import-competitive -- --target-matches 5000 --checkpoint-path data/runtime/competitive-ingestion/phase-5000.checkpoint.json --report-path data/runtime/competitive-ingestion/phase-5000.report.json --markdown-report-path data/runtime/competitive-ingestion/phase-5000.report.md --count-per-seed 50 --max-ids-per-seed 500`
+  - phase C `8000`:
+    - commande canonique:
+      - `npm run riot:import-competitive -- --target-matches 8000 --checkpoint-path data/runtime/competitive-ingestion/phase-8000.checkpoint.json --report-path data/runtime/competitive-ingestion/phase-8000.report.json --markdown-report-path data/runtime/competitive-ingestion/phase-8000.report.md --count-per-seed 60 --max-ids-per-seed 600`
+  - phase D `10000`:
+    - commande canonique:
+      - `npm run riot:import-competitive -- --target-matches 10000 --checkpoint-path data/runtime/competitive-ingestion/phase-10000.checkpoint.json --report-path data/runtime/competitive-ingestion/phase-10000.report.json --markdown-report-path data/runtime/competitive-ingestion/phase-10000.report.md --count-per-seed 80 --max-ids-per-seed 800`
+  - pour chaque phase:
+    - execution foreground obligatoire
+    - checkpoint dedie
+    - report JSON + Markdown dedies
+    - verification immediate de:
+      - volume Mongo
+      - volume competitif PostgreSQL
+      - repartition `pro / elite`
+      - top failure reasons
+- Etat mesure au `2026-04-05`:
+  - Mongo: `1132 / 10000`
+  - `noViableSnapshotRate`: `45.2%`
+  - `viableSnapshotRate`: `0.43%`
+  - `publishableSnapshotRate`: `0%` sur la fenetre historique auditee
+  - manifest competitif regenere au premier plan:
+    - commande: `npm run riot:prepare-competitive-seeds -- --elite-max-entries-per-tier 10`
+    - resultat: `324` seeds dont `94 pro` et `230 elite`
+    - point notable:
+      - `br1/master` a timeoute sur ce run, donc le manifest n'est pas encore le maximum theorique
+
 ## Stack
 
 - Frontend: Vite + React + TypeScript + React Query + Tailwind + shadcn/ui
 - Backend: Express + TypeScript
-- DB: PostgreSQL + Prisma
+- DB:
+  - PostgreSQL + Prisma pour:
+    - users
+    - progression
+    - puzzles
+    - catalogues
+    - review admin
+    - index relationnel leger des matchs importes
+  - MongoDB sidecar analytique pour:
+    - `match_imports_raw`
+    - `timeline_frames_raw`
+    - `snapshot_candidates`
+    - `item_explanation_cache`
+    - `ingestion_runs`
 - Data jeu: Riot API + Data Dragon
 - ML local:
   - une brique Python isolee doit vivre a la racine dans `ml/`
@@ -89,17 +231,42 @@ Lire ce fichier au debut de chaque nouvelle conversation sur ce repo, puis le me
         - `timelineFetchedAt`
         - `timelineMissingReason`
         - `timelineData`
+        - `mongoMatchImportRef`
+        - `mongoTimelineRef`
+        - `mongoSnapshotRef`
+        - `mongoBackfilledAt`
       - migration Prisma:
         - `prisma/migrations/20260331110000_imported_match_ml_phase1/`
       - `server/src/lib/riot/riotApiClient.ts` supporte:
         - `getMatchTimelineByIdOnRegion()`
       - `server/src/services/riotSyncService.ts`:
         - importe maintenant match + timeline
+        - ecrit d'abord le brut dans Mongo quand `MONGODB_URL` est configuree
+        - ne garde dans PostgreSQL qu'un payload leger `mongo-primary` + metadata pour les nouveaux imports
         - enrichit les metadata ML de la partie importee
         - ajoute logs de progression / fallback / retry minimal
+      - lecture ML:
+        - `server/src/services/mlPuzzleGenerationService.ts` lit d'abord le sidecar Mongo puis fallback PostgreSQL
+        - les snapshots candidats reconstruits sont aussi archives dans `snapshot_candidates`
+        - la selection de reroll expose maintenant un `rerollDistanceScore`
+        - les snapshots sont maintenant prevalides via l'achat reel suivant pour ecarter plus tot les cas non publiables
+        - certains snapshots peuvent utiliser l'achat reel du match comme bonne reponse de secours quand la prediction ML retombe sur un achat trivial non publiable, sans lever le garde-fou `low-confidence`
       - script de backfill:
         - `scripts/backfillImportedMatchTimelines.ts`
         - commande: `npm run ml:backfill-timelines`
+      - script de backfill Mongo:
+        - `scripts/backfillImportedMatchesToMongo.ts`
+        - commande: `npm run backfill:matches-to-mongo`
+    - preuve item:
+      - endpoint:
+        - `POST /api/generated-puzzles/item-explanation`
+      - service:
+        - `server/src/services/itemExplanationService.ts`
+      - cache:
+        - collection Mongo `item_explanation_cache`
+      - UI:
+        - `src/components/PuzzleItemExplanationDialog.tsx`
+        - bouton d'ouverture depuis `src/pages/Training.tsx`
     - export brut vers Python:
       - script:
         - `scripts/exportImportedMatchesForMl.ts`

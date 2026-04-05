@@ -8,6 +8,8 @@ const devAuthSecret =
 const envSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   DATABASE_URL: z.string().min(1),
+  MONGODB_URL: z.string().optional(),
+  MONGODB_DB_NAME: z.string().default("summoner_build_lab"),
   PORT: z.coerce.number().default(3001),
   CLIENT_URL: z.string().default("http://localhost:8080"),
   APP_URL: z.string().default("http://localhost:8080"),
@@ -16,6 +18,7 @@ const envSchema = z.object({
   SYNC_ADMIN_TOKEN: z.string().optional(),
   ADMIN_EMAILS: z.string().optional(),
   RIOT_API_KEY: z.string().optional(),
+  RIOT_API_KEY_2: z.string().optional(),
   RIOT_REGION: z.string().default("europe"),
   RIOT_PLATFORM: z.string().default("euw1"),
   RIOT_API_BASE_DELAY_MS: z.coerce.number().default(120),

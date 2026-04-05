@@ -29,10 +29,14 @@ async function main() {
       timelineMissingReason: true,
       gameCreationAt: true,
       timelineFetchedAt: true,
+      mongoMatchImportRef: true,
+      mongoTimelineRef: true,
     },
   });
 
   const report = buildDailyIngestionReport(matches);
+  const mongoBackedCount = matches.filter((match) => Boolean(match.mongoMatchImportRef)).length;
+  const mongoTimelineCount = matches.filter((match) => Boolean(match.mongoTimelineRef)).length;
   console.info(
     JSON.stringify(
       {
@@ -40,6 +44,8 @@ async function main() {
         generatedAt: new Date().toISOString(),
         ...report,
         timelineCoveragePercent: Number(report.timelineCoveragePercent.toFixed(2)),
+        mongoBackedMatchCoverage: Number((matches.length > 0 ? (mongoBackedCount / matches.length) * 100 : 0).toFixed(2)),
+        mongoBackedTimelineCoverage: Number((matches.length > 0 ? (mongoTimelineCount / matches.length) * 100 : 0).toFixed(2)),
       },
       null,
       2,
