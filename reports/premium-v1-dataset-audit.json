@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-04-02T07:44:34.521Z",
+  "generatedAt": "2026-04-19T12:41:34.643Z",
   "baseline": {
     "id": "premium-v1",
     "state": "frozen-for-ml-audit",
@@ -12,30 +12,34 @@
     "competitiveReport": "Rapport pipeline competitif source-filtered, limite aux imports competitifs observes par le checkpoint/report."
   },
   "scopeComparison": {
-    "dbWideTotalMatches": 612,
-    "competitiveMatchesInDb": 601,
-    "premiumOnlyMatches": 601,
-    "excludedNonCompetitiveMatches": 11,
+    "dbWideTotalMatches": 1166,
+    "competitiveMatchesInDb": 1153,
+    "premiumOnlyMatches": 1153,
+    "excludedNonCompetitiveMatches": 13,
     "excludedCompetitiveUnknownTierMatches": 0,
     "competitiveUnknownTierCount": 0,
     "explanation": "Le mismatch venait du fait que le report competitif ne couvre que les imports competitifs, alors que l'audit ML exportait toute la base. Le scope premium-only rend maintenant cet ecart explicite."
   },
   "scopes": {
     "dbWide": {
-      "totalImportedMatches": 612,
-      "totalValidTimelines": 612,
+      "totalImportedMatches": 1166,
+      "totalValidTimelines": 1166,
       "matchsParPatch": [
         {
           "patch": "26.6",
-          "count": 411
+          "count": 558
         },
         {
-          "patch": "26.5",
-          "count": 44
+          "patch": "26.7",
+          "count": 390
         },
         {
           "patch": "26.1",
-          "count": 42
+          "count": 49
+        },
+        {
+          "patch": "26.5",
+          "count": 47
         },
         {
           "patch": "15.23",
@@ -50,6 +54,10 @@
           "count": 12
         },
         {
+          "patch": "26.3",
+          "count": 10
+        },
+        {
           "patch": "15.19",
           "count": 8
         },
@@ -66,6 +74,10 @@
           "count": 5
         },
         {
+          "patch": "26.4",
+          "count": 5
+        },
+        {
           "patch": "15.1",
           "count": 4
         },
@@ -78,19 +90,11 @@
           "count": 4
         },
         {
-          "patch": "26.7",
-          "count": 4
-        },
-        {
           "patch": "14.15",
           "count": 3
         },
         {
           "patch": "15.5",
-          "count": 3
-        },
-        {
-          "patch": "26.3",
           "count": 3
         },
         {
@@ -108,36 +112,44 @@
         {
           "patch": "26.2",
           "count": 1
-        },
-        {
-          "patch": "26.4",
-          "count": 1
         }
       ],
       "matchsParSourceKind": [
         {
           "sourceKind": "PRO_SEED",
-          "count": 601
+          "count": 1150
         },
         {
           "sourceKind": "unknown",
-          "count": 11
+          "count": 13
+        },
+        {
+          "sourceKind": "ELITE_SEED",
+          "count": 3
         }
       ],
       "matchsParSourceTier": [
         {
           "sourceTier": "pro",
-          "count": 601
+          "count": 1150
         },
         {
           "sourceTier": "unknown",
-          "count": 11
+          "count": 13
+        },
+        {
+          "sourceTier": "elite",
+          "count": 3
         }
       ],
       "matchsParSourceLeague": [
         {
           "sourceLeague": "First Stand",
-          "count": 210
+          "count": 469
+        },
+        {
+          "sourceLeague": "LoL Champions Korea",
+          "count": 362
         },
         {
           "sourceLeague": "World Championship",
@@ -148,58 +160,66 @@
           "count": 86
         },
         {
-          "sourceLeague": "LoL Champions Korea",
-          "count": 72
-        },
-        {
           "sourceLeague": "Mid-Season Invitational",
           "count": 45
         },
         {
           "sourceLeague": "unknown",
-          "count": 11
+          "count": 13
+        },
+        {
+          "sourceLeague": "Riot Ranked Ladder",
+          "count": 3
         }
       ],
       "matchsParSourceRegionHint": [
         {
           "sourceRegionHint": "International",
-          "count": 443
+          "count": 702
+        },
+        {
+          "sourceRegionHint": "Korea",
+          "count": 362
         },
         {
           "sourceRegionHint": "Americas",
           "count": 86
         },
         {
-          "sourceRegionHint": "Korea",
-          "count": 72
+          "sourceRegionHint": "europe",
+          "count": 11
         },
         {
-          "sourceRegionHint": "europe",
-          "count": 8
+          "sourceRegionHint": "KR",
+          "count": 3
         },
         {
           "sourceRegionHint": "asia",
-          "count": 3
+          "count": 2
         }
       ],
-      "premiumRecentMatches26x": 506,
-      "premiumRecentShare26x": 82.68
+      "premiumRecentMatches26x": 1060,
+      "premiumRecentShare26x": 90.91
     },
     "premiumOnly": {
-      "totalImportedMatches": 601,
-      "totalValidTimelines": 601,
+      "totalImportedMatches": 1153,
+      "totalValidTimelines": 1153,
       "matchsParPatch": [
         {
           "patch": "26.6",
-          "count": 406
+          "count": 554
         },
         {
-          "patch": "26.5",
-          "count": 43
+          "patch": "26.7",
+          "count": 383
         },
         {
           "patch": "26.1",
-          "count": 42
+          "count": 49
+        },
+        {
+          "patch": "26.5",
+          "count": 46
         },
         {
           "patch": "15.23",
@@ -214,6 +234,10 @@
           "count": 12
         },
         {
+          "patch": "26.3",
+          "count": 10
+        },
+        {
           "patch": "15.19",
           "count": 8
         },
@@ -227,6 +251,10 @@
         },
         {
           "patch": "15.7",
+          "count": 5
+        },
+        {
+          "patch": "26.4",
           "count": 5
         },
         {
@@ -250,10 +278,6 @@
           "count": 3
         },
         {
-          "patch": "26.3",
-          "count": 3
-        },
-        {
           "patch": "15.22",
           "count": 2
         },
@@ -268,28 +292,36 @@
         {
           "patch": "26.2",
           "count": 1
-        },
-        {
-          "patch": "26.4",
-          "count": 1
         }
       ],
       "matchsParSourceKind": [
         {
           "sourceKind": "PRO_SEED",
-          "count": 601
+          "count": 1150
+        },
+        {
+          "sourceKind": "ELITE_SEED",
+          "count": 3
         }
       ],
       "matchsParSourceTier": [
         {
           "sourceTier": "pro",
-          "count": 601
+          "count": 1150
+        },
+        {
+          "sourceTier": "elite",
+          "count": 3
         }
       ],
       "matchsParSourceLeague": [
         {
           "sourceLeague": "First Stand",
-          "count": 210
+          "count": 469
+        },
+        {
+          "sourceLeague": "LoL Champions Korea",
+          "count": 362
         },
         {
           "sourceLeague": "World Championship",
@@ -300,39 +332,43 @@
           "count": 86
         },
         {
-          "sourceLeague": "LoL Champions Korea",
-          "count": 72
-        },
-        {
           "sourceLeague": "Mid-Season Invitational",
           "count": 45
+        },
+        {
+          "sourceLeague": "Riot Ranked Ladder",
+          "count": 3
         }
       ],
       "matchsParSourceRegionHint": [
         {
           "sourceRegionHint": "International",
-          "count": 443
+          "count": 702
+        },
+        {
+          "sourceRegionHint": "Korea",
+          "count": 362
         },
         {
           "sourceRegionHint": "Americas",
           "count": 86
         },
         {
-          "sourceRegionHint": "Korea",
-          "count": 72
+          "sourceRegionHint": "KR",
+          "count": 3
         }
       ],
-      "premiumRecentMatches26x": 496,
-      "premiumRecentShare26x": 82.53
+      "premiumRecentMatches26x": 1048,
+      "premiumRecentShare26x": 90.89
     }
   },
   "dataset": {
-    "totalSnapshotsGenerated": 12003,
+    "totalSnapshotsGenerated": 12019,
     "snapshotsByPatch": {
       "26.6": 9810,
       "26.1": 1020,
       "26.5": 991,
-      "26.7": 93,
+      "26.7": 109,
       "26.3": 62,
       "26.4": 22,
       "26.2": 5
@@ -342,7 +378,7 @@
       "SUPPORT": 2513,
       "MID": 2459,
       "TOP": 2066,
-      "JUNGLE": 1938
+      "JUNGLE": 1954
     },
     "snapshotsByChampion": {
       "anivia": 540,
@@ -366,23 +402,23 @@
       "vi": 185,
       "caitlyn": 173,
       "vayne": 172,
-      "rumble": 167,
       "poppy": 167,
+      "rumble": 167,
       "corki": 165,
       "lissandra": 165,
       "azir": 161,
       "nautilus": 158,
       "miss-fortune": 153,
-      "orianna": 140,
-      "akali": 140
+      "akali": 140,
+      "orianna": 140
     },
     "candidatePoolMedian": 35,
-    "candidatePoolP95": 162.89999999999964,
-    "goldIncoherentRatio": 0.3121719570107473,
+    "candidatePoolP95": 164.00000000000364,
+    "goldIncoherentRatio": 0.3123387969049006,
     "missingActualItemRatio": 0,
-    "snapshotsTrainableStrictRecents": 12003,
-    "rowsBeforeTrainPatchFilter": 14282,
-    "rowsAfterTrainPatchFilter": 12003
+    "snapshotsTrainableStrictRecents": 12019,
+    "rowsBeforeTrainPatchFilter": 14298,
+    "rowsAfterTrainPatchFilter": 12019
   },
   "trainingPolicy": {
     "trainPatchMode": "strict_recent_competitive",
@@ -398,20 +434,11 @@
     "recentFirstVerified": true
   },
   "ingestionCheckpoint": {
-    "resolvedCheckpointReportPath": "C:\\Users\\XavierTrouche\\dev\\summoner-build-lab\\data\\runtime\\competitive-ingestion\\real-report.json",
-    "totalCompetitiveMatchesInDb": 601,
-    "createdMatches": 2,
-    "discoveredUniqueMatches": 166,
-    "tierDistribution": [
-      {
-        "tier": "unknown",
-        "count": 595
-      },
-      {
-        "tier": "pro",
-        "count": 6
-      }
-    ]
+    "resolvedCheckpointReportPath": "C:\\Users\\XavierTrouche\\dev\\summoner-build-lab\\data\\runtime\\competitive-ingestion\\phase-2000.report.json",
+    "totalCompetitiveMatchesInDb": 0,
+    "createdMatches": 0,
+    "discoveredUniqueMatches": 19993,
+    "tierDistribution": []
   },
   "reproduction": {
     "commands": [

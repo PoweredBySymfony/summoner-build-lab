@@ -1,0 +1,398 @@
+{
+  "generatedAt": "2026-04-19T11:46:01.196Z",
+  "baseline": {
+    "state": "premium-v1-frozen",
+    "note": "Validation match-based apres retrain baseline sans modifier le coeur ML."
+  },
+  "evaluationUser": {
+    "id": "cmn4plsrz0000s0raoam4eco5",
+    "email": "xtrouche@gmail.com",
+    "isAdmin": true
+  },
+  "selectionPolicy": {
+    "strictPatchPrefix": "26.",
+    "sampleSize": 10,
+    "ordering": "fewest-previous-requests-first, then newest imported matches"
+  },
+  "summary": {
+    "completedCount": 8,
+    "noViableSnapshotFoundCount": 2,
+    "totalGenerations": 10,
+    "completedRate": 0.8,
+    "noViableSnapshotFoundRate": 0.2,
+    "rejectionReasonCounts": [
+      {
+        "reason": "low-confidence",
+        "count": 17
+      },
+      {
+        "reason": "publishability-insufficient-credible-distractors",
+        "count": 4
+      },
+      {
+        "reason": "choice-resolution-good-answer-exclusive-group",
+        "count": 1
+      },
+      {
+        "reason": "good-answer-exclusive-group",
+        "count": 1
+      }
+    ],
+    "distinctSelectedSnapshotCount": 8,
+    "distinctSelectedSnapshotSignatureCount": 8,
+    "reusedSelectedSnapshotSignatureCount": 0,
+    "patchCatalogFallbackOccurrences": 0,
+    "distinctChampionCount": 9,
+    "snapshotSegmentCounts": [
+      {
+        "segment": "early",
+        "count": 3
+      },
+      {
+        "segment": "late",
+        "count": 3
+      },
+      {
+        "segment": "mid",
+        "count": 2
+      },
+      {
+        "segment": "none",
+        "count": 2
+      }
+    ],
+    "averageCandidatePoolSize": 11
+  },
+  "delta": null,
+  "generations": [
+    {
+      "index": 1,
+      "importedMatchId": "cmnmai6eq00bqigradahjrk19",
+      "requestId": "cmo5p9ij40000kgra1s7s13c8",
+      "patch": "26.3",
+      "sourceKind": "ELITE_SEED",
+      "sourceTier": "elite",
+      "championSlug": "kennen",
+      "role": "TOP",
+      "generationStatus": "no_viable_snapshot_found",
+      "selectedSnapshotIndex": null,
+      "minute": 10.99,
+      "gold": 924,
+      "candidatePoolSize": 11,
+      "qualityScore": 0,
+      "failureReason": "low-confidence",
+      "rejectionReasons": [
+        "low-confidence"
+      ],
+      "observedRejectionReasons": [
+        "low-confidence",
+        "low-confidence"
+      ],
+      "attemptsEvaluated": 3,
+      "successfulSnapshots": 0,
+      "selectedSnapshotHistoryKey": null,
+      "selectedSnapshotSignature": null,
+      "selectedSnapshotSegment": null,
+      "lowConfidence": false,
+      "draft": false,
+      "resultSlug": null
+    },
+    {
+      "index": 2,
+      "importedMatchId": "cmnmai5ip00bfigragxcwbv62",
+      "requestId": "cmo5p9kvj0001kgra3zqy836b",
+      "patch": "26.6",
+      "sourceKind": "PRO_SEED",
+      "sourceTier": "pro",
+      "championSlug": "bard",
+      "role": "SUPPORT",
+      "generationStatus": "completed",
+      "selectedSnapshotIndex": 10,
+      "minute": 10.38,
+      "gold": 2824,
+      "candidatePoolSize": 11,
+      "qualityScore": 78.03,
+      "failureReason": null,
+      "rejectionReasons": [
+        "low-confidence"
+      ],
+      "observedRejectionReasons": [
+        "low-confidence"
+      ],
+      "attemptsEvaluated": 2,
+      "successfulSnapshots": 1,
+      "selectedSnapshotHistoryKey": "10:10.38",
+      "selectedSnapshotSignature": "SUPPORT::10.38::2824::balise-de-controle",
+      "selectedSnapshotSegment": "early",
+      "lowConfidence": false,
+      "draft": false,
+      "resultSlug": "bard-ai-generated-1776599155071-10-1"
+    },
+    {
+      "index": 3,
+      "importedMatchId": "cmnmai4fl00b4igraptvqpstp",
+      "requestId": "cmo5p9lfi0008kgraatx2fq8o",
+      "patch": "26.3",
+      "sourceKind": "ELITE_SEED",
+      "sourceTier": "elite",
+      "championSlug": "ornn",
+      "role": "TOP",
+      "generationStatus": "completed",
+      "selectedSnapshotIndex": 20,
+      "minute": 24.87,
+      "gold": 2102,
+      "candidatePoolSize": 11,
+      "qualityScore": 108,
+      "failureReason": null,
+      "rejectionReasons": [
+        "low-confidence"
+      ],
+      "observedRejectionReasons": [
+        "low-confidence",
+        "low-confidence",
+        "low-confidence"
+      ],
+      "attemptsEvaluated": 6,
+      "successfulSnapshots": 3,
+      "selectedSnapshotHistoryKey": "20:24.87",
+      "selectedSnapshotSignature": "TOP::24.87::2102::balise-de-controle|bouclier-de-doran|jaksho-le-proteiforme|rookern-kaenique",
+      "selectedSnapshotSegment": "late",
+      "lowConfidence": false,
+      "draft": false,
+      "resultSlug": "ornn-ai-generated-1776599156161-20-1"
+    },
+    {
+      "index": 4,
+      "importedMatchId": "cmnmai38b00atigraz7b8apz0",
+      "requestId": "cmo5p9m9h000lkgrag6uqih3t",
+      "patch": "26.6",
+      "sourceKind": "PRO_SEED",
+      "sourceTier": "pro",
+      "championSlug": "rell",
+      "role": "SUPPORT",
+      "generationStatus": "completed",
+      "selectedSnapshotIndex": 26,
+      "minute": 24.12,
+      "gold": 3175,
+      "candidatePoolSize": 11,
+      "qualityScore": 92.13,
+      "failureReason": null,
+      "rejectionReasons": [
+        "low-confidence"
+      ],
+      "observedRejectionReasons": [
+        "low-confidence",
+        "low-confidence"
+      ],
+      "attemptsEvaluated": 3,
+      "successfulSnapshots": 1,
+      "selectedSnapshotHistoryKey": "26:24.12",
+      "selectedSnapshotSignature": "SUPPORT::24.12::3175::balise-de-controle|medaillon-de-liron-solari|potion-rechargeable|sandales-de-mercure",
+      "selectedSnapshotSegment": "late",
+      "lowConfidence": false,
+      "draft": false,
+      "resultSlug": "rell-ai-generated-1776599156800-26-1"
+    },
+    {
+      "index": 5,
+      "importedMatchId": "cmnmai24000aiigra799arnr1",
+      "requestId": "cmo5p9mqh000skgra84v1gd41",
+      "patch": "26.4",
+      "sourceKind": "ELITE_SEED",
+      "sourceTier": "elite",
+      "championSlug": "ksante",
+      "role": "TOP",
+      "generationStatus": "completed",
+      "selectedSnapshotIndex": 9,
+      "minute": 12.18,
+      "gold": 3673,
+      "candidatePoolSize": 11,
+      "qualityScore": 92.29,
+      "failureReason": null,
+      "rejectionReasons": [
+        "low-confidence"
+      ],
+      "observedRejectionReasons": [
+        "low-confidence"
+      ],
+      "attemptsEvaluated": 2,
+      "successfulSnapshots": 1,
+      "selectedSnapshotHistoryKey": "9:12.18",
+      "selectedSnapshotSignature": "TOP::12.18::3673::bouclier-de-doran|potion-rechargeable",
+      "selectedSnapshotSegment": "early",
+      "lowConfidence": false,
+      "draft": false,
+      "resultSlug": "ksante-ai-generated-1776599157153-9-1"
+    },
+    {
+      "index": 6,
+      "importedMatchId": "cmnmai19g00a7igra52fqrmsy",
+      "requestId": "cmo5p9n0y000zkgra4xl2qhnn",
+      "patch": "26.6",
+      "sourceKind": "PRO_SEED",
+      "sourceTier": "pro",
+      "championSlug": "bard",
+      "role": "SUPPORT",
+      "generationStatus": "completed",
+      "selectedSnapshotIndex": 20,
+      "minute": 17.2,
+      "gold": 1309,
+      "candidatePoolSize": 11,
+      "qualityScore": 94.49,
+      "failureReason": null,
+      "rejectionReasons": [],
+      "observedRejectionReasons": [],
+      "attemptsEvaluated": 3,
+      "successfulSnapshots": 3,
+      "selectedSnapshotHistoryKey": "20:17.20",
+      "selectedSnapshotSignature": "SUPPORT::17.20::1309::balise-de-controle|bottes-de-celerite|cristal-de-rubis|flutes-de-bandle|potion-rechargeable",
+      "selectedSnapshotSegment": "mid",
+      "lowConfidence": false,
+      "draft": false,
+      "resultSlug": "bard-ai-generated-1776599157664-20-1"
+    },
+    {
+      "index": 7,
+      "importedMatchId": "cmnmadgpd009wigranjn0cmnq",
+      "requestId": "cmo5p9ng6001ckgra4jp235tp",
+      "patch": "26.6",
+      "sourceKind": "PRO_SEED",
+      "sourceTier": "pro",
+      "championSlug": "nidalee",
+      "role": "JUNGLE",
+      "generationStatus": "no_publishable_snapshot_found",
+      "selectedSnapshotIndex": null,
+      "minute": 10.87,
+      "gold": 3475,
+      "candidatePoolSize": 11,
+      "qualityScore": 0,
+      "failureReason": "low-confidence",
+      "rejectionReasons": [
+        "low-confidence"
+      ],
+      "observedRejectionReasons": [
+        "low-confidence",
+        "low-confidence",
+        "publishability-insufficient-credible-distractors",
+        "low-confidence",
+        "publishability-insufficient-credible-distractors"
+      ],
+      "attemptsEvaluated": 8,
+      "successfulSnapshots": 0,
+      "selectedSnapshotHistoryKey": null,
+      "selectedSnapshotSignature": null,
+      "selectedSnapshotSegment": null,
+      "lowConfidence": false,
+      "draft": false,
+      "resultSlug": null
+    },
+    {
+      "index": 8,
+      "importedMatchId": "cmnmadfoh009ligra4r4zgpnz",
+      "requestId": "cmo5p9o2d001dkgraoqmds7m5",
+      "patch": "26.6",
+      "sourceKind": "PRO_SEED",
+      "sourceTier": "pro",
+      "championSlug": "karma",
+      "role": "SUPPORT",
+      "generationStatus": "completed",
+      "selectedSnapshotIndex": 27,
+      "minute": 27.28,
+      "gold": 1188,
+      "candidatePoolSize": 11,
+      "qualityScore": 94.91,
+      "failureReason": null,
+      "rejectionReasons": [
+        "low-confidence"
+      ],
+      "observedRejectionReasons": [
+        "low-confidence"
+      ],
+      "attemptsEvaluated": 7,
+      "successfulSnapshots": 6,
+      "selectedSnapshotHistoryKey": "27:27.28",
+      "selectedSnapshotSignature": "SUPPORT::27.28::1188::balise-de-controle|bottes-de-lucidite|chant-de-guerre-de-shurelya|echos-dhelia|redemption",
+      "selectedSnapshotSegment": "late",
+      "lowConfidence": false,
+      "draft": false,
+      "resultSlug": "karma-ai-generated-1776599159608-27-1"
+    },
+    {
+      "index": 9,
+      "importedMatchId": "cmnmadeld009aigrap100snt0",
+      "requestId": "cmo5p9oxi001wkgrawsszg1ay",
+      "patch": "26.6",
+      "sourceKind": "PRO_SEED",
+      "sourceTier": "pro",
+      "championSlug": "jayce",
+      "role": "JUNGLE",
+      "generationStatus": "completed",
+      "selectedSnapshotIndex": 19,
+      "minute": 17.86,
+      "gold": 1216,
+      "candidatePoolSize": 11,
+      "qualityScore": 86.59,
+      "failureReason": null,
+      "rejectionReasons": [
+        "low-confidence"
+      ],
+      "observedRejectionReasons": [
+        "low-confidence",
+        "low-confidence",
+        "low-confidence",
+        "good-answer-exclusive-group",
+        "choice-resolution-good-answer-exclusive-group",
+        "low-confidence"
+      ],
+      "attemptsEvaluated": 6,
+      "successfulSnapshots": 2,
+      "selectedSnapshotHistoryKey": "19:17.86",
+      "selectedSnapshotSignature": "JUNGLE::17.86::1216::balise-de-controle|crochet-de-serpent|lame-spectre-de-youmuu",
+      "selectedSnapshotSegment": "mid",
+      "lowConfidence": false,
+      "draft": false,
+      "resultSlug": "jayce-ai-generated-1776599160561-19-1"
+    },
+    {
+      "index": 10,
+      "importedMatchId": "cmnmadddb008zigraa7638vrq",
+      "requestId": "cmo5p9pmy0023kgradjvi9pjb",
+      "patch": "26.6",
+      "sourceKind": "PRO_SEED",
+      "sourceTier": "pro",
+      "championSlug": "akali",
+      "role": "MID",
+      "generationStatus": "completed",
+      "selectedSnapshotIndex": 10,
+      "minute": 12.04,
+      "gold": 4077,
+      "candidatePoolSize": 11,
+      "qualityScore": 100,
+      "failureReason": null,
+      "rejectionReasons": [
+        "publishability-insufficient-credible-distractors"
+      ],
+      "observedRejectionReasons": [
+        "publishability-insufficient-credible-distractors",
+        "publishability-insufficient-credible-distractors"
+      ],
+      "attemptsEvaluated": 5,
+      "successfulSnapshots": 3,
+      "selectedSnapshotHistoryKey": "10:12.04",
+      "selectedSnapshotSignature": "MID::12.04::4077::bouclier-de-doran|potion-rechargeable|sceau-noir",
+      "selectedSnapshotSegment": "early",
+      "lowConfidence": false,
+      "draft": false,
+      "resultSlug": "akali-ai-generated-1776599161150-10-1"
+    }
+  ],
+  "reproduction": {
+    "commands": [
+      "npm run ml:export-raw",
+      "cd ml",
+      ".\\.venv\\Scripts\\python.exe scripts\\tasks.py build-dataset",
+      ".\\.venv\\Scripts\\python.exe scripts\\tasks.py train-baseline",
+      "npm run audit:match-based-validation -- --sample-size 10"
+    ]
+  }
+}

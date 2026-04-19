@@ -1,8 +1,8 @@
 import path from "node:path";
-import { access } from "node:fs/promises";
 
 import { prisma } from "../server/src/lib/prisma.js";
 import { loadCompetitiveIngestionCheckpoint } from "../server/src/lib/riot/competitiveIngestion.js";
+import { resolveNewestExistingPath } from "./lib/competitiveImportedMatchProvenance.js";
 
 type CliOptions = {
   checkpointPath: string;
@@ -31,20 +31,10 @@ function countBy(values: string[]) {
 
 async function main() {
   const options = parseArgs(process.argv.slice(2));
-  const candidatePaths = [
-    path.resolve(options.checkpointPath),
-    path.resolve(path.join("data", "runtime", "competitive-ingestion", "real-checkpoint.json")),
-  ];
-  let checkpointPath: string | null = null;
-  for (const candidatePath of candidatePaths) {
-    try {
-      await access(candidatePath);
-      checkpointPath = candidatePath;
-      break;
-    } catch {
-      continue;
-    }
-  }
+  const checkpointPath = await resolveNewestExistingPath([
+    options.checkpointPath,
+    path.join("data", "runtime", "competitive-ingestion", "real-checkpoint.json"),
+  ]);
   const checkpoint = checkpointPath ? await loadCompetitiveIngestionCheckpoint(checkpointPath) : null;
   if (!checkpoint) {
     throw new Error("Competitive ingestion checkpoint not found.");

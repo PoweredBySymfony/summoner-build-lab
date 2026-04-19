@@ -1,4 +1,4 @@
-import { access } from "node:fs/promises";
+import { access, readdir, stat } from "node:fs/promises";
 import path from "node:path";
 
 import type { Prisma } from "@prisma/client";
@@ -174,4 +174,53 @@ export async function resolveFirstExistingPath(candidates: string[]) {
     }
   }
   return path.resolve(candidates[0] ?? "");
+}
+
+export async function resolveNewestExistingPath(candidates: string[]) {
+  const absoluteCandidates = candidates.map((candidate) => path.resolve(candidate));
+  const suffixes = [...new Set(absoluteCandidates.map((candidate) => path.basename(candidate)))];
+  const directories = [...new Set(absoluteCandidates.map((candidate) => path.dirname(candidate)))];
+  const discoveredPaths = new Set<string>();
+
+  for (const candidate of absoluteCandidates) {
+    try {
+      await access(candidate);
+      discoveredPaths.add(candidate);
+    } catch {
+      continue;
+    }
+  }
+
+  for (const directory of directories) {
+    try {
+      const entries = await readdir(directory, { withFileTypes: true });
+      for (const entry of entries) {
+        if (!entry.isFile()) {
+          continue;
+        }
+        if (!suffixes.some((suffix) => entry.name.endsWith(suffix))) {
+          continue;
+        }
+        discoveredPaths.add(path.join(directory, entry.name));
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  const rankedPaths = await Promise.all(
+    [...discoveredPaths].map(async (candidatePath) => ({
+      candidatePath,
+      stats: await stat(candidatePath),
+    })),
+  );
+
+  const newest = rankedPaths
+    .sort((left, right) =>
+      right.stats.mtimeMs - left.stats.mtimeMs
+      || right.stats.size - left.stats.size
+      || left.candidatePath.localeCompare(right.candidatePath),
+    )[0];
+
+  return newest?.candidatePath ?? resolveFirstExistingPath(candidates);
 }

@@ -10,7 +10,7 @@ import {
 import {
   extractCompetitiveProvenance,
   getIngestionMetadata,
-  resolveFirstExistingPath,
+  resolveNewestExistingPath,
 } from "./lib/competitiveImportedMatchProvenance.js";
 
 function parseOptions(argv: string[]) {
@@ -29,7 +29,7 @@ function parseOptions(argv: string[]) {
 async function main() {
   const options = parseOptions(process.argv.slice(2));
   const since = new Date(Date.now() - options.days * 24 * 60 * 60 * 1_000);
-  const checkpointPath = await resolveFirstExistingPath([
+  const checkpointPath = await resolveNewestExistingPath([
     options.checkpointPath,
     path.join("data", "runtime", "competitive-ingestion", "real-checkpoint.json"),
   ]);

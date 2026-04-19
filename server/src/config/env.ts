@@ -19,6 +19,8 @@ const envSchema = z.object({
   ADMIN_EMAILS: z.string().optional(),
   RIOT_API_KEY: z.string().optional(),
   RIOT_API_KEY_2: z.string().optional(),
+  RIOT_DEVELOPEMENT_KEY: z.string().optional(),
+  RIOT_DEVELOPMENT_KEY: z.string().optional(),
   RIOT_REGION: z.string().default("europe"),
   RIOT_PLATFORM: z.string().default("euw1"),
   RIOT_API_BASE_DELAY_MS: z.coerce.number().default(120),

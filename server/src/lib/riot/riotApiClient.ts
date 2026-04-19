@@ -16,6 +16,7 @@ type RiotApiClientMetrics = {
   totalRequests: number;
   successfulRequests: number;
   rateLimitResponses: number;
+  rateLimitFallbackResponses: number;
   retryAfterFallbacks: number;
   totalBackoffMs: number;
   authFallbackResponses: number;
@@ -23,6 +24,7 @@ type RiotApiClientMetrics = {
 };
 
 const DEFAULT_RATE_LIMIT_BACKOFF_MS = 5_000;
+const DEFAULT_TRANSIENT_BACKOFF_MS = 1_000;
 
 function sleep(ms: number) {
   return new Promise((resolve) => {
@@ -41,6 +43,7 @@ export class RiotApiClient {
     totalRequests: 0,
     successfulRequests: 0,
     rateLimitResponses: 0,
+    rateLimitFallbackResponses: 0,
     retryAfterFallbacks: 0,
     totalBackoffMs: 0,
     authFallbackResponses: 0,
@@ -49,8 +52,16 @@ export class RiotApiClient {
   private readonly routePreferredApiKey = new Map<string, string>();
 
   private getConfiguredApiKeys() {
-    return [...new Set([env.RIOT_API_KEY, env.RIOT_API_KEY_2].filter((value): value is string => Boolean(value?.trim())))]
-      .map((value) => value.trim());
+    return [
+      ...new Set(
+        [
+          env.RIOT_API_KEY,
+          env.RIOT_API_KEY_2,
+          env.RIOT_DEVELOPMENT_KEY,
+          env.RIOT_DEVELOPEMENT_KEY,
+        ].filter((value): value is string => Boolean(value?.trim())),
+      ),
+    ].map((value) => value.trim());
   }
 
   private ensureConfigured() {
@@ -188,6 +199,10 @@ export class RiotApiClient {
                   throw new HttpError(404, "Riot resource not found.", details);
                 case 429:
                   this.metrics.rateLimitResponses += 1;
+                  if (apiKeyIndex < apiKeys.length - 1) {
+                    this.metrics.rateLimitFallbackResponses += 1;
+                    continue;
+                  }
                   if (!retryAfter) {
                     this.metrics.retryAfterFallbacks += 1;
                   }
@@ -198,6 +213,17 @@ export class RiotApiClient {
                     continue attemptLoop;
                   }
                   throw new HttpError(429, "Riot API rate limit exceeded.", details);
+                case 500:
+                case 502:
+                case 503:
+                case 504: {
+                  const transientBackoffMs = Math.max(this.baseDelayMs, DEFAULT_TRANSIENT_BACKOFF_MS * (attempt + 1));
+                  if (attempt < this.retryCount) {
+                    await sleep(transientBackoffMs);
+                    continue attemptLoop;
+                  }
+                  throw new HttpError(response.status, "Riot API request failed after transient upstream errors.", details);
+                }
                 default:
                   throw new HttpError(response.status, "Riot API request failed.", details);
               }
@@ -215,9 +241,17 @@ export class RiotApiClient {
             }
 
             if (error instanceof Error && error.name === "AbortError") {
+              if (attempt < this.retryCount) {
+                await sleep(Math.max(this.baseDelayMs, DEFAULT_TRANSIENT_BACKOFF_MS * (attempt + 1)));
+                continue attemptLoop;
+              }
               throw new HttpError(504, "Riot API request timed out.");
             }
 
+            if (attempt < this.retryCount) {
+              await sleep(Math.max(this.baseDelayMs, DEFAULT_TRANSIENT_BACKOFF_MS * (attempt + 1)));
+              continue attemptLoop;
+            }
             throw new HttpError(502, "Unable to reach Riot API.");
           } finally {
             clearTimeout(timeout);

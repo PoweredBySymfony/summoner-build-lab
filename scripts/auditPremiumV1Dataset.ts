@@ -5,7 +5,7 @@ import { prisma } from "../server/src/lib/prisma.js";
 import {
   COMPETITIVE_SOURCE_KINDS,
   extractCompetitiveProvenance,
-  resolveFirstExistingPath,
+  resolveNewestExistingPath,
 } from "./lib/competitiveImportedMatchProvenance.js";
 
 type CliOptions = {
@@ -247,7 +247,7 @@ async function main() {
   const options = parseArgs(process.argv.slice(2));
   const datasetReport = JSON.parse(await readFile(path.resolve(options.datasetReportPath), "utf-8")) as Record<string, unknown>;
   const trainingConfig = await readFile(path.resolve(options.trainingConfigPath), "utf-8");
-  const resolvedCheckpointReportPath = await resolveFirstExistingPath([
+  const resolvedCheckpointReportPath = await resolveNewestExistingPath([
     options.checkpointReportPath,
     path.join("data", "runtime", "competitive-ingestion", "real-report.json"),
   ]);
