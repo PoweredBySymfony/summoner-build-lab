@@ -133,6 +133,39 @@ Lire ce fichier au debut de chaque nouvelle conversation sur ce repo, puis le me
       - volume competitif PostgreSQL
       - repartition `pro / elite`
       - top failure reasons
+  - observabilite import competitive:
+    - `scripts/importCompetitiveMatches.ts` persiste maintenant un checkpoint et un report intermediaires pendant l'execution
+    - points de flush actuels:
+      - pendant la resolution toutes les `10` seeds traitees
+      - apres la decouverte initiale
+      - pendant la decouverte toutes les `10` seeds traitees
+      - apres enrichissement elite
+      - en milieu de passe d'import
+      - en fin de passe
+      - apres approfondissement de la decouverte
+    - objectif:
+      - ne plus piloter un run `2000/5000/8000/10000` a l'aveugle
+    - correctif `2026-04-05`:
+      - le premier flush `discovery-initial` etait appele avant l'initialisation complete des structures de checkpoint
+      - symptome: crash `ReferenceError: Cannot access 'persistIntermediateProgress' before initialization` juste avant la premiere passe d'import
+      - correctif: le flush initial est maintenant differe apres initialisation de `attemptedMatchIds`, `importedMatchIds`, `createdCandidates` et `lastFallbackPlan`
+  - garde-fou performance `2026-04-05`:
+    - la classification post-decouverte ne traite plus tous les matchs decouverts d'un coup
+    - budget actuel par passe:
+      - `maxUniqueMatchesToClassify = max(150, min(remainingTargetMatches, 300))`
+    - objectif:
+      - eviter de bloquer des minutes sur plusieurs milliers de `match-v5` avant le moindre import
+    - observabilite associee:
+      - report `classification-running`
+      - flush toutes les `100` classifications uniques
+  - resilience Riot `2026-04-05`:
+    - `server/src/lib/riot/riotApiClient.ts` retry maintenant les erreurs reseau transitoires et les `5xx` upstream
+    - `RIOT_API_KEY_2` sert aussi maintenant de fallback sur `429` quand la cle primaire est rate limited
+    - la decouverte par seed ne tue plus toute la campagne sur un seul echec Riot:
+      - warning `discover-seed-failed`
+      - fallback sur cache existant ou seed vide
+    - la classification metadata `match-v5` saute les matchs temporairement indisponibles au lieu d'arreter tout le run:
+      - warning `classify-match-failed`
 - Etat mesure au `2026-04-05`:
   - Mongo: `1132 / 10000`
   - `noViableSnapshotRate`: `45.2%`
@@ -2154,3 +2187,295 @@ Lire ce fichier au debut de chaque nouvelle conversation sur ce repo, puis le me
   - le mismatch report vs audit est maintenant explicite:
     - le report competitif reste un scope source-filtered
     - l'audit premium expose separement `DB-wide` et `premium-only`
+
+## 2026-04-19 Audit De Reprise
+
+- Contexte:
+  - reprise apres pause developpement
+  - objectif produit maintenu:
+    - experience premium
+    - trajectoire `2000 -> 5000 -> 8000 -> 10000`
+  - principe de pilotage retenu:
+    - ne pas relancer la course au volume tant que la chaine de qualite premium n'est pas re-verifiee en local
+- Etat reel confirme pendant l'audit:
+  - le repo compile encore:
+    - `npm run build` OK le `2026-04-19`
+  - la suite TypeScript est presque saine hors dependances infra:
+    - `npm test`:
+      - `24` fichiers verts
+      - `108` tests passes
+      - `3` tests skips
+      - `1` suite en echec faute de PostgreSQL local sur `127.0.0.1:5433`
+    - suite en echec:
+      - `src/test/itemPresentationCatalog.test.ts`
+  - la suite Python ML reste exploitable:
+    - `ml\.venv\Scripts\python.exe -m pytest ml/tests/test_pipeline.py -q` OK
+  - les scripts de reporting de reprise ne sont pas resilients si l'infra n'est pas levee:
+    - `npm run audit:readiness-10k` echoue si Mongo n'est pas joignable
+    - `npm run riot:report-competitive-throughput` echoue si PostgreSQL n'est pas joignable
+  - implication:
+    - l'observabilite promise pour piloter `2k/5k/8k/10k` n'est pas encore fiable en environnement de reprise incomplet
+- Lecture consolidee des derniers artefacts fiables:
+  - premium-only exploitable observe:
+    - `601` matchs competitifs premium
+    - `601` timelines valides
+    - `496` matchs recents `26.1 -> 26.7`
+    - part recente premium `82.53%`
+  - dataset ML observe:
+    - `12003` snapshots trainables strict recents
+    - `595808` lignes ranking
+    - `candidate_pool_median = 35`
+    - `gold_incoherent_ratio = 0.3122`
+  - baseline ranking observe:
+    - `ndcg@3 = 0.4376`
+    - `map@3 = 0.3998`
+    - `top1 = 0.2894`
+    - `top3 = 0.5473`
+  - validation produit observee sur la derniere fenetre documentee:
+    - `completedRate = 0.4` sur sample `10`
+    - raisons de rejet dominantes:
+      - `good-answer-too-cheap`
+      - `low-confidence`
+      - `good-answer-unresolved` devenu secondaire
+- Diagnostic strategique:
+  - le frein principal n'est plus l'absence de pipeline ML
+  - le frein principal n'est pas non plus Mongo en tant que techno
+  - le vrai goulot reste la publishability produit sur snapshots reels:
+    - trop de cas triviaux ou sous-filtres
+    - trop de snapshots rejetes pour `too-cheap`
+    - trop de generations encore refusees pour `low-confidence`
+  - conclusion:
+    - passer a `2000+` sans remesurer la qualite reviendrait a amplifier un stock de matchs plus vite qu'on n'ameliore la conversion en puzzles premium
+- Changement de cap retenu:
+  - ne pas abandonner la cible `10k`
+  - deplacer temporairement le focus court terme de `volume-first` vers `quality-gated volume`
+  - regle:
+    - chaque palier volume doit etre precede d'une revalidation qualite sur stack complete
+  - gate recommande pour autoriser le palier `2000`:
+    - `completedRate >= 0.4` sur sample `20`
+    - `patch-catalog-fallback = 0`
+    - `good-answer-unresolved` non dominant
+    - scripts de reporting `readiness-10k` et `competitive-throughput` executables sans erreur sur stack levee
+- Priorites de reprise:
+  - P0 environnement:
+    - remettre PostgreSQL et Mongo en ligne localement
+    - rerun:
+      - `npm run audit:readiness-10k`
+      - `npm run riot:report-competitive-throughput`
+      - `npm run riot:report-competitive`
+      - `npm run audit:premium-v1-dataset`
+  - P0 qualite puzzle:
+    - poursuivre la baisse de `good-answer-too-cheap`
+    - poursuivre la baisse de `low-confidence`
+    - re-auditer la logique de publishability sur snapshots candidats avant volume
+  - P1 observabilite:
+    - rendre les scripts de reporting tolerants a l'absence d'un service non critique ou au moins explicites avec diagnostic actionnable
+    - distinguer dans chaque report:
+      - erreur infra
+      - absence de donnees
+      - regression metier
+  - P1 coherence des artefacts:
+    - plusieurs rapports historises restent valides pour comprendre la trajectoire, mais pas pour attester l'etat live courant
+    - toute relance de roadmap doit regenir les rapports de reference avant decision de volume
+  - P2 volume:
+    - relancer `2000` seulement apres gate qualite
+    - ensuite seulement:
+      - `5000`
+      - `8000`
+      - `10000`
+- Sequence de reprise recommandee:
+  - etape 1:
+    - lever la stack locale:
+      - PostgreSQL
+      - MongoDB
+      - API ML si necessaire pour audit produit
+  - etape 2:
+    - re-executer les rapports canoniques et remplacer les artefacts de reference
+  - etape 3:
+    - rerun `audit:match-based-validation` sur `10` puis `20`
+  - etape 4:
+    - si gate qualite atteint:
+      - lancer le palier `2000` en foreground avec checkpoint et report dedies
+  - etape 5:
+    - apres chaque palier:
+      - verifier volume
+      - verifier qualite puzzle
+      - verifier proportion `pro / elite`
+      - verifier taux de snapshots publiables
+- Risques a garder visibles:
+  - dependre de rapports anciens pour prendre une decision de volume live
+  - confondre performance du modele offline et experience premium reelle
+  - reprendre l'ingestion lourde sans observabilite infra stable
+  - croire que Mongo resoudra a lui seul les rejets `too-cheap` ou `low-confidence`
+- Decision memo:
+  - cap produit maintenu:
+    - premium + `10k`
+  - cap execution ajuste:
+    - `quality first, then gated volume`
+
+## 2026-04-19 Objectifs Fusionnes
+
+- Source de fusion:
+  - audit de reprise local
+  - plans premium / ingestion / upgrade precedents
+  - PDF `Contexte et objectifs ML BrainLab`
+- Lecture unifiee retenue:
+  - le produit vise toujours une experience premium de niveau pro
+  - chaque match importe doit tendre vers un puzzle reellement publiable, explique et rejouable
+  - la trajectoire volume reste:
+    - `600 -> 2000 -> 5000 -> 8000 -> 10000`
+  - mais cette trajectoire n'est validee qu'avec gates qualite entre chaque palier
+- Objectif fusionne principal:
+  - atteindre `10000` parties pro ingerees sans diluer la qualite du dataset ni la publishability produit
+- Sous-objectifs fusionnes:
+  - ML offline:
+    - conserver un pipeline export -> dataset -> train -> inference stable et reproductible
+  - generation produit:
+    - faire remonter le taux de generation aboutie
+    - eliminer les causes systemiques de rejet
+  - ingestion:
+    - rendre l'import pilotable par policy et non par filtre rigide
+  - premium UX:
+    - diversite reelle des rerolls
+    - preuve item visible et exploitable apres correction
+  - architecture:
+    - PostgreSQL reste la source applicative canonique
+    - MongoDB reste un sidecar analytique de scale, pas la reponse aux problemes metier actuels
+- Hierarchie d'execution fusionnee:
+  - P0:
+    - qualite puzzle et coherence metier
+  - V0:
+    - revalidation qualite puis relance `2000`
+  - V1:
+    - experience premium et policy d'import enrichie
+  - V2:
+    - montee d'echelle `5000 -> 8000 -> 10000`
+- P0 qualite puzzle:
+  - objectifs:
+    - maintenir la resolution patch sans fallback global
+    - maintenir un calcul de gold before purchase coherent
+    - reduire `good-answer-too-cheap`
+    - reduire `low-confidence`
+    - renforcer encore la diversite des snapshots servis
+  - definition de succes:
+    - `good-answer-unresolved` non dominant
+    - `patch-catalog-fallback` nul ou quasi nul
+    - baisse continue de `too-cheap` et `low-confidence`
+    - `completedRate` defendable sur audits match-based
+- V0 relance `2000`:
+  - prerequis:
+    - stack complete levee
+    - rapports de reference regenes
+    - gate qualite passee
+  - gate retenue:
+    - `completedRate >= 0.4` sur sample `20`
+    - reporting de readiness executable
+    - reporting throughput executable
+  - execution:
+    - run foreground
+    - checkpoint dedie
+    - rapport JSON + Markdown dedies
+- V1 premium experience:
+  - objectif:
+    - transformer le bon moteur analytique en experience premium visible
+  - travaux attendus:
+    - modal de preuve item
+    - comparaison item choisi vs alternatives budgetees
+    - transparence accrue des raisons d'echec ou de fallback
+    - exploitation plus visible des series et snapshots differencies
+- V1 ingestion pilotee:
+  - objectif:
+    - separer clairement policy d'import et policy d'entrainement
+  - invariants:
+    - manifest versionne
+    - fallback explicite et journalise
+    - distinction `pro / elite / fallback`
+    - distinction `exact_target_patch / adjacent_recent_patch / out_of_target_patch`
+- V2 scale:
+  - objectif:
+    - industrialiser sans casser la qualite
+  - conditions:
+    - verification qualite a chaque palier
+    - observabilite fiable
+    - stockage analytique progressif pour les payloads lourds
+- Ce qui change concretement dans la strategie:
+  - ancien reflexe a eviter:
+    - reprendre directement l'ingestion lourde pour compenser les faiblesses produit
+  - strategie retenue:
+    - fiabiliser d'abord la conversion match -> puzzle premium
+    - etendre ensuite seulement le stock de matchs
+- Memo produit:
+  - un reroll ne doit pas simplement changer d'identifiant de snapshot
+  - il doit tendre vers un moment sensiblement different:
+    - minute
+    - gold
+    - inventaire
+  - la preuve item ne doit pas rester un nice-to-have:
+    - elle fait partie de la promesse premium
+
+## 2026-04-19 Reprise Ingestion 2000 Bornee
+
+- Contexte:
+  - les runs longs `phase-2000` progressent reellement
+  - mais ils deviennent difficiles a piloter si on les laisse tourner sans borne
+  - le bon mode operatoire n'est pas un run massif unique
+  - le bon mode operatoire est une reprise par tranches courtes avec audit apres chaque tranche
+- Correctifs appliques:
+  - `server/src/config/env.ts`
+    - ajout du support `RIOT_DEVELOPEMENT_KEY`
+    - ajout du support tolerant `RIOT_DEVELOPMENT_KEY`
+  - `server/src/lib/riot/riotApiClient.ts`
+    - fallback cle 1 -> cle 2 -> cle developpement
+  - `src/test/riotApiClient.test.ts`
+    - ajout du test de fallback sur 3 cles
+  - `scripts/importCompetitiveMatches.ts`
+    - ajout de bornes de reprise:
+      - `--max-attempts-per-run`
+      - `--max-created-per-run`
+      - `--max-auth-failures-per-run`
+    - exposition dans le report:
+      - `stopReason`
+      - `runAttemptCount`
+      - `runCreatedCount`
+      - `runAuthFailureCount`
+- Verification technique:
+  - `npx tsc -p tsconfig.server.json --noEmit`: OK
+  - `npx vitest run src/test/riotApiClient.test.ts`: OK
+- Resultats constates apres reprise:
+  - avant reprise bornee:
+    - `1231` matchs competitifs
+  - tranche 1:
+    - `stopReason = max-created-per-run:10`
+    - `runAttemptCount = 10`
+    - `runCreatedCount = 10`
+    - `runAuthFailureCount = 0`
+    - total competitif apres tranche:
+      - `1241`
+  - tranche 2:
+    - `stopReason = max-created-per-run:5`
+    - `runAttemptCount = 5`
+    - `runCreatedCount = 5`
+    - `runAuthFailureCount = 0`
+    - total competitif apres tranche:
+      - `1246`
+- Lecture actuelle:
+  - la cle de developpement de secours debloque la reprise
+  - l'auth Riot n'est plus le blocage immediat sur les tranches courtes recentes
+  - la campagne `2000` reste ouverte
+  - progression actuelle constatee:
+    - `1231 -> 1246`
+    - `+15`
+- Risque operationnel restant:
+  - le process npm/tsx ne rend pas encore la main assez vite meme lorsque la borne metier est atteinte
+  - il faut donc piloter les reprises par tranches et verifier le report plutot que laisser un foreground long sans surveillance
+- Mode operatoire retenu:
+  - lancer une tranche bornee
+  - lire `phase-2000-2026-04-19.report.json`
+  - verifier:
+    - `stopReason`
+    - `runCreatedCount`
+    - `runAuthFailureCount`
+  - ne poursuivre que si:
+    - `runCreatedCount > 0`
+    - `runAuthFailureCount = 0`
+  - re-auditer le volume avec `riot:report-competitive`
