@@ -89,12 +89,14 @@ function parseArgs(argv: string[]): CliOptions {
         index += 1;
         break;
       case "--output-json":
+      case "--report-path":
         if (next) {
           options.outputJsonPath = next;
         }
         index += 1;
         break;
       case "--output-markdown":
+      case "--markdown-report-path":
         if (next) {
           options.outputMarkdownPath = next;
         }
@@ -604,4 +606,5 @@ main()
   })
   .finally(async () => {
     await prisma.$disconnect();
+    process.exit(process.exitCode ?? 0);
   });

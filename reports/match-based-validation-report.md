@@ -1,43 +1,41 @@
 # Match-Based Validation Report
 
-- Generated at: 2026-04-02T07:23:24.280Z
+- Generated at: 2026-04-19T15:04:27.424Z
 - Evaluation user: xtrouche@gmail.com
 - Sample size: 10
 - Strict patch prefix: 26.
-- Completed rate: 0.4
-- No viable snapshot found rate: 0.6
-- Distinct selected snapshots: 4
-- Distinct selected snapshot signatures: 4
+- Completed rate: 0.8
+- No viable snapshot found rate: 0.2
+- Distinct selected snapshots: 8
+- Distinct selected snapshot signatures: 8
 - Reused selected snapshot signatures: 0
-- Distinct champions covered: 10
+- Distinct champions covered: 9
 
 ## Rejection Reasons
-- good-answer-too-cheap: 38
-- low-confidence: 36
-- good-answer-unresolved: 4
-- good-answer-incoherent-with-champion: 2
+- low-confidence: 32
+- publishability-insufficient-credible-distractors: 5
 
 ## Snapshot Diversity
-- none: 6
+- mid: 4
+- early: 2
 - late: 2
-- early: 1
-- mid: 1
+- none: 2
 
 ## Generations
-- #1 cmnf2133604ar9crag4ukrc6c [26.6 mel MID]  status=no_viable_snapshot_found snapshot=none minute=11.26 gold=525 candidatePool=11 quality=0 failure=good-answer-too-cheap
-- #2 cmnf2123704ag9cra3zu95jrf [26.6 bard SUPPORT]  status=no_viable_snapshot_found snapshot=none minute=15.44 gold=1366 candidatePool=11 quality=0 failure=low-confidence
-- #3 cmnf2110l04a59cra9v07y64k [26.6 jayce JUNGLE]  status=completed snapshot=24 minute=24.9 gold=1258 candidatePool=11 quality=91.96
-- #4 cmnf2101t049u9craju95zfco [26.6 jhin ADC]  status=no_viable_snapshot_found snapshot=none minute=0.19 gold=50 candidatePool=0 quality=0 failure=good-answer-unresolved
-- #5 cmnf20zi9049j9cradp4wu6ul [26.6 sivir ADC]  status=no_viable_snapshot_found snapshot=none minute=8.3 gold=1098 candidatePool=11 quality=0 failure=low-confidence
-- #6 cmnf20yw004989crar5t7izt3 [26.6 naafiri JUNGLE]  status=completed snapshot=23 minute=21.46 gold=1280 candidatePool=11 quality=99.23
-- #7 cmnf20x71048g9crafttft9rr [26.6 corki ADC]  status=no_viable_snapshot_found snapshot=none minute=11.38 gold=1065 candidatePool=11 quality=0 failure=low-confidence
-- #8 cmnf20wf104859crad1g0g09v [26.6 seraphine SUPPORT]  status=completed snapshot=12 minute=10.52 gold=982 candidatePool=11 quality=99.68
-- #9 cmnf20w0z047u9crad1ulpt0z [26.6 ryze MID]  status=no_viable_snapshot_found snapshot=none minute=11.18 gold=3405 candidatePool=11 quality=0 failure=good-answer-too-cheap
-- #10 cmnf20uyb047j9craomy9wv0t [26.6 aatrox JUNGLE]  status=completed snapshot=22 minute=26.5 gold=2282 candidatePool=11 quality=101.93
+- #1 cmo5wcmb00031usraot25bvis [26.3 ambessa TOP]  status=completed snapshot=7 minute=11.85 gold=1254 candidatePool=11 quality=94.64
+- #2 cmo5wcleu002qusragaza0uff [26.3 gnar TOP]  status=completed snapshot=19 minute=23.49 gold=3107 candidatePool=11 quality=89.72
+- #3 cmo5wck5q002fusra0lto4com [26.3 kennen TOP]  status=no_viable_snapshot_found snapshot=none minute=9.89 gold=3325 candidatePool=11 quality=0 failure=low-confidence
+- #4 cmo5wcj320024usra7wadli4b [26.3 vi JUNGLE]  status=completed snapshot=19 minute=18.71 gold=1153 candidatePool=11 quality=94.3
+- #5 cmo5wchul001tusraowguha48 [26.3 ksante TOP]  status=completed snapshot=12 minute=11.92 gold=1587 candidatePool=11 quality=99.72
+- #6 cmo5wcgk6001iusrasj7cfew9 [26.3 gwen TOP]  status=no_publishable_snapshot_found snapshot=none minute=8.48 gold=1689 candidatePool=11 quality=0 failure=publishability-insufficient-credible-distractors
+- #7 cmo5wcfag0017usraazz6ebz4 [26.3 viego JUNGLE]  status=completed snapshot=13 minute=16.06 gold=1214 candidatePool=11 quality=108
+- #8 cmo5wcegn000wusrazodd4hxl [26.3 ambessa JUNGLE]  status=completed snapshot=22 minute=23.23 gold=3588 candidatePool=11 quality=99.82
+- #9 cmo5wcd5c000lusramvgt87om [26.3 rumble TOP]  status=completed snapshot=15 minute=20.77 gold=1862 candidatePool=11 quality=97.04
+- #10 cmo5wccab000ausrai4gbtj09 [26.4 gangplank TOP]  status=completed snapshot=14 minute=19.99 gold=3271 candidatePool=11 quality=89.94
 
 ## Reproduction
 - `npm run ml:export-raw`
 - `cd ml`
 - `.\.venv\Scripts\python.exe scripts\tasks.py build-dataset`
 - `.\.venv\Scripts\python.exe scripts\tasks.py train-baseline`
-- `npm run audit:match-based-validation -- --sample-size 10 --imported-match-ids cmnf2133604ar9crag4ukrc6c,cmnf2123704ag9cra3zu95jrf,cmnf2110l04a59cra9v07y64k,cmnf2101t049u9craju95zfco,cmnf20zi9049j9cradp4wu6ul,cmnf20yw004989crar5t7izt3,cmnf20x71048g9crafttft9rr,cmnf20wf104859crad1g0g09v,cmnf20w0z047u9crad1ulpt0z,cmnf20uyb047j9craomy9wv0t --baseline-report reports/match-based-validation-report.before-2026-04-02.json`
+- `npm run audit:match-based-validation -- --sample-size 10`

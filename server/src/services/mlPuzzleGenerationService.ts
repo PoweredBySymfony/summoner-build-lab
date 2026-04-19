@@ -2058,11 +2058,20 @@ async function persistAiGeneratedPuzzle(input: {
     `variationSeed=${input.attempt.variationSeed}`,
     `choiceSignature=${input.attempt.choiceSignature}`,
   ].join(" | ");
+  const uniqueSlugSeed = [
+    input.championSlug,
+    "ai-generated",
+    Date.now(),
+    process.hrtime.bigint().toString(),
+    input.attempt.snapshotIndex,
+    input.seriesIndex + 1,
+    input.attempt.variationSeed,
+  ].join("-");
 
   return prisma.puzzle.create({
     data: {
       title: `${input.championName} AI item puzzle`,
-      slug: slugify(`${input.championSlug}-ai-generated-${Date.now()}-${input.attempt.snapshotIndex}-${input.seriesIndex + 1}`),
+      slug: slugify(uniqueSlugSeed),
       mode: PuzzleMode.PERSONALIZED,
       sourceType: PuzzleSourceType.AI_GENERATED,
       difficulty:

@@ -2466,8 +2466,8 @@ Lire ce fichier au debut de chaque nouvelle conversation sur ce repo, puis le me
     - `1231 -> 1246`
     - `+15`
 - Risque operationnel restant:
-  - le process npm/tsx ne rend pas encore la main assez vite meme lorsque la borne metier est atteinte
-  - il faut donc piloter les reprises par tranches et verifier le report plutot que laisser un foreground long sans surveillance
+  - corrige:
+    - le process npm/tsx rend maintenant la main apres persistance finale et `prisma.$disconnect()`
 - Mode operatoire retenu:
   - lancer une tranche bornee
   - lire `phase-2000-2026-04-19.report.json`
@@ -2479,3 +2479,150 @@ Lire ce fichier au debut de chaque nouvelle conversation sur ce repo, puis le me
     - `runCreatedCount > 0`
     - `runAuthFailureCount = 0`
   - re-auditer le volume avec `riot:report-competitive`
+- Verification du correctif de sortie:
+  - `scripts/importCompetitiveMatches.ts`
+    - sortie explicite apres cleanup final
+  - micro-tranche de verification:
+    - `--max-attempts-per-run 2`
+    - `--max-created-per-run 1`
+    - `--max-auth-failures-per-run 1`
+  - resultat:
+    - `stopReason = max-created-per-run:1`
+    - `runCreatedCount = 1`
+    - `runAuthFailureCount = 0`
+    - total competitif:
+      - `1247`
+    - le process rend la main correctement
+
+## 2026-04-19 Optimisation Reprise Checkpoint
+
+- Objectif:
+  - supprimer le cout fixe inutile de chaque tranche bornee
+  - reutiliser vraiment le checkpoint existant
+- Correctif applique:
+  - `scripts/importCompetitiveMatches.ts`
+    - verification de compatibilite checkpoint / policy / seed set / saison
+    - reconstruction des `discoveredMatches` classes depuis:
+      - `policyDecisionByMatchId`
+      - `matchMetadataById`
+      - `discoveredMatches` du checkpoint
+    - bypass de:
+      - resolution complete
+      - rediscovery complete
+      - reclassification complete
+      - quand le checkpoint est compatible
+- Verification perf:
+  - micro-tranche de reprise:
+    - `--max-attempts-per-run 1`
+    - `--max-created-per-run 1`
+    - `--max-auth-failures-per-run 1`
+  - resultat:
+    - `runCreatedCount = 1`
+    - `runAuthFailureCount = 0`
+    - `totalCompetitiveMatchesInDb = 1248`
+    - duree observee:
+      - `~3.17s`
+- Tranche productive suivante:
+  - parametrage:
+    - `--max-attempts-per-run 15`
+    - `--max-created-per-run 10`
+    - `--max-auth-failures-per-run 3`
+  - resultat:
+    - `stopReason = max-created-per-run:10`
+    - `runAttemptCount = 10`
+    - `runCreatedCount = 10`
+    - `runAuthFailureCount = 0`
+    - `totalCompetitiveMatchesInDb = 1258`
+    - `matchesImportedExactTargetPatch = 1153`
+- Lecture:
+  - la reprise est maintenant suffisamment rapide pour etre pilotee tranche par tranche sans friction
+  - la campagne `2000` continue a progresser proprement
+  - le mode recommande reste:
+    - petites tranches bornees
+    - audit apres chaque tranche
+
+## 2026-04-19 Progression Volume Intermediaire
+
+- Tranches supplementaires executees apres optimisation:
+  - tranche A:
+    - `stopReason = max-created-per-run:10`
+    - `runAttemptCount = 10`
+    - `runCreatedCount = 10`
+    - `runAuthFailureCount = 0`
+    - total competitif:
+      - `1268`
+  - tranche B:
+    - `stopReason = max-created-per-run:10`
+    - `runAttemptCount = 10`
+    - `runCreatedCount = 10`
+    - `runAuthFailureCount = 0`
+    - total competitif:
+      - `1278`
+- Lecture volume:
+  - progression constatee sur la sequence recente:
+    - `1258 -> 1278`
+    - `+20`
+  - statut courant:
+    - `totalCompetitiveMatchesInDb = 1278`
+    - `matchesImportedExactTargetPatch = 1173`
+    - `matchesImportedPro = 1264`
+    - `matchesImportedElite = 14`
+    - `premiumRecentShare26x ~= 90.53%`
+- Audit intermediaire:
+  - `audit:premium-v1-dataset` rerun:
+    - OK
+    - scope premium-only aligne avec la base competitive
+  - `audit:match-based-validation -- --sample-size 10`:
+    - le script depasse toujours le timeout superviseur
+    - le dernier rapport `reports/match-based-validation-report.current-10.md` reste l'ancien rapport exploitable
+    - dernier resultat lisible conserve:
+      - `completedRate = 0.8`
+      - `noViableSnapshotFoundRate = 0.2`
+- Point technique restant:
+  - corrige:
+    - le script `audit:match-based-validation` rend maintenant la main proprement
+    - il accepte aussi les alias:
+      - `--report-path`
+      - `--markdown-report-path`
+
+## 2026-04-19 Audit Match-Based Repare
+
+- Correctifs appliques:
+  - `scripts/evaluateMatchBasedValidation.ts`
+    - sortie explicite apres `prisma.$disconnect()`
+    - support des alias:
+      - `--report-path`
+      - `--markdown-report-path`
+  - `server/src/services/mlPuzzleGenerationService.ts`
+    - slug des puzzles AI rendus reellement uniques
+    - correction du risque de collision Prisma `Puzzle.slug`
+- Resultats frais:
+  - rapport `10`:
+    - `reports/match-based-validation-report.current-10.json`
+    - `reports/match-based-validation-report.current-10.md`
+    - `completedRate = 0.8`
+    - `noViableSnapshotFoundRate = 0.2`
+    - `distinctSelectedSnapshotSignatureCount = 8`
+    - `reusedSelectedSnapshotSignatureCount = 0`
+    - rejets dominants:
+      - `low-confidence = 21`
+      - `publishability-insufficient-credible-distractors = 3`
+      - `choice-resolution-insufficient-distractors = 1`
+  - rapport `20`:
+    - `reports/match-based-validation-report.current-20.json`
+    - `reports/match-based-validation-report.current-20.md`
+    - `completedRate = 0.8`
+    - `noViableSnapshotFoundRate = 0.2`
+    - `distinctSelectedSnapshotSignatureCount = 16`
+    - `reusedSelectedSnapshotSignatureCount = 0`
+    - rejets dominants:
+      - `low-confidence = 46`
+      - `publishability-insufficient-credible-distractors = 3`
+      - `choice-resolution-insufficient-distractors = 1`
+- Lecture:
+  - la qualite match-based reste defendable apres la montee de volume recente
+  - la diversite des snapshots servis reste bonne
+  - le vrai frein qualite restant n'est pas la repetition
+  - le vrai frein qualite restant est toujours:
+    - `low-confidence`
+    - puis la faiblesse du pool de distracteurs credibles

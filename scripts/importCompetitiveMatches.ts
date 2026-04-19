@@ -202,6 +202,16 @@ function buildDiscoveryQuerySignature(input: {
   });
 }
 
+function arraysEqualIgnoringOrder<T extends string | number>(left: T[], right: T[]) {
+  if (left.length !== right.length) {
+    return false;
+  }
+
+  const normalizedLeft = [...left].sort();
+  const normalizedRight = [...right].sort();
+  return normalizedLeft.every((value, index) => value === normalizedRight[index]);
+}
+
 function splitRiotId(riotId: string) {
   const [gameName, ...tagLineParts] = riotId.split("#");
   return {
@@ -405,6 +415,133 @@ async function resolveSeeds(
     });
   }
   return resolvedSeeds;
+}
+
+function canReuseCheckpointState(input: {
+  checkpoint: CompetitiveIngestionCheckpoint;
+  manifestSeedSetVersion: string;
+  policy: ReturnType<typeof resolveCompetitiveIngestionPolicy>;
+  startTime: number | null;
+  endTime: number | null;
+}) {
+  const { checkpoint, manifestSeedSetVersion, policy, startTime, endTime } = input;
+  if (checkpoint.seedSetVersion !== manifestSeedSetVersion) {
+    return false;
+  }
+
+  if ((checkpoint.policyMode ?? "strict_recent_competitive") !== policy.mode) {
+    return false;
+  }
+
+  if (
+    checkpoint.seasonWindow.startTime !== startTime
+    || checkpoint.seasonWindow.endTime !== endTime
+  ) {
+    return false;
+  }
+
+  if (
+    !arraysEqualIgnoringOrder(
+      checkpoint.queueWhitelist ?? [],
+      [...policy.preferredQueues, ...policy.acceptedFallbackQueues],
+    )
+  ) {
+    return false;
+  }
+
+  if (
+    !arraysEqualIgnoringOrder(
+      checkpoint.patchAllowPrefixes ?? [],
+      [...policy.preferredPatchPrefixes, ...policy.acceptedAdjacentPatchPrefixes],
+    )
+  ) {
+    return false;
+  }
+
+  return checkpoint.resolvedSeeds.length > 0 && checkpoint.discoveredMatches.length > 0;
+}
+
+function rebuildDiscoveredMatchesFromCheckpoint(input: {
+  checkpoint: CompetitiveIngestionCheckpoint;
+  resolvedSeeds: CompetitiveResolvedSeed[];
+  policy: ReturnType<typeof resolveCompetitiveIngestionPolicy>;
+  matchMetadataCache: Map<string, CompetitiveCachedMatchMetadata>;
+}) {
+  const policyDecisionByMatchId = input.checkpoint.policyDecisionByMatchId ?? {};
+  const classifiedMatchIds = new Set(Object.keys(policyDecisionByMatchId));
+  if (classifiedMatchIds.size === 0) {
+    return [];
+  }
+
+  const seedIndex = new Map(
+    input.resolvedSeeds.map((seed) => [buildCompetitiveSeedKey(seed), seed]),
+  );
+  const discoveryByMatchId = new Map<string, CompetitiveSeedMatchDiscovery>();
+
+  for (const discovery of input.checkpoint.discoveredMatches) {
+    for (const matchId of discovery.matchIds) {
+      if (!classifiedMatchIds.has(matchId) || discoveryByMatchId.has(matchId)) {
+        continue;
+      }
+      discoveryByMatchId.set(matchId, discovery);
+      if (discoveryByMatchId.size >= classifiedMatchIds.size) {
+        break;
+      }
+    }
+    if (discoveryByMatchId.size >= classifiedMatchIds.size) {
+      break;
+    }
+  }
+
+  const rebuilt: CompetitiveDiscoveredMatch[] = [];
+  for (const [matchId, decision] of Object.entries(policyDecisionByMatchId)) {
+    const discovery = discoveryByMatchId.get(matchId);
+    if (!discovery) {
+      continue;
+    }
+
+    const seed = seedIndex.get(discovery.seedKey);
+    const metadata = input.matchMetadataCache.get(matchId);
+    const gameCreationAt = metadata?.gameCreationAt ?? null;
+    const gameCreationDate = gameCreationAt ? new Date(gameCreationAt) : null;
+
+    rebuilt.push({
+      matchId,
+      seedKey: discovery.seedKey,
+      playerName: discovery.playerName,
+      team: discovery.team,
+      league: discovery.league,
+      competition: discovery.competition,
+      role: discovery.role,
+      priorityTier: discovery.priorityTier,
+      priorityScore: discovery.priorityScore,
+      platform: seed?.platformHint ?? null,
+      cluster: discovery.region,
+      queueId: metadata?.queueId ?? null,
+      patch: metadata?.patch ?? null,
+      gameCreationAt,
+      acceptedByPolicy: decision.acceptedByPolicy,
+      acceptedReason: decision.acceptedReason,
+      rejectionReason: decision.rejectionReason,
+      fallbackReason: decision.fallbackReason,
+      policyMode: decision.policyMode,
+      policyBucket: decision.policyBucket,
+      queueBucket: decision.queueBucket,
+      sourceBucket: decision.sourceBucket,
+      priorityBand: decision.priorityBand,
+      matchPriorityScore: scoreCompetitiveMatch({
+        priorityTier: discovery.priorityTier,
+        priorityScore: discovery.priorityScore,
+        patch: metadata?.patch ?? null,
+        gameCreationAt: gameCreationDate,
+        patchBucket: decision.policyBucket,
+        queueBucket: decision.queueBucket,
+        priorityBand: decision.priorityBand,
+      }),
+    });
+  }
+
+  return rebuilt;
 }
 
 async function discoverMatchIdsForSeed(
@@ -991,6 +1128,13 @@ async function main() {
   const resolvedSeedCache = new Map(checkpoint.resolvedSeeds.map((seed) => [buildCompetitiveSeedKey(seed), seed]));
   const discoveryCache = new Map(checkpoint.discoveredMatches.map((seed) => [seed.seedKey, seed]));
   const matchMetadataCache = new Map(Object.entries(checkpoint.matchMetadataById ?? {}));
+  const canReuseCheckpoint = canReuseCheckpointState({
+    checkpoint,
+    manifestSeedSetVersion: manifest.seedSetVersion,
+    policy,
+    startTime,
+    endTime,
+  });
 
   console.info(
     `[competitive-ingestion] resolving ${manifest.players.length} seeds from ${seedAbsolutePath} mode=${policy.mode}`,
@@ -1034,21 +1178,30 @@ async function main() {
     ]);
   };
 
-  let resolvedSeeds = await resolveSeeds(workingSeeds, resolvedSeedCache, {
-    onProgress: async (snapshot) => {
-      if (snapshot.processedSeeds % 10 !== 0 && snapshot.processedSeeds !== snapshot.totalSeeds) {
-        return;
-      }
-      await persistResolutionProgress({
-        processedSeeds: snapshot.processedSeeds,
-        totalSeeds: snapshot.totalSeeds,
-        resolvedSeeds: snapshot.resolvedSeeds,
-        seedName: snapshot.seed.playerName,
-      });
-    },
-  });
-  let discoveries: CompetitiveSeedMatchDiscovery[] = [];
-  let discoveredMatches: CompetitiveDiscoveredMatch[] = [];
+  let resolvedSeeds = canReuseCheckpoint
+    ? checkpoint.resolvedSeeds
+    : await resolveSeeds(workingSeeds, resolvedSeedCache, {
+      onProgress: async (snapshot) => {
+        if (snapshot.processedSeeds % 10 !== 0 && snapshot.processedSeeds !== snapshot.totalSeeds) {
+          return;
+        }
+        await persistResolutionProgress({
+          processedSeeds: snapshot.processedSeeds,
+          totalSeeds: snapshot.totalSeeds,
+          resolvedSeeds: snapshot.resolvedSeeds,
+          seedName: snapshot.seed.playerName,
+        });
+      },
+    });
+  let discoveries: CompetitiveSeedMatchDiscovery[] = canReuseCheckpoint ? checkpoint.discoveredMatches : [];
+  let discoveredMatches: CompetitiveDiscoveredMatch[] = canReuseCheckpoint
+    ? rebuildDiscoveredMatchesFromCheckpoint({
+      checkpoint,
+      resolvedSeeds,
+      policy,
+      matchMetadataCache,
+    })
+    : [];
   let currentTargetIdsPerSeed = Math.min(options.countPerSeed, options.maxIdsPerSeed);
   let discoveryPass = 0;
 
@@ -1166,7 +1319,13 @@ async function main() {
     });
   };
 
-  await refreshDiscoveryState();
+  if (canReuseCheckpoint) {
+    console.info(
+      `[competitive-ingestion] reusing-checkpoint resolvedSeeds=${resolvedSeeds.length} discoveries=${discoveries.length} classifiedMatches=${discoveredMatches.length}`,
+    );
+  } else {
+    await refreshDiscoveryState();
+  }
 
   let initialDiscoveryProgressStage = "discovery-initial";
 
