@@ -2878,3 +2878,19 @@ Lire ce fichier au debut de chaque nouvelle conversation sur ce repo, puis le me
   - la qualite reste globalement bonne mais un peu moins stable que les derniers runs parfaits sur `20`
   - le goulot principal redevient `low-confidence`
   - le second goulot devient la couverture de distracteurs credibles
+
+## 2026-04-23 Stop Fail Fast Riot
+
+- Correctif applique sur la generation de seeds competitifs:
+  - `server/src/lib/riot/competitiveSeeds.ts`
+  - les erreurs Riot d'authentification/forbidden sur les seeds elite ne sont plus absorbees silencieusement
+  - le job remonte maintenant l'erreur et s'arrete au lieu de continuer longtemps sur des echecs repetes
+- Objectif:
+  - eviter de relancer des jobs longs quand la cle ou le route Riot est invalide
+  - garder le comportement borne qui existe deja sur l'import competitif
+- Validation:
+  - `npx tsc -p tsconfig.server.json --noEmit`
+    - OK
+- Regle de conduite:
+  - avant tout job long Riot, faire un preflight court
+  - si un auth failure apparait, stopper et corriger la cle avant de relancer

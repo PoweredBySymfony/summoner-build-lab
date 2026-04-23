@@ -182,6 +182,7 @@ async function fetchEliteSeedsForPlatform(
 ): Promise<CompetitiveSeed[]> {
   const cluster = PLATFORM_TO_REGION[platform];
   const seeds: CompetitiveSeed[] = [];
+  const isAuthFailure = (message: string) => /forbidden|authentication failed/i.test(message);
 
   for (const tier of options.tiers) {
     let response: RiotLeagueListResponse;
@@ -197,8 +198,8 @@ async function fetchEliteSeedsForPlatform(
           message,
         }),
       );
-      if (/forbidden/i.test(message)) {
-        break;
+      if (isAuthFailure(message)) {
+        throw error;
       }
       continue;
     }
@@ -287,13 +288,17 @@ export async function fetchEliteLadderSeeds(
     try {
       seeds.push(...(await fetchEliteSeedsForPlatform(platform, resolvedOptions)));
     } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
       console.warn(
         "[competitive-seeds] elite-platform-fetch-failed",
         JSON.stringify({
           platform,
-          message: error instanceof Error ? error.message : String(error),
+          message,
         }),
       );
+      if (/forbidden|authentication failed/i.test(message)) {
+        throw error;
+      }
     }
   }
   return dedupeCompetitiveSeeds(seeds);
