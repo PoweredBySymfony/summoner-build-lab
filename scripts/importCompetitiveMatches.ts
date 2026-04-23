@@ -897,9 +897,9 @@ async function classifyDiscoveredMatches(
     let gameCreationAt = cachedGameCreationAt;
     let effectivePatch = cachedMetadata?.patch ?? null;
     let effectiveQueueId = cachedMetadata?.queueId ?? null;
-    let hasTargetParticipant = cachedMetadata?.targetParticipantPresent ?? true;
+    let hasTargetParticipant = cachedMetadata?.targetParticipantPresent ?? false;
 
-    if (!cachedMetadata) {
+    if (!cachedMetadata || cachedMetadata.targetParticipantPresent !== true) {
       try {
         const match = await riotApiClient.getMatchByIdOnRegion(matchId, discovery.region);
         const info = match as {

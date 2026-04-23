@@ -3148,3 +3148,23 @@ Lire ce fichier au debut de chaque nouvelle conversation sur ce repo, puis le me
   - le vrai goulot etait le sur-scanning et la reutilisation trop rigide du checkpoint, pas la qualite pure
   - le palier `50` est maintenant atteignable sans casser la qualite
   - le prochain levier utile reste de reduire `target-participant-missing` et d'optimiser encore le rendement avant de viser `100`
+
+## 2026-04-23 Test 100 V1 Growth Et Nouveau Plafond
+
+- Validation campagne:
+  - `npm run campaign:competitive:v1-growth -- --max-stages 1 --stage-size 100 --count-per-seed 40 --max-ids-per-seed 400 --audit-sample-size 20 --refresh-discovery`
+    - `createdMatches = 24`
+    - `runCreatedCount = 24`
+    - `runAuthFailureCount = 0`
+    - `stopReason = discovery-failure-budget:2`
+    - `discoveredUniqueMatches = 114`
+    - `policyAcceptedMatches = 47`
+    - `rejectedByReason.target-participant-missing = 67`
+    - `failedMatchesCount = 322`
+    - `topFailureReasons`
+      - `target-participant-missing = 212`
+      - `Riot API authentication failed. = 110`
+- Lecture:
+  - le palier `100` n'est pas bloque par la qualite ML
+  - le rendement chute parce que la discovery retombe sur des seeds / regions qui enchainent des erreurs auth Riot
+  - le vrai prochain correctif utile n'est pas d'augmenter encore la tranche, mais d'ajouter une quarantaine persistante des seeds / regions qui repetent les erreurs pour ne pas rebruler du temps au prochain run
