@@ -3091,3 +3091,25 @@ Lire ce fichier au debut de chaque nouvelle conversation sur ce repo, puis le me
   - la policy `v1-growth` casse bien le plateau sans changer le canon
   - la discovery s'arrete maintenant proprement sur budget d'erreur sans bloquer le stage
   - le prochain palier peut etre teste sur la meme base v1 avant toute promotion de `v4`
+
+## 2026-04-23 Tranche 50 Sur V1 Growth
+
+- Validation campagne:
+  - `npm run campaign:competitive:v1-growth -- --max-stages 1 --stage-size 50 --count-per-seed 40 --max-ids-per-seed 400 --audit-sample-size 20`
+    - `createdMatches = 25`
+    - `runCreatedCount = 25`
+    - `runAuthFailureCount = 0`
+    - `qualityGatePassed = true`
+    - `stoppedReason = max-created-per-run:25`
+    - le stage reste stable mais le rendement ne monte pas encore a 50
+- Validation qualite immediate:
+  - `npm run audit:match-based-validation -- --sample-size 20`
+    - `completedRate = 0.9`
+    - `noViableSnapshotFoundRate = 0.1`
+    - `rejectionReasonCounts`
+      - `low-confidence = 33`
+      - `publishability-insufficient-credible-distractors = 1`
+- Lecture:
+  - la croissance v1 reste saine
+  - le volume n'est pas encore lineaire a 50 sur ce vivier
+  - la qualite reste acceptable, sans degradation nouvelle evidente

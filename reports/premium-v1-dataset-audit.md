@@ -1,6 +1,6 @@
 # Premium V1 Dataset Audit
 
-- Generated at: 2026-04-23T13:33:44.726Z
+- Generated at: 2026-04-23T13:39:49.172Z
 - Competitive report path: C:\Users\XavierTrouche\dev\summoner-build-lab\data\runtime\competitive-ingestion\phase-2000-v3-2026-04-23.report.json
 - Baseline state: frozen-for-ml-audit
 - Ingestion freeze: true
@@ -12,38 +12,38 @@
 - Competitive report: Rapport pipeline competitif source-filtered, limite aux imports competitifs observes par le checkpoint/report.
 
 ## Scope Gap
-- DB-wide total matches: 1597
-- Competitive matches in DB: 1582
-- Premium-only matches: 1582
+- DB-wide total matches: 1627
+- Competitive matches in DB: 1612
+- Premium-only matches: 1612
 - Excluded from premium-only because non-competitive: 15
 - Excluded from premium-only because source tier still unknown: 0
 - Unknown source tier among competitive matches: 0
 - Explanation: Le mismatch venait du fait que le report competitif ne couvre que les imports competitifs, alors que l'audit ML exportait toute la base. Le scope premium-only rend maintenant cet ecart explicite.
 
 ## DB-wide
-- Total imported matches: 1597
-- Total valid timelines: 1595
-- Premium recent matches (26.1-26.7): 1420
-- Premium recent share: 88.92
+- Total imported matches: 1627
+- Total valid timelines: 1624
+- Premium recent matches (26.1-26.7): 1431
+- Premium recent share: 87.95
 
 ### Match Distribution By Source Tier
-- pro: 1536
-- elite: 46
+- pro: 1554
+- elite: 58
 - unknown: 15
 
 ### Match Distribution By Source Kind
-- PRO_SEED: 1536
-- ELITE_SEED: 46
+- PRO_SEED: 1554
+- ELITE_SEED: 58
 - unknown: 15
 
 ### Match Distribution By Patch
 - 26.6: 570
-- 26.7: 432
+- 26.7: 443
 - 26.3: 126
+- 26.8: 90
 - 26.1: 85
 - 26.2: 76
 - 26.5: 71
-- 26.8: 71
 - 26.4: 60
 - 15.23: 27
 - 14.20: 19
@@ -62,44 +62,44 @@
 - 15.20: 1
 
 ### Match Distribution By Source League
-- LoL Champions Korea: 700
+- LoL Champions Korea: 718
 - First Stand: 508
 - World Championship: 194
 - League of Legends Championship of The Americas: 86
+- Riot Ranked Ladder: 58
 - Mid-Season Invitational: 48
-- Riot Ranked Ladder: 46
 - unknown: 15
 
 ### Match Distribution By Source Region Hint
 - International: 750
-- Korea: 700
+- Korea: 718
 - Americas: 86
-- KR: 46
+- KR: 58
 - europe: 13
 - asia: 2
 
 ## Premium-only
-- Total imported matches: 1582
-- Total valid timelines: 1580
-- Premium recent matches (26.1-26.7): 1407
-- Premium recent share: 88.94
+- Total imported matches: 1612
+- Total valid timelines: 1609
+- Premium recent matches (26.1-26.7): 1418
+- Premium recent share: 87.97
 
 ### Match Distribution By Source Tier
-- pro: 1536
-- elite: 46
+- pro: 1554
+- elite: 58
 
 ### Match Distribution By Source Kind
-- PRO_SEED: 1536
-- ELITE_SEED: 46
+- PRO_SEED: 1554
+- ELITE_SEED: 58
 
 ### Match Distribution By Patch
 - 26.6: 566
-- 26.7: 424
+- 26.7: 435
 - 26.3: 126
+- 26.8: 89
 - 26.1: 85
 - 26.2: 76
 - 26.5: 70
-- 26.8: 70
 - 26.4: 60
 - 15.23: 26
 - 14.20: 19
@@ -118,18 +118,18 @@
 - 15.20: 1
 
 ### Match Distribution By Source League
-- LoL Champions Korea: 700
+- LoL Champions Korea: 718
 - First Stand: 508
 - World Championship: 194
 - League of Legends Championship of The Americas: 86
+- Riot Ranked Ladder: 58
 - Mid-Season Invitational: 48
-- Riot Ranked Ladder: 46
 
 ### Match Distribution By Source Region Hint
 - International: 750
-- Korea: 700
+- Korea: 718
 - Americas: 86
-- KR: 46
+- KR: 58
 
 ## Dataset
 - Total snapshots generated: 12019
