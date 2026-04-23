@@ -296,9 +296,10 @@ export async function fetchEliteLadderSeeds(
           message,
         }),
       );
-      if (/forbidden|authentication failed/i.test(message)) {
-        throw error;
-      }
+      // Seed preparation is a batch job, not a recovery loop.
+      // Any Riot failure here stops the run immediately so we do not burn
+      // minutes retrying the same broken path across platforms/tiers.
+      throw error;
     }
   }
   return dedupeCompetitiveSeeds(seeds);

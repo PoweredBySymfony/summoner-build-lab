@@ -62,6 +62,7 @@ type CliOptions = {
   maxAuthFailuresPerRun?: number;
   trancheSize?: number;
   maxClassifiedPerRun?: number;
+  maxSeedDiscoveryFailures?: number;
 };
 
 const PROGRESS_PERSIST_ATTEMPT_INTERVAL = 50;
@@ -176,6 +177,10 @@ function parseArgs(argv: string[]): CliOptions {
         break;
       case "--max-classified-per-run":
         options.maxClassifiedPerRun = Number(next ?? "0");
+        index += 1;
+        break;
+      case "--max-seed-discovery-failures":
+        options.maxSeedDiscoveryFailures = Number(next ?? "3");
         index += 1;
         break;
       case "--dry-run":
@@ -696,6 +701,7 @@ async function discoverSeeds(
     queues: number[];
     startTime: number | null;
     endTime: number | null;
+    maxConsecutiveFailures?: number;
     onProgress?: (snapshot: {
       processedSeeds: number;
       totalActiveSeeds: number;
@@ -710,6 +716,8 @@ async function discoverSeeds(
   );
 
   const discoveries: CompetitiveSeedMatchDiscovery[] = [];
+  let consecutiveFailures = 0;
+  const maxConsecutiveFailures = input.maxConsecutiveFailures ?? 3;
   for (const seed of activeSeeds) {
     const seedKey = buildCompetitiveSeedKey(seed);
     const cached = discoveryCache.get(seedKey);
@@ -741,15 +749,24 @@ async function discoverSeeds(
         endTime: input.endTime,
         cached,
       }));
+      consecutiveFailures = 0;
     } catch (error) {
+      consecutiveFailures += 1;
       console.warn(
         "[competitive-ingestion] discover-seed-failed",
         JSON.stringify({
           seed: seed.playerName,
           matchIdsCached: cached?.matchIds.length ?? 0,
           message: error instanceof Error ? error.message : String(error),
+          consecutiveFailures,
+          maxConsecutiveFailures,
         }),
       );
+      if (consecutiveFailures >= maxConsecutiveFailures) {
+        throw new Error(
+          `Aborting competitive discovery after ${consecutiveFailures} consecutive seed failures. Last seed=${seed.playerName}.`,
+        );
+      }
       discoveries.push(cached ?? {
         seedKey,
         playerName: seed.playerName,
@@ -1319,6 +1336,7 @@ async function main() {
         queues: [...policy.preferredQueues, ...policy.acceptedFallbackQueues],
         startTime,
         endTime,
+        maxConsecutiveFailures: options.maxSeedDiscoveryFailures ?? 3,
         onProgress: async (snapshot) => {
           if (snapshot.processedSeeds % 10 !== 0 && snapshot.processedSeeds !== snapshot.totalActiveSeeds) {
             return;

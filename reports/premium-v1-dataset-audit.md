@@ -1,6 +1,6 @@
 # Premium V1 Dataset Audit
 
-- Generated at: 2026-04-23T12:54:20.190Z
+- Generated at: 2026-04-23T13:12:09.420Z
 - Competitive report path: C:\Users\XavierTrouche\dev\summoner-build-lab\data\runtime\competitive-ingestion\phase-2000-v3-2026-04-23.report.json
 - Baseline state: frozen-for-ml-audit
 - Ingestion freeze: true
@@ -12,29 +12,29 @@
 - Competitive report: Rapport pipeline competitif source-filtered, limite aux imports competitifs observes par le checkpoint/report.
 
 ## Scope Gap
-- DB-wide total matches: 1571
+- DB-wide total matches: 1572
 - Competitive matches in DB: 1557
 - Premium-only matches: 1557
-- Excluded from premium-only because non-competitive: 14
+- Excluded from premium-only because non-competitive: 15
 - Excluded from premium-only because source tier still unknown: 0
 - Unknown source tier among competitive matches: 0
 - Explanation: Le mismatch venait du fait que le report competitif ne couvre que les imports competitifs, alors que l'audit ML exportait toute la base. Le scope premium-only rend maintenant cet ecart explicite.
 
 ## DB-wide
-- Total imported matches: 1571
-- Total valid timelines: 1569
+- Total imported matches: 1572
+- Total valid timelines: 1570
 - Premium recent matches (26.1-26.7): 1420
-- Premium recent share: 90.39
+- Premium recent share: 90.33
 
 ### Match Distribution By Source Tier
 - pro: 1511
 - elite: 46
-- unknown: 14
+- unknown: 15
 
 ### Match Distribution By Source Kind
 - PRO_SEED: 1511
 - ELITE_SEED: 46
-- unknown: 14
+- unknown: 15
 
 ### Match Distribution By Patch
 - 26.6: 570
@@ -44,7 +44,7 @@
 - 26.2: 76
 - 26.5: 71
 - 26.4: 60
-- 26.8: 45
+- 26.8: 46
 - 15.23: 27
 - 14.20: 19
 - 15.24: 12
@@ -68,14 +68,14 @@
 - League of Legends Championship of The Americas: 86
 - Mid-Season Invitational: 48
 - Riot Ranked Ladder: 46
-- unknown: 14
+- unknown: 15
 
 ### Match Distribution By Source Region Hint
 - International: 750
 - Korea: 675
 - Americas: 86
 - KR: 46
-- europe: 12
+- europe: 13
 - asia: 2
 
 ## Premium-only

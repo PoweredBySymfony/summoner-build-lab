@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-04-23T12:54:20.190Z",
+  "generatedAt": "2026-04-23T13:12:09.420Z",
   "baseline": {
     "id": "premium-v1",
     "state": "frozen-for-ml-audit",
@@ -12,18 +12,18 @@
     "competitiveReport": "Rapport pipeline competitif source-filtered, limite aux imports competitifs observes par le checkpoint/report."
   },
   "scopeComparison": {
-    "dbWideTotalMatches": 1571,
+    "dbWideTotalMatches": 1572,
     "competitiveMatchesInDb": 1557,
     "premiumOnlyMatches": 1557,
-    "excludedNonCompetitiveMatches": 14,
+    "excludedNonCompetitiveMatches": 15,
     "excludedCompetitiveUnknownTierMatches": 0,
     "competitiveUnknownTierCount": 0,
     "explanation": "Le mismatch venait du fait que le report competitif ne couvre que les imports competitifs, alors que l'audit ML exportait toute la base. Le scope premium-only rend maintenant cet ecart explicite."
   },
   "scopes": {
     "dbWide": {
-      "totalImportedMatches": 1571,
-      "totalValidTimelines": 1569,
+      "totalImportedMatches": 1572,
+      "totalValidTimelines": 1570,
       "matchsParPatch": [
         {
           "patch": "26.6",
@@ -55,7 +55,7 @@
         },
         {
           "patch": "26.8",
-          "count": 45
+          "count": 46
         },
         {
           "patch": "15.23",
@@ -129,7 +129,7 @@
         },
         {
           "sourceKind": "unknown",
-          "count": 14
+          "count": 15
         }
       ],
       "matchsParSourceTier": [
@@ -143,7 +143,7 @@
         },
         {
           "sourceTier": "unknown",
-          "count": 14
+          "count": 15
         }
       ],
       "matchsParSourceLeague": [
@@ -173,7 +173,7 @@
         },
         {
           "sourceLeague": "unknown",
-          "count": 14
+          "count": 15
         }
       ],
       "matchsParSourceRegionHint": [
@@ -195,7 +195,7 @@
         },
         {
           "sourceRegionHint": "europe",
-          "count": 12
+          "count": 13
         },
         {
           "sourceRegionHint": "asia",
@@ -203,7 +203,7 @@
         }
       ],
       "premiumRecentMatches26x": 1420,
-      "premiumRecentShare26x": 90.39
+      "premiumRecentShare26x": 90.33
     },
     "premiumOnly": {
       "totalImportedMatches": 1557,

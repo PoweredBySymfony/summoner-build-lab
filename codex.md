@@ -3004,3 +3004,47 @@ Lire ce fichier au debut de chaque nouvelle conversation sur ce repo, puis le me
   - la gate qualitative est redevenue saine
   - le blocage actuel n'est plus la qualite ML, mais le plateau du vivier importable avec le seed set courant
   - le prochain travail logique est la canonisation du seed set elargi, mais sans casser la couverture elite
+
+## 2026-04-23 Seed Fusion Audit
+
+- Audit local des candidats existants:
+  - `competitive-seeds-2026.json`
+    - `324` seeds
+    - `pro = 94`
+    - `elite = 230`
+    - `resolved = 280 / 324 = 86.42%`
+  - `competitive-seeds-2026-v3.json`
+    - `307` seeds
+    - `pro = 307`
+    - `elite = 0`
+    - `resolved = 146 / 307 = 47.56%`
+  - `competitive-seeds-2026-v4.json`
+    - fusion locale `v1 + v3`
+    - `537` seeds
+    - `pro = 307`
+    - `elite = 230`
+    - `resolved = 376 / 537 = 70.02%`
+    - recouvrement retire: `94` doublons
+- Lecture:
+  - `v3` apporte du volume pro net, mais degrade fortement la qualite de resolution si on le prend seul
+  - `v1` reste le meilleur canon qualite pure
+  - `v4` est le bon candidat de volume: il conserve l'elite de `v1` et ajoute le pro net de `v3`
+- Validation rapide:
+  - `npm run campaign:competitive -- --max-stages 0 --seed-path data/seeds/competitive-seeds-2026-v4.json`
+    - preflight OK
+  - `npm run campaign:competitive -- --max-stages 1 --stage-size 50 --count-per-seed 40 --max-ids-per-seed 400 --audit-sample-size 20 --seed-path data/seeds/competitive-seeds-2026-v4.json`
+    - `qualityGatePassed = true`
+    - `stoppedReason = plateau`
+    - `resolvedSeedCount = 366`
+    - `unresolvedSeedCount = 171`
+    - `completedRate = 0.9`
+    - `noViableSnapshotFoundRate = 0.1`
+- Correctifs anti-boucle:
+  - `server/src/lib/riot/competitiveSeeds.ts`
+    - le seed prep elite stoppe maintenant au premier echec Riot au lieu de continuer plateforme par plateforme
+  - `scripts/importCompetitiveMatches.ts`
+    - ajout de `--max-seed-discovery-failures`
+    - la discovery competititve s'arrete apres quelques echecs consecutifs au lieu de logguer une longue cascade de `Riot API request failed`
+- Decision provisoire:
+  - `v4` est le meilleur candidat de saut de volume actuel
+  - il ne doit pas encore remplacer le canon sans un run de campagne cible controlee de plus grande ampleur
