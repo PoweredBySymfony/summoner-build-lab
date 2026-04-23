@@ -3,9 +3,10 @@ import path from "node:path";
 
 import {
   DEFAULT_LEAGUEPEDIA_USER_AGENT,
-  DEFAULT_PRO_SEED_SOURCES,
   DEFAULT_SEEDS_CACHE_PATH,
   fetchRecentProPlayerSeeds,
+  resolveProSeedSources,
+  type ProSeedSourceProfile,
   type ProSeedSourceDefinition,
 } from "../server/src/lib/riot/proSeeds.js";
 
@@ -15,6 +16,7 @@ type CliOptions = {
   enableLeaguepedia: boolean;
   seedsCachePath: string;
   leaguepediaUserAgent: string;
+  sourceProfile: ProSeedSourceProfile;
 };
 
 function parseArgs(argv: string[]): CliOptions {
@@ -23,6 +25,7 @@ function parseArgs(argv: string[]): CliOptions {
     enableLeaguepedia: false,
     seedsCachePath: DEFAULT_SEEDS_CACHE_PATH,
     leaguepediaUserAgent: DEFAULT_LEAGUEPEDIA_USER_AGENT,
+    sourceProfile: "canon",
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -57,6 +60,12 @@ function parseArgs(argv: string[]): CliOptions {
         }
         index += 1;
         break;
+      case "--source-profile":
+        if (next === "canon" || next === "wide") {
+          options.sourceProfile = next;
+        }
+        index += 1;
+        break;
       default:
         break;
     }
@@ -66,14 +75,7 @@ function parseArgs(argv: string[]): CliOptions {
 }
 
 function resolveSources(options: CliOptions): ProSeedSourceDefinition[] {
-  if (!options.since) {
-    return DEFAULT_PRO_SEED_SOURCES;
-  }
-
-  return DEFAULT_PRO_SEED_SOURCES.map((source) => ({
-    ...source,
-    since: options.since!,
-  }));
+  return resolveProSeedSources(options.sourceProfile, options.since);
 }
 
 async function main() {

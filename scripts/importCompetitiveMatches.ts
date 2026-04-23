@@ -804,7 +804,7 @@ async function discoverSeeds(
     }
 
     const seedKey = buildCompetitiveSeedKey(seed);
-    if (input.quarantinedSeedKeys?.has(seedKey) || input.quarantinedRegions?.has(seed.cluster)) {
+    if (input.quarantinedSeedKeys?.has(seedKey)) {
       console.info(
         `[competitive-ingestion] discover-seed-skipped quarantined seed=${seed.playerName} region=${seed.cluster}`,
       );
@@ -1360,7 +1360,7 @@ async function main() {
     endTime,
     classificationBudget,
     refreshDiscovery: options.refreshDiscovery,
-    hasActiveQuarantine: quarantinedSeedKeys.size > 0 || quarantinedRegions.size > 0,
+    hasActiveQuarantine: quarantinedSeedKeys.size > 0,
   });
 
   console.info(

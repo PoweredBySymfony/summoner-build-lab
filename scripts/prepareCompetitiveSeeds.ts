@@ -10,12 +10,13 @@ import {
 } from "../server/src/lib/riot/competitiveSeeds.js";
 import {
   DEFAULT_LEAGUEPEDIA_USER_AGENT,
-  DEFAULT_PRO_SEED_SOURCES,
   DEFAULT_SEEDS_CACHE_PATH,
   fetchRecentProPlayerSeeds,
   loadProPlayerSeedFile,
+  resolveProSeedSources,
   type ProPlayerSeed,
   type ProSeedSourceDefinition,
+  type ProSeedSourceProfile,
 } from "../server/src/lib/riot/proSeeds.js";
 import { type RiotPlatform } from "../server/src/lib/riot/routing.js";
 
@@ -31,6 +32,7 @@ type CliOptions = {
   seedsCachePath: string;
   leaguepediaUserAgent: string;
   leaguepediaSince?: string;
+  sourceProfile: ProSeedSourceProfile;
 };
 
 function parseArgs(argv: string[]): CliOptions {
@@ -45,6 +47,7 @@ function parseArgs(argv: string[]): CliOptions {
     enableLeaguepedia: true,
     seedsCachePath: DEFAULT_SEEDS_CACHE_PATH,
     leaguepediaUserAgent: DEFAULT_LEAGUEPEDIA_USER_AGENT,
+    sourceProfile: "canon",
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -110,6 +113,12 @@ function parseArgs(argv: string[]): CliOptions {
         }
         index += 1;
         break;
+      case "--source-profile":
+        if (next === "canon" || next === "wide") {
+          options.sourceProfile = next;
+        }
+        index += 1;
+        break;
       default:
         break;
     }
@@ -119,17 +128,7 @@ function parseArgs(argv: string[]): CliOptions {
 }
 
 function resolveLeaguepediaSources(options: CliOptions): ProSeedSourceDefinition[] {
-  if (!options.leaguepediaSince) {
-    return DEFAULT_PRO_SEED_SOURCES.map((source) => ({
-      ...source,
-      since: `${options.season}-01-01`,
-    }));
-  }
-
-  return DEFAULT_PRO_SEED_SOURCES.map((source) => ({
-    ...source,
-    since: options.leaguepediaSince!,
-  }));
+  return resolveProSeedSources(options.sourceProfile, options.leaguepediaSince ?? `${options.season}-01-01`);
 }
 
 function countBy(values: string[]) {

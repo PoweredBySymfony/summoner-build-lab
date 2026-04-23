@@ -14,6 +14,8 @@ export type ProSeedSourceDefinition = {
   since: string;
 };
 
+export type ProSeedSourceProfile = "canon" | "wide";
+
 export type ProPlayerSeed = {
   playerName: string;
   playerPage: string;
@@ -152,6 +154,50 @@ export const DEFAULT_PRO_SEED_SOURCES: ProSeedSourceDefinition[] = [
     since: "2025-01-01",
   },
 ];
+
+export const WIDE_PRO_SEED_SOURCES: ProSeedSourceDefinition[] = [
+  ...DEFAULT_PRO_SEED_SOURCES,
+  {
+    key: "lcs",
+    leagueNames: [
+      "League of Legends Championship Series",
+      "League Championship Series",
+      "LCS",
+    ],
+    since: "2025-01-01",
+  },
+  {
+    key: "cblol",
+    leagueNames: [
+      "Campeonato Brasileiro de League of Legends",
+      "CBLOL",
+      "Brazilian Championship of League of Legends",
+    ],
+    since: "2025-01-01",
+  },
+  {
+    key: "lcp",
+    leagueNames: [
+      "League of Legends Championship Pacific",
+      "LCP",
+    ],
+    since: "2025-01-01",
+  },
+];
+
+export function resolveProSeedSources(
+  profile: ProSeedSourceProfile = "canon",
+  since?: string,
+) {
+  const sources = profile === "wide" ? WIDE_PRO_SEED_SOURCES : DEFAULT_PRO_SEED_SOURCES;
+  if (!since) {
+    return sources;
+  }
+  return sources.map((source) => ({
+    ...source,
+    since,
+  }));
+}
 
 function encodeCargoQuery(params: Record<string, string>) {
   const query = new URLSearchParams();
