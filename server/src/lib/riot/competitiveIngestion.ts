@@ -206,6 +206,7 @@ export type CompetitiveIngestionCheckpoint = {
   generatedAt: string;
   seedSetVersion: string;
   targetUniqueMatches: number;
+  classificationBudget?: number;
   queueWhitelist: number[];
   patchAllowPrefixes: string[];
   seasonWindow: {

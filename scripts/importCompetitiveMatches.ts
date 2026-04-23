@@ -60,6 +60,8 @@ type CliOptions = {
   maxAttemptsPerRun?: number;
   maxCreatedPerRun?: number;
   maxAuthFailuresPerRun?: number;
+  trancheSize?: number;
+  maxClassifiedPerRun?: number;
 };
 
 const PROGRESS_PERSIST_ATTEMPT_INTERVAL = 50;
@@ -168,6 +170,14 @@ function parseArgs(argv: string[]): CliOptions {
         options.maxAuthFailuresPerRun = Number(next ?? "0");
         index += 1;
         break;
+      case "--tranche-size":
+        options.trancheSize = Number(next ?? "0");
+        index += 1;
+        break;
+      case "--max-classified-per-run":
+        options.maxClassifiedPerRun = Number(next ?? "0");
+        index += 1;
+        break;
       case "--dry-run":
         options.dryRun = true;
         break;
@@ -180,6 +190,20 @@ function parseArgs(argv: string[]): CliOptions {
   }
 
   return options;
+}
+
+function applyTranchePreset(options: CliOptions) {
+  if (!options.trancheSize || !Number.isFinite(options.trancheSize) || options.trancheSize <= 0) {
+    return options;
+  }
+
+  return {
+    ...options,
+    maxCreatedPerRun: options.maxCreatedPerRun ?? options.trancheSize,
+    maxAttemptsPerRun: options.maxAttemptsPerRun ?? Math.max(options.trancheSize * 2, options.trancheSize + 10),
+    maxAuthFailuresPerRun: options.maxAuthFailuresPerRun ?? 3,
+    maxClassifiedPerRun: options.maxClassifiedPerRun ?? Math.max(options.trancheSize * 12, options.trancheSize * 6),
+  };
 }
 
 function toUnixSeconds(timestampMs: number | null) {
@@ -423,8 +447,9 @@ function canReuseCheckpointState(input: {
   policy: ReturnType<typeof resolveCompetitiveIngestionPolicy>;
   startTime: number | null;
   endTime: number | null;
+  classificationBudget: number;
 }) {
-  const { checkpoint, manifestSeedSetVersion, policy, startTime, endTime } = input;
+  const { checkpoint, manifestSeedSetVersion, policy, startTime, endTime, classificationBudget } = input;
   if (checkpoint.seedSetVersion !== manifestSeedSetVersion) {
     return false;
   }
@@ -455,6 +480,10 @@ function canReuseCheckpointState(input: {
       [...policy.preferredPatchPrefixes, ...policy.acceptedAdjacentPatchPrefixes],
     )
   ) {
+    return false;
+  }
+
+  if ((checkpoint.classificationBudget ?? 0) !== classificationBudget) {
     return false;
   }
 
@@ -1059,7 +1088,7 @@ async function maybeEnrichEliteSeeds(input: {
 }
 
 async function main() {
-  const options = parseArgs(process.argv.slice(2));
+  const options = applyTranchePreset(parseArgs(process.argv.slice(2)));
   const { absolutePath: seedAbsolutePath, manifest } = await loadManifest(options.seedPath);
   const policyConfig = withPolicyOverrides(
     await loadCompetitiveIngestionPolicy(path.resolve(options.policyPath)),
@@ -1097,11 +1126,14 @@ async function main() {
       ).map((row) => row.riotMatchId),
     );
   const remainingTargetMatches = Math.max(0, options.targetMatches - baselineCompetitiveMatchesBefore);
+  const classificationBudget = options.maxClassifiedPerRun
+    ?? Math.max(300, (options.trancheSize ?? 25) * 12);
   const checkpoint = (!options.resetCheckpoint ? await loadCompetitiveIngestionCheckpoint(checkpointPath) : null) ?? {
     version: 3,
     generatedAt: new Date().toISOString(),
     seedSetVersion: manifest.seedSetVersion,
     targetUniqueMatches: remainingTargetMatches,
+    classificationBudget,
     queueWhitelist: [...policy.preferredQueues, ...policy.acceptedFallbackQueues],
     patchAllowPrefixes: [...policy.preferredPatchPrefixes, ...policy.acceptedAdjacentPatchPrefixes],
     seasonWindow: {
@@ -1134,6 +1166,7 @@ async function main() {
     policy,
     startTime,
     endTime,
+    classificationBudget,
   });
 
   console.info(
@@ -1303,7 +1336,7 @@ async function main() {
       discoveryCache.set(discovery.seedKey, discovery);
     }
     const discoveredUniqueMatches = new Set(discoveries.flatMap((discovery) => discovery.matchIds)).size;
-    const maxUniqueMatchesToClassify = Math.max(150, Math.min(remainingTargetMatches, 300));
+    const maxUniqueMatchesToClassify = Math.max(150, Math.min(remainingTargetMatches, classificationBudget));
     console.info(
       `[competitive-ingestion] classify-budget uniqueCap=${maxUniqueMatchesToClassify} discoveredUnique=${discoveredUniqueMatches}`,
     );
@@ -1458,6 +1491,7 @@ async function main() {
       generatedAt: new Date().toISOString(),
       seedSetVersion: manifest.seedSetVersion,
       targetUniqueMatches: remainingTargetMatches,
+      classificationBudget,
       queueWhitelist: [...policy.preferredQueues, ...policy.acceptedFallbackQueues],
       patchAllowPrefixes: [...policy.preferredPatchPrefixes, ...policy.acceptedAdjacentPatchPrefixes],
       seasonWindow: {
@@ -1782,6 +1816,7 @@ async function main() {
     generatedAt: new Date().toISOString(),
     seedSetVersion: manifest.seedSetVersion,
     targetUniqueMatches: remainingTargetMatches,
+    classificationBudget,
     queueWhitelist: [...policy.preferredQueues, ...policy.acceptedFallbackQueues],
     patchAllowPrefixes: [...policy.preferredPatchPrefixes, ...policy.acceptedAdjacentPatchPrefixes],
     seasonWindow: {

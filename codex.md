@@ -2626,3 +2626,255 @@ Lire ce fichier au debut de chaque nouvelle conversation sur ce repo, puis le me
   - le vrai frein qualite restant est toujours:
     - `low-confidence`
     - puis la faiblesse du pool de distracteurs credibles
+
+## 2026-04-19 Low-Confidence Override Et Distracteurs
+
+- Correctif applique:
+  - `server/src/services/mlPuzzleGenerationService.ts`
+    - ajout d'un override borne du `low-confidence` quand les signaux produit sont deja forts
+    - l'override n'est autorise que si:
+      - score de publishability eleve
+      - pool candidat suffisant
+      - seuils ML minimum encore respectes
+    - ajout d'une lecture plus souple des distracteurs credibles:
+      - conservation du critere principal par ecart de cout
+      - acceptation secondaire si proximite produit forte:
+        - meme famille d'upgrade
+        - categorie proche
+        - tags communs
+        - tier legendaire coherent
+    - le rejet `low-confidence` est maintenant decide apres l'evaluation de publishability, pas avant
+- Audit comparable:
+  - rapport de comparaison meme sample:
+    - `reports/match-based-validation-report.after-confidence-same-sample-10.json`
+    - `reports/match-based-validation-report.after-confidence-same-sample-10.md`
+  - baseline comparee:
+    - `reports/match-based-validation-report.current-10.json`
+  - resultat sur le meme echantillon de `10`:
+    - avant:
+      - `completedRate = 0.8`
+      - `noViableSnapshotFoundRate = 0.2`
+    - apres:
+      - `completedRate = 1`
+      - `noViableSnapshotFoundRate = 0`
+      - `distinctSelectedSnapshotSignatureCount = 10`
+      - `reusedSelectedSnapshotSignatureCount = 0`
+  - rejets encore visibles dans les tentatives:
+    - `low-confidence = 9`
+    - `publishability-insufficient-credible-distractors = 5`
+    - `choice-resolution-insufficient-distractors = 1`
+- Lecture:
+  - le correctif ne supprime pas toute la fragilite ML interne
+  - en revanche il reduit nettement l'impact bloquant du `low-confidence` sur la completion finale
+  - le frein principal restant devient la credibilite des distracteurs plutot que le gating de confiance brut
+
+## 2026-04-23 Tranche Import Competitive
+
+- Ajustement de debit:
+  - `scripts/importCompetitiveMatches.ts`
+    - ajout du preset `--tranche-size`
+    - le preset configure automatiquement:
+      - `maxCreatedPerRun`
+      - `maxAttemptsPerRun`
+      - `maxAuthFailuresPerRun`
+    - but:
+      - permettre des tranches plus larges sans recoder les seuils a chaque execution
+      - garder les garde-fous auth et progression
+- Validation technique:
+  - `npx tsc -p tsconfig.server.json --noEmit`
+    - OK
+- Etat de reprise:
+  - tentative de tranche large:
+    - echec en amont sur la connexion Prisma a PostgreSQL local
+  - diagnostic infra:
+    - Docker absent dans cette session
+    - `localhost:5433` injoignable
+    - aucun process `postgres` / `docker` actif
+- Lecture:
+  - l'acceleration d'import est techniquement possible
+  - le script peut maintenant passer de `10` a `25` ou plus de facon plus lisible
+  - le prochain vrai obstacle est l'infra locale, pas la logique d'ingestion
+
+## 2026-04-23 Tranche 50 Puis Limite Riot
+
+- Infra recuperee:
+  - Postgres:
+    - up et sain
+  - Mongo:
+    - up
+- Tranche `50` reussie:
+  - `createdMatches = 50`
+  - `runAttemptCount = 50`
+  - `runCreatedCount = 50`
+  - `runAuthFailureCount = 0`
+  - `totalCompetitiveMatchesInDb = 1328`
+  - `matchesImportedExactTargetPatch = 1223`
+  - `matchesImportedPro = 1314`
+  - `matchesImportedElite = 14`
+- Audit apres tranche:
+  - `audit:premium-v1-dataset`
+    - OK
+    - `premiumOnlyMatches = 1328`
+    - `premiumRecentShare26x = 90.89`
+    - le gap avec le scope db-wide reste explique par les imports non competitifs
+  - `audit:match-based-validation -- --sample-size 10`
+    - `completedRate = 1`
+    - `noViableSnapshotFoundRate = 0`
+    - `rejectionReasonCounts`
+      - `low-confidence = 15`
+    - la qualite de generation reste stable apres la hausse de volume
+- Tranche `100`:
+  - stop:
+    - `max-auth-failures-per-run:3`
+  - `runAttemptCount = 3`
+  - `runCreatedCount = 0`
+  - `runAuthFailureCount = 3`
+  - lecture:
+    - la hausse de tranche est faisable cote code
+    - la limite actuelle est l'auth Riot, pas le pipeline d'import
+    - l'automatisation de renouvellement de la development key n'est pas exposee par Riot
+- Lecture strategique:
+  - on peut accelerer la montee vers `2000` avec des tranches plus larges que `10`
+  - `50` tient bien
+  - `100` requiert une cle Riot valide au moment du run
+  - pour viser durablement `10k`, il faudra soit une cle plus stable, soit une operation de rotation manuelle planifiee
+
+## 2026-04-23 Reprise Apres Renouvellement Cle
+
+- Nouvelle tranche `50`:
+  - `createdMatches = 50`
+  - `runAttemptCount = 50`
+  - `runCreatedCount = 50`
+  - `runAuthFailureCount = 0`
+  - `totalCompetitiveMatchesInDb = 1378`
+  - `matchesImportedExactTargetPatch = 1273`
+  - `matchesImportedPro = 1364`
+  - `matchesImportedElite = 14`
+- Audits apres tranche:
+  - `riot:report-competitive`
+    - OK
+    - `timelineCoveragePercent = 99.93`
+  - `riot:report-competitive-throughput`
+    - OK
+    - `importsLastHour = 100`
+  - `audit:premium-v1-dataset`
+    - OK
+    - `premiumOnlyMatches = 1378`
+    - `premiumRecentShare26x = 91.22`
+  - `audit:match-based-validation -- --sample-size 10`
+    - `completedRate = 0.9`
+    - `noViableSnapshotFoundRate = 0.1`
+    - `rejectionReasonCounts`
+      - `low-confidence = 26`
+      - `publishability-insufficient-credible-distractors = 2`
+- Lecture:
+  - la montee de volume continue sans casser le pipeline
+  - la qualite reste majoritairement bonne, mais on observe une petite baisse sur le sample `10`
+  - le prochain test utile est de confirmer si cette baisse est du bruit d'echantillon ou un vrai signal de degrade
+
+## 2026-04-23 Classification Budget Fix
+
+- Correctif applique:
+  - `scripts/importCompetitiveMatches.ts`
+    - ajout d'un budget de classification explicite dans le checkpoint
+    - la reutilisation du checkpoint est maintenant invalidee quand le budget de classification change
+    - le budget de classification passe de `300` a `600` sur la tranche `50`
+- Effet observé:
+  - la meme tranche `50` qui ne produisait plus rien a pu repartir apres reconstruction de la discovery
+  - progression observee:
+    - `1378 -> 1428`
+    - `+50`
+  - resultat courant:
+    - `createdMatches = 50`
+    - `runAttemptCount = 50`
+    - `runCreatedCount = 50`
+    - `runAuthFailureCount = 0`
+    - `discoveredUniqueMatches = 600`
+    - `policyAcceptedMatches = 594`
+    - `rejectedMatches = 6`
+    - cause des rejets:
+      - `patch-not-allowed = 6`
+    - `totalCompetitiveMatchesInDb = 1428`
+    - `matchesImportedPro = 1397`
+    - `matchesImportedElite = 31`
+- Lecture:
+  - le vrai goulot etait bien le plafond de classification trop bas + la reutilisation de checkpoint trop aggressive
+  - la route `50` est maintenant reellement exploitable
+
+## 2026-04-23 Tranche 100 Stable
+
+- Nouvelle tranche `100` apres fix:
+  - `createdMatches = 40`
+  - `runAttemptCount = 40`
+  - `runCreatedCount = 40`
+  - `runAuthFailureCount = 0`
+  - `totalCompetitiveMatchesInDb = 1468`
+  - `matchesImportedPro = 1422`
+  - `matchesImportedElite = 46`
+- Audits:
+  - `riot:report-competitive`
+    - OK
+    - `timelineCoveragePercent = 99.93`
+    - `matchesImportedExactTargetPatch = 1363`
+  - `riot:report-competitive-throughput`
+    - OK
+    - `importsLastHour = 190`
+    - `importedByTier`
+      - `pro = 240`
+      - `elite = 53`
+      - `unknown = 22`
+  - `audit:premium-v1-dataset`
+    - OK
+    - `premiumOnlyMatches = 1468`
+    - `premiumRecentShare26x = 91.76`
+  - `audit:match-based-validation -- --sample-size 20`
+    - `completedRate = 1`
+    - `noViableSnapshotFoundRate = 0`
+    - `distinctSelectedSnapshotSignatureCount = 20`
+    - `rejectionReasonCounts`
+      - `low-confidence = 11`
+      - `choice-resolution-insufficient-distractors = 3`
+      - `publishability-insufficient-credible-distractors = 3`
+- Lecture:
+  - le plafond `100` est maintenant viable
+  - le pipeline garde la qualite tout en augmentant sensiblement le debit
+  - le prochain levier d'amelioration n'est plus le volume brut, mais la reduction des rejets `choice-resolution` et `publishability`
+
+## 2026-04-23 Tranche 100 Reprise
+
+- Nouvelle tranche `100` apres renouvellement manuel de la cle:
+  - `createdMatches = 3`
+  - `runAttemptCount = 3`
+  - `runCreatedCount = 3`
+  - `runAuthFailureCount = 0`
+  - `totalCompetitiveMatchesInDb = 1521`
+  - `matchesImportedPro = 1475`
+  - `matchesImportedElite = 46`
+  - `matchesImportedExactTargetPatch = 1416`
+- Lecture ingestion:
+  - la tranche `100` ne casse pas le pipeline
+  - le run s'arrete surtout parce que la nouvelle exploration ne trouve plus de candidats queueables utiles dans la configuration actuelle
+  - les echecs dominants restent `target-participant-missing` et `Riot API authentication failed.` sur les tentatives historiques
+- Audits apres reprise:
+  - `riot:report-competitive-throughput`
+    - `importsLastHour = 243`
+    - `importedByTier`
+      - `pro = 271`
+      - `elite = 38`
+      - `unknown = 59`
+  - `audit:premium-v1-dataset`
+    - `premiumOnlyMatches = 1521`
+    - `premiumRecentShare26x = 92.05`
+    - `totalSnapshotsGenerated = 12019`
+    - `goldIncoherentRatio = 0.3123387969049006`
+  - `audit:match-based-validation -- --sample-size 20`
+    - `completedRate = 0.85`
+    - `noViableSnapshotFoundRate = 0.15`
+    - `rejectionReasonCounts`
+      - `low-confidence = 33`
+      - `choice-resolution-insufficient-distractors = 1`
+      - `publishability-insufficient-credible-distractors = 1`
+- Lecture ML:
+  - la qualite reste globalement bonne mais un peu moins stable que les derniers runs parfaits sur `20`
+  - le goulot principal redevient `low-confidence`
+  - le second goulot devient la couverture de distracteurs credibles

@@ -958,6 +958,63 @@ function getDistractorDecisionBand(goodAnswerGold: number, snapshotGold: number)
   return Math.max(750, Math.round(baseline * 0.55));
 }
 
+function isPublishabilityCredibleDistractor(input: {
+  item: MlChoiceItem;
+  goodAnswer: MlChoiceItem;
+  snapshotGold: number;
+}) {
+  const allowedGap = getDistractorDecisionBand(input.goodAnswer.goldTotal, input.snapshotGold);
+  const costGap = Math.abs(input.item.goldTotal - input.goodAnswer.goldTotal);
+  if (costGap <= allowedGap) {
+    return true;
+  }
+
+  const sharedCategory = Boolean(input.item.category) && input.item.category === input.goodAnswer.category;
+  const sharedTagCount = input.item.tags.filter((tag) => input.goodAnswer.tags.includes(tag)).length;
+  const sameUpgradeFamily = input.item.itemGroups.some((group) => input.goodAnswer.itemGroups.includes(group));
+  const sameTier = input.item.isLegendary === input.goodAnswer.isLegendary;
+  const softGap = allowedGap + 450;
+
+  return (
+    costGap <= softGap
+    && !input.item.isConsumable
+    && !input.item.isStarter
+    && !input.item.isTrinket
+    && (
+      sharedCategory
+      || sharedTagCount >= 2
+      || sameUpgradeFamily
+      || sameTier
+    )
+  );
+}
+
+function canOverrideLowConfidence(input: {
+  seed: MlPuzzleSeed;
+  prediction: MlPredictNextItemResponse;
+  publishabilityScore: number;
+  candidatePoolSizeAfterFallback: number;
+  goodAnswerSource: "ml-prediction" | "actual-purchase-fallback";
+}) {
+  if (!input.seed.lowConfidence || !input.prediction.model_ready) {
+    return false;
+  }
+
+  if (input.publishabilityScore < 92 || input.candidatePoolSizeAfterFallback < 8) {
+    return false;
+  }
+
+  if (input.seed.confidenceScore >= 0.33 && input.seed.confidenceGap >= 0.05) {
+    return true;
+  }
+
+  return (
+    input.goodAnswerSource === "actual-purchase-fallback"
+    && input.seed.confidenceScore >= 0.28
+    && input.seed.confidenceGap >= 0.035
+  );
+}
+
 function assessSnapshotPublishability(input: {
   snapshot: MlPuzzleSnapshot;
   goodAnswer: MlChoiceItem;
@@ -976,11 +1033,14 @@ function assessSnapshotPublishability(input: {
     reasons.push("publishability-trivial-good-answer");
   }
 
-  const allowedGap = getDistractorDecisionBand(input.goodAnswer.goldTotal, input.snapshot.goldAvailable);
   const credibleDistractors = input.distractors.filter((item) => {
-    const costGap = Math.abs(item.goldTotal - input.goodAnswer.goldTotal);
-    return costGap <= allowedGap;
+    return isPublishabilityCredibleDistractor({
+      item,
+      goodAnswer: input.goodAnswer,
+      snapshotGold: input.snapshot.goldAvailable,
+    });
   });
+  const allowedGap = getDistractorDecisionBand(input.goodAnswer.goldTotal, input.snapshot.goldAvailable);
 
   if (credibleDistractors.length < 3) {
     reasons.push("publishability-insufficient-credible-distractors");
@@ -1645,9 +1705,6 @@ async function prepareSnapshotAttempt(input: {
     }
 
     const rejectionReasons: string[] = [];
-    if (seed.lowConfidence) {
-      rejectionReasons.push("low-confidence");
-    }
     if (businessRules.debug.goodAnswerViolations.length > 0) {
       rejectionReasons.push(...businessRules.debug.goodAnswerViolations.map((reason) => `good-answer-${reason}`));
     }
@@ -1721,8 +1778,41 @@ async function prepareSnapshotAttempt(input: {
       });
     }
 
-    const qualityScore = calculateQualityScore({
+    const effectiveLowConfidence = !canOverrideLowConfidence({
       seed,
+      prediction,
+      publishabilityScore: publishabilityAssessment.publishabilityScore,
+      candidatePoolSizeAfterFallback: businessRules.debug.candidatePoolSizeAfterFallback,
+      goodAnswerSource,
+    }) && seed.lowConfidence;
+    if (effectiveLowConfidence) {
+      return buildRejectedAttempt({
+        candidate: input.candidate,
+        payload,
+        prediction,
+        seed,
+        rawCandidatePoolSize: prediction.candidate_pool_size,
+        filteredCandidatePoolSize: businessRules.debug.candidatePoolSizeAfterFallback,
+        goodAnswer: resolvedChoices.goodAnswer.slug,
+        rejectionReasons: ["low-confidence"],
+        technicalViable: true,
+        publishabilityScore: publishabilityAssessment.publishabilityScore,
+        publishabilityReasons: [],
+        goodAnswerSource,
+        details: {
+          goodAnswerSource,
+          businessRules: businessRules.debug,
+          publishability: publishabilityAssessment,
+          choiceResolution: toChoiceDebugPayload(resolvedChoices),
+        } as Prisma.InputJsonValue,
+      });
+    }
+
+    const qualityScore = calculateQualityScore({
+      seed: {
+        ...seed,
+        lowConfidence: effectiveLowConfidence,
+      },
       prediction,
       businessRules,
       resolvedChoices,
@@ -1741,10 +1831,13 @@ async function prepareSnapshotAttempt(input: {
       scenario: input.candidate.scenario,
       payload,
       prediction,
-      seed,
-      resolvedChoices,
-      businessRules,
-      qualityScore,
+        seed: {
+          ...seed,
+          lowConfidence: effectiveLowConfidence,
+        },
+        resolvedChoices,
+        businessRules,
+        qualityScore,
       variationSeed,
       choiceSignature,
       debugSummary: {
@@ -1763,7 +1856,7 @@ async function prepareSnapshotAttempt(input: {
         goodAnswer: resolvedChoices.goodAnswer.slug,
         qualityScore,
         rejectionReasons: [],
-        lowConfidence: seed.lowConfidence,
+        lowConfidence: effectiveLowConfidence,
         confidenceScore: seed.confidenceScore,
         confidenceGap: seed.confidenceGap,
         technicalViable: true,
