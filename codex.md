@@ -3048,3 +3048,46 @@ Lire ce fichier au debut de chaque nouvelle conversation sur ce repo, puis le me
 - Decision provisoire:
   - `v4` est le meilleur candidat de saut de volume actuel
   - il ne doit pas encore remplacer le canon sans un run de campagne cible controlee de plus grande ampleur
+
+## 2026-04-23 Canon V1 Et Policy De Croissance Controlee
+
+- Decision prise:
+  - conserver `competitive-seeds-2026.json` comme canon
+  - tester la croissance de volume via une policy dediee `v1-growth` avant toute promotion de `v4`
+- Nouvel artefact:
+  - `data/config/competitive-ingestion-policy-2026-v1-growth.json`
+    - garde la fenetre 26.x en priorite
+    - ouvre aussi 25.x et 24.x comme couloir de croissance controle
+    - conserve des caps conservateurs sur la part adjacente et la part non-pro
+- Runner de campagne:
+  - `scripts/runCompetitiveCampaign.ts`
+    - accepte maintenant `--max-seed-discovery-failures`
+    - propage ce seuil vers l'import competitif pour stopper plus vite les cascades d'erreurs Riot
+- Script npm:
+  - `campaign:competitive:v1-growth`
+    - force le canon v1
+    - utilise la policy de croissance dediee
+    - fixe `--max-seed-discovery-failures 2`
+- Lecture:
+  - le canon reste stable
+  - la croissance est maintenant isolee dans un artefact explicite
+  - on evite de rebasculer vers `v4` avant qu'un run controle montre un gain reel
+
+## 2026-04-23 Reprise V1 Growth Controlee
+
+- Validation technique:
+  - `npx tsc -p tsconfig.server.json --noEmit`
+    - OK
+- Validation campagne:
+  - `npm run campaign:competitive:v1-growth -- --max-stages 1 --stage-size 25 --count-per-seed 40 --max-ids-per-seed 400 --audit-sample-size 20`
+    - `preflight.database = ok`
+    - `preflight.riot = ok`
+    - `createdMatches = 25`
+    - `runCreatedCount = 25`
+    - `runAuthFailureCount = 0`
+    - `qualityGatePassed = true`
+    - `stoppedReason = max-created-per-run:25`
+- Lecture:
+  - la policy `v1-growth` casse bien le plateau sans changer le canon
+  - la discovery s'arrete maintenant proprement sur budget d'erreur sans bloquer le stage
+  - le prochain palier peut etre teste sur la meme base v1 avant toute promotion de `v4`

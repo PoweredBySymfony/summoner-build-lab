@@ -702,22 +702,25 @@ async function discoverSeeds(
     startTime: number | null;
     endTime: number | null;
     maxConsecutiveFailures?: number;
-    onProgress?: (snapshot: {
-      processedSeeds: number;
-      totalActiveSeeds: number;
-      discoveries: CompetitiveSeedMatchDiscovery[];
-      seed: CompetitiveResolvedSeed & { puuid: string; cluster: NonNullable<CompetitiveResolvedSeed["cluster"]> };
-    }) => Promise<void> | void;
-  },
-) {
+      onProgress?: (snapshot: {
+        processedSeeds: number;
+        totalActiveSeeds: number;
+        discoveries: CompetitiveSeedMatchDiscovery[];
+        seed: CompetitiveResolvedSeed & { puuid: string; cluster: NonNullable<CompetitiveResolvedSeed["cluster"]> };
+      }) => Promise<void> | void;
+    },
+  ) {
   const activeSeeds = seeds.filter(
     (seed): seed is CompetitiveResolvedSeed & { puuid: string; cluster: NonNullable<CompetitiveResolvedSeed["cluster"]> } =>
       seed.resolutionStatus === "resolved" && Boolean(seed.puuid) && Boolean(seed.cluster),
   );
 
   const discoveries: CompetitiveSeedMatchDiscovery[] = [];
+  let consecutiveFailureSignature: string | null = null;
   let consecutiveFailures = 0;
-  const maxConsecutiveFailures = input.maxConsecutiveFailures ?? 3;
+  const maxConsecutiveFailures = input.maxConsecutiveFailures ?? 2;
+  let stopReason: string | null = null;
+  let discoveryStopReason: string | null = null;
   for (const seed of activeSeeds) {
     const seedKey = buildCompetitiveSeedKey(seed);
     const cached = discoveryCache.get(seedKey);
@@ -751,21 +754,28 @@ async function discoverSeeds(
       }));
       consecutiveFailures = 0;
     } catch (error) {
-      consecutiveFailures += 1;
+      const message = error instanceof Error ? error.message : String(error);
+      const failureSignature = message.toLowerCase().trim();
+      consecutiveFailures = consecutiveFailureSignature === failureSignature
+        ? consecutiveFailures + 1
+        : 1;
+      consecutiveFailureSignature = failureSignature;
       console.warn(
         "[competitive-ingestion] discover-seed-failed",
         JSON.stringify({
           seed: seed.playerName,
           matchIdsCached: cached?.matchIds.length ?? 0,
-          message: error instanceof Error ? error.message : String(error),
+          message,
           consecutiveFailures,
           maxConsecutiveFailures,
         }),
       );
       if (consecutiveFailures >= maxConsecutiveFailures) {
-        throw new Error(
-          `Aborting competitive discovery after ${consecutiveFailures} consecutive seed failures. Last seed=${seed.playerName}.`,
+        stopReason = `discovery-failure-budget:${consecutiveFailures}`;
+        console.warn(
+          `[competitive-ingestion] discovery-stopped stopReason=${stopReason} lastSeed=${seed.playerName}`,
         );
+        break;
       }
       discoveries.push(cached ?? {
         seedKey,
@@ -801,7 +811,10 @@ async function discoverSeeds(
     });
   }
 
-  return discoveries;
+  return {
+    discoveries,
+    stopReason,
+  };
 }
 
 async function classifyDiscoveredMatches(
@@ -1254,6 +1267,8 @@ async function main() {
     : [];
   let currentTargetIdsPerSeed = Math.min(options.countPerSeed, options.maxIdsPerSeed);
   let discoveryPass = 0;
+  let stopReason: string | null = null;
+  let discoveryStopReason: string | null = null;
 
   const persistDiscoveryProgress = async (input: {
     processedSeeds: number;
@@ -1326,7 +1341,7 @@ async function main() {
   };
 
   const refreshDiscoveryState = async () => {
-    discoveries = await discoverSeeds(
+    const discoveryResult = await discoverSeeds(
       resolvedSeeds,
       discoveryCache,
       {
@@ -1336,7 +1351,7 @@ async function main() {
         queues: [...policy.preferredQueues, ...policy.acceptedFallbackQueues],
         startTime,
         endTime,
-        maxConsecutiveFailures: options.maxSeedDiscoveryFailures ?? 3,
+        maxConsecutiveFailures: options.maxSeedDiscoveryFailures ?? 2,
         onProgress: async (snapshot) => {
           if (snapshot.processedSeeds % 10 !== 0 && snapshot.processedSeeds !== snapshot.totalActiveSeeds) {
             return;
@@ -1350,6 +1365,10 @@ async function main() {
         },
       },
     );
+    discoveries = discoveryResult.discoveries;
+    if (discoveryResult.stopReason) {
+      discoveryStopReason = discoveryResult.stopReason;
+    }
     for (const discovery of discoveries) {
       discoveryCache.set(discovery.seedKey, discovery);
     }
@@ -1419,7 +1438,6 @@ async function main() {
   const initialFailedAuthCount = failedMatches.filter(
     (failure) => failure.failureReason === "Riot API authentication failed.",
   ).length;
-  let stopReason: string | null = null;
   let lastFallbackPlan = determineOpenedFallbackTiers({
     matches: discoveredMatches,
     targetUniqueMatches: remainingTargetMatches,
@@ -1573,10 +1591,11 @@ async function main() {
       riotApiMetrics: riotApiClient.getMetricsSnapshot(),
       progressDiscoveryPass: discoveryPass,
       progressIdsPerSeed: currentTargetIdsPerSeed,
-      stopReason,
+      stopReason: stopReason ?? discoveryStopReason,
       runAttemptCount: getRunAttemptCount(),
       runCreatedCount: createdCandidates.length,
       runAuthFailureCount: getRunAuthFailureCount(),
+      discoveryStopReason,
     };
 
     await mkdir(path.dirname(reportPath), { recursive: true });
@@ -1981,7 +2000,7 @@ async function main() {
     importCountsByPatchBucket: createdCountsByPatchBucket,
     importCountsByQueueBucket: createdCountsByQueueBucket,
     riotApiMetrics: riotApiClient.getMetricsSnapshot(),
-    stopReason,
+    stopReason: stopReason ?? discoveryStopReason,
     runAttemptCount: getRunAttemptCount(),
     runCreatedCount: createdCandidates.length,
     runAuthFailureCount: getRunAuthFailureCount(),

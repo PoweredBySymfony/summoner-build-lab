@@ -35,6 +35,7 @@
     "riot:report-competitive": "tsx scripts/reportCompetitiveIngestion.ts",
     "riot:report-competitive-throughput": "tsx scripts/reportCompetitiveThroughput.ts",
     "campaign:competitive": "tsx scripts/runCompetitiveCampaign.ts",
+    "campaign:competitive:v1-growth": "tsx scripts/runCompetitiveCampaign.ts --seed-path data/seeds/competitive-seeds-2026.json --policy-path data/config/competitive-ingestion-policy-2026-v1-growth.json --max-seed-discovery-failures 2",
     "audit:readiness-10k": "tsx scripts/reportReadiness10k.ts",
     "audit:ai-puzzles": "tsx scripts/auditGeneratedAiPuzzles.ts",
     "audit:items": "tsx scripts/auditItemPresentation.ts",

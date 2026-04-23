@@ -20,6 +20,7 @@ type CampaignOptions = {
   ownerEmail?: string;
   dryRun: boolean;
   resetCheckpoint: boolean;
+  maxSeedDiscoveryFailures: number;
   minCompletedRate: number;
   maxNoViableRate: number;
 };
@@ -47,6 +48,7 @@ type CampaignSummary = {
   countPerSeed: number;
   maxIdsPerSeed: number;
   maxStages: number;
+  maxSeedDiscoveryFailures: number;
   auditSampleSize: number;
   preflight: {
     database: "ok" | "failed";
@@ -72,6 +74,7 @@ function parseArgs(argv: string[]): CampaignOptions {
     reportDir: path.join("data", "runtime", "campaigns", `competitive-${new Date().toISOString().replace(/[:.]/g, "-")}`),
     dryRun: false,
     resetCheckpoint: false,
+    maxSeedDiscoveryFailures: 2,
     minCompletedRate: 0.9,
     maxNoViableRate: 0.1,
   };
@@ -133,6 +136,10 @@ function parseArgs(argv: string[]): CampaignOptions {
         break;
       case "--reset-checkpoint":
         options.resetCheckpoint = true;
+        break;
+      case "--max-seed-discovery-failures":
+        options.maxSeedDiscoveryFailures = Number(next ?? "2");
+        index += 1;
         break;
       case "--min-completed-rate":
         options.minCompletedRate = Number(next ?? "0.9");
@@ -276,6 +283,7 @@ async function main() {
     countPerSeed: options.countPerSeed,
     maxIdsPerSeed: options.maxIdsPerSeed,
     maxStages: options.maxStages,
+    maxSeedDiscoveryFailures: options.maxSeedDiscoveryFailures,
     auditSampleSize: options.auditSampleSize,
     preflight: preflightResult.database === "ok" && preflightResult.riot === "ok"
       ? { database: "ok", riot: "ok" }
@@ -335,6 +343,8 @@ async function main() {
       String(options.maxIdsPerSeed),
       "--tranche-size",
       String(options.stageSize),
+      "--max-seed-discovery-failures",
+      String(options.maxSeedDiscoveryFailures),
     ],
     options.dryRun ? ["--dry-run"] : [],
     options.ownerUserId ? ["--owner-user-id", options.ownerUserId] : [],

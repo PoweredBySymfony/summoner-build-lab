@@ -1,0 +1,73 @@
+{
+  "version": 1,
+  "policyName": "competitive-ingestion-policy-2026-growth",
+  "mode": "recent_preferred_with_controlled_fallback",
+  "preferredPatchPrefixes": ["26."],
+  "acceptedAdjacentPatchPrefixes": ["26.6", "26.5", "26.4", "26.3", "26.2", "25.", "24."],
+  "preferredQueues": [420],
+  "acceptedFallbackQueues": [440],
+  "seasonWindowStart": "2025-01-01T00:00:00.000Z",
+  "seasonWindowEnd": null,
+  "autoEnrichEliteIfNeeded": false,
+  "allowFallbackTier5": false,
+  "fallbackCaps": {
+    "maxAdjacentPatchShare": 0.9,
+    "maxNonProShare": 0.95,
+    "maxImportsByTier": {
+      "tier1": 3500,
+      "tier2": 5500,
+      "tier3": 2500,
+      "tier4": 2500,
+      "tier5": 0
+    }
+  },
+  "priorityTiers": [
+    {
+      "id": "tier1",
+      "enabled": true,
+      "sourceBuckets": ["pro"],
+      "patchBuckets": ["exact_target_patch"],
+      "queueBuckets": ["preferred_queue"],
+      "acceptedReason": "pro-exact-target",
+      "fallbackReason": null
+    },
+    {
+      "id": "tier2",
+      "enabled": true,
+      "sourceBuckets": ["pro"],
+      "patchBuckets": ["adjacent_recent_patch"],
+      "queueBuckets": ["preferred_queue", "fallback_queue"],
+      "acceptedReason": "pro-adjacent-target",
+      "fallbackReason": "pro_adjacent_patch"
+    },
+    {
+      "id": "tier3",
+      "enabled": true,
+      "sourceBuckets": ["elite"],
+      "patchBuckets": ["exact_target_patch"],
+      "queueBuckets": ["preferred_queue"],
+      "acceptedReason": "elite-exact-target",
+      "fallbackReason": "elite_exact_patch"
+    },
+    {
+      "id": "tier4",
+      "enabled": true,
+      "sourceBuckets": ["elite"],
+      "patchBuckets": ["adjacent_recent_patch"],
+      "queueBuckets": ["preferred_queue", "fallback_queue"],
+      "acceptedReason": "elite-adjacent-target",
+      "fallbackReason": "elite_adjacent_patch"
+    },
+    {
+      "id": "tier5",
+      "enabled": false,
+      "sourceBuckets": ["fallback"],
+      "patchBuckets": ["exact_target_patch"],
+      "queueBuckets": ["preferred_queue", "fallback_queue"],
+      "acceptedReason": "fallback-exact-target",
+      "fallbackReason": "fallback_exact_patch"
+    }
+  ],
+  "whyZeroBefore": "The earlier policy locked discovery to 26.x only, which capped the discoverable premium set too early for the 10k objective.",
+  "whatWasRelaxed": "This growth policy keeps 26.x as the preferred lane, but opens older recent competitive patches as controlled fallback so the campaign can keep moving without changing the canonical seed baseline."
+}
