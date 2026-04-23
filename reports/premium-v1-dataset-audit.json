@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-04-23T12:44:42.239Z",
+  "generatedAt": "2026-04-23T12:54:20.190Z",
   "baseline": {
     "id": "premium-v1",
     "state": "frozen-for-ml-audit",
@@ -446,7 +446,16 @@
     "totalCompetitiveMatchesInDb": 1557,
     "createdMatches": 36,
     "discoveredUniqueMatches": 479,
-    "tierDistribution": []
+    "tierDistribution": [
+      {
+        "tier": "pro",
+        "count": 1511
+      },
+      {
+        "tier": "elite",
+        "count": 46
+      }
+    ]
   },
   "reproduction": {
     "commands": [

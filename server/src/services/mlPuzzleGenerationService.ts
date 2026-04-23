@@ -1000,7 +1000,7 @@ function canOverrideLowConfidence(input: {
     return false;
   }
 
-  if (input.publishabilityScore < 92 || input.candidatePoolSizeAfterFallback < 8) {
+  if (input.publishabilityScore < 94 || input.candidatePoolSizeAfterFallback < 8) {
     return false;
   }
 
@@ -1011,7 +1011,7 @@ function canOverrideLowConfidence(input: {
   return (
     input.goodAnswerSource === "actual-purchase-fallback"
     && input.seed.confidenceScore >= 0.28
-    && input.seed.confidenceGap >= 0.035
+    && input.seed.confidenceGap >= 0.04
   );
 }
 
@@ -1048,7 +1048,7 @@ function assessSnapshotPublishability(input: {
 
   const publishabilityScore =
     (goodAnswerIsTrivial ? 0 : 60)
-    + Math.min(40, credibleDistractors.length * 13)
+    + Math.min(40, credibleDistractors.length * 12)
     - Math.max(0, input.businessRules.debug.goodAnswerViolations.length * 20);
 
   return {

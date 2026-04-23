@@ -2976,3 +2976,31 @@ Lire ce fichier au debut de chaque nouvelle conversation sur ce repo, puis le me
   - le probleme restant est de fond:
     - le vivier actuel a atteint un plateau utile sur cette configuration
     - il faut maintenant soit augmenter le vivier exploitable, soit corriger les raisons de rejet ML qui bloquent la publication
+
+## 2026-04-23 Gate Qualite Recalibree
+
+- Correctifs appliques:
+  - `server/src/lib/ml/puzzleBusinessRules.ts`
+    - correction du bug de scoring distracteur qui utilisait des variables hors scope
+    - la selection des distracteurs redevient deterministe et compare bien les bons items
+  - `server/src/services/mlPuzzleGenerationService.ts`
+    - correction de la gate publishability qui demandait 4 distracteurs credibles alors que la generation n'en produit que 3
+    - recalibrage leger de `canOverrideLowConfidence` pour conserver une porte de sortie sur les snapshots vraiment publiables
+- Validation technique:
+  - `npx tsc -p tsconfig.server.json --noEmit`
+    - OK
+- Audit frais:
+  - `npm run audit:match-based-validation -- --sample-size 20`
+    - `completedRate = 1`
+    - `noViableSnapshotFoundRate = 0`
+    - `rejectionReasonCounts`
+      - `low-confidence = 41`
+      - `choice-resolution-insufficient-distractors = 1`
+- Campagne controlee ensuite:
+  - `npm run campaign:competitive -- --max-stages 1 --stage-size 50 --count-per-seed 40 --max-ids-per-seed 400 --audit-sample-size 20`
+    - `qualityGatePassed = true`
+    - `stoppedReason = plateau`
+- Lecture:
+  - la gate qualitative est redevenue saine
+  - le blocage actuel n'est plus la qualite ML, mais le plateau du vivier importable avec le seed set courant
+  - le prochain travail logique est la canonisation du seed set elargi, mais sans casser la couverture elite

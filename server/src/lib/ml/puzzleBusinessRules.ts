@@ -254,9 +254,86 @@ function buildChoiceSignature(goodAnswer: MlChoiceItem, distractors: MlChoiceIte
   return [goodAnswer.slug, ...distractors.map((item) => item.slug)].sort().join("|");
 }
 
+function getDistractorDecisionBand(goodAnswerGold: number, snapshotGold: number) {
+  const baseline = Math.max(goodAnswerGold, Math.max(900, Math.round(Math.max(0, snapshotGold) * 0.35)));
+  return Math.max(750, Math.round(baseline * 0.55));
+}
+
+function isCredibleDistractorCandidate(input: {
+  item: MlChoiceItem;
+  goodAnswer: MlChoiceItem;
+  snapshotGold: number;
+}) {
+  const allowedGap = getDistractorDecisionBand(input.goodAnswer.goldTotal, input.snapshotGold);
+  const costGap = Math.abs(input.item.goldTotal - input.goodAnswer.goldTotal);
+  if (costGap <= allowedGap) {
+    return true;
+  }
+
+  const sharedCategory = Boolean(input.item.category) && input.item.category === input.goodAnswer.category;
+  const sharedTagCount = input.item.tags.filter((tag) => input.goodAnswer.tags.includes(tag)).length;
+  const sameUpgradeFamily = input.item.itemGroups.some((group) => input.goodAnswer.itemGroups.includes(group));
+  const sameTier = input.item.isLegendary === input.goodAnswer.isLegendary;
+  const softGap = allowedGap + 450;
+
+  return (
+    costGap <= softGap
+    && !input.item.isConsumable
+    && !input.item.isStarter
+    && !input.item.isTrinket
+    && (
+      sharedCategory
+      || sharedTagCount >= 2
+      || sameUpgradeFamily
+      || sameTier
+    )
+  );
+}
+
+function scoreDistractorCandidate(input: {
+  item: MlChoiceItem;
+  goodAnswer: MlChoiceItem;
+  snapshotGold: number;
+  rankedIndex: Map<string, number>;
+  seed: string;
+}) {
+  let score = 0;
+  const allowedGap = getDistractorDecisionBand(input.goodAnswer.goldTotal, input.snapshotGold);
+  const costGap = Math.abs(input.item.goldTotal - input.goodAnswer.goldTotal);
+  const sharedCategory = Boolean(input.item.category) && input.item.category === input.goodAnswer.category;
+  const sharedTagCount = input.item.tags.filter((tag) => input.goodAnswer.tags.includes(tag)).length;
+  const sameUpgradeFamily = input.item.itemGroups.some((group) => input.goodAnswer.itemGroups.includes(group));
+  const sameTier = input.item.isLegendary === input.goodAnswer.isLegendary;
+
+  score += Math.max(0, 60 - (input.rankedIndex.get(input.item.slug) ?? 50) * 5);
+  score += Math.max(0, 40 - Math.floor(costGap / 75));
+  if (costGap <= allowedGap) {
+    score += 30;
+  } else if (costGap <= allowedGap + 450) {
+    score += 10;
+  }
+  if (sharedCategory) {
+    score += 18;
+  }
+  score += sharedTagCount * 4;
+  if (sameUpgradeFamily) {
+    score += 12;
+  }
+  if (sameTier) {
+    score += 6;
+  }
+
+  const shuffled = shuffleWithSeed([input.item.slug], `${input.seed}:${input.item.slug}`);
+  if (shuffled[0] === input.item.slug) {
+    score += 0.001;
+  }
+  return score;
+}
+
 function chooseDistractors(input: {
   goodAnswer: MlChoiceItem;
   candidates: MlChoiceItem[];
+  snapshotGold: number;
   previousChoiceSignatures: string[];
   variationSeed: string;
 }) {
@@ -264,38 +341,55 @@ function chooseDistractors(input: {
   const shuffledCandidates = shuffleWithSeed(input.candidates, input.variationSeed);
   let bestUnused: MlChoiceItem[] | null = null;
   let bestAny: MlChoiceItem[] | null = null;
+  let bestUnusedScore = -Infinity;
+  let bestAnyScore = -Infinity;
+
+  const evaluateCombination = (distractors: MlChoiceItem[]) => {
+    if (
+      distractors.some((item) => sharesExclusiveGroup(item, input.goodAnswer))
+      || sharesExclusiveGroup(distractors[0], distractors[1])
+      || sharesExclusiveGroup(distractors[0], distractors[2])
+      || sharesExclusiveGroup(distractors[1], distractors[2])
+    ) {
+      return;
+    }
+
+    const signature = buildChoiceSignature(input.goodAnswer, distractors);
+    const credibleCount = distractors.filter((item) => isCredibleDistractorCandidate({
+      item,
+      goodAnswer: input.goodAnswer,
+      snapshotGold: input.snapshotGold,
+    })).length;
+    const rankedIndex = new Map(shuffledCandidates.map((item, index) => [item.slug, index]));
+    const comboScore =
+      credibleCount * 1000
+      + distractors.reduce((total, item) => total + scoreDistractorCandidate({
+        item,
+        goodAnswer: input.goodAnswer,
+        snapshotGold: input.snapshotGold,
+        rankedIndex,
+        seed: input.variationSeed,
+      }), 0);
+
+    if (comboScore > bestAnyScore) {
+      bestAnyScore = comboScore;
+      bestAny = distractors;
+    }
+    if (!previousSignatures.has(signature) && comboScore > bestUnusedScore) {
+      bestUnusedScore = comboScore;
+      bestUnused = distractors;
+    }
+  };
 
   for (let first = 0; first < shuffledCandidates.length; first += 1) {
     for (let second = first + 1; second < shuffledCandidates.length; second += 1) {
       for (let third = second + 1; third < shuffledCandidates.length; third += 1) {
-        const distractors = [
+        evaluateCombination([
           shuffledCandidates[first],
           shuffledCandidates[second],
           shuffledCandidates[third],
-        ];
-        if (
-          distractors.some((item) => sharesExclusiveGroup(item, input.goodAnswer))
-          || sharesExclusiveGroup(distractors[0], distractors[1])
-          || sharesExclusiveGroup(distractors[0], distractors[2])
-          || sharesExclusiveGroup(distractors[1], distractors[2])
-        ) {
-          continue;
-        }
-        const signature = buildChoiceSignature(input.goodAnswer, distractors);
-        if (!bestAny) {
-          bestAny = distractors;
-        }
-        if (!previousSignatures.has(signature)) {
-          bestUnused = distractors;
-          break;
-        }
+        ]);
       }
-      if (bestUnused) {
-        break;
-      }
-    }
-    if (bestUnused) {
-      break;
     }
   }
 
@@ -525,6 +619,7 @@ export function buildMlPuzzleBusinessRules(
   const selected = chooseDistractors({
     goodAnswer: input.goodAnswer,
     candidates: distractorCandidates,
+    snapshotGold: input.snapshot.goldAvailable,
     previousChoiceSignatures: input.previousChoiceSignatures,
     variationSeed: input.variationSeed,
   });
