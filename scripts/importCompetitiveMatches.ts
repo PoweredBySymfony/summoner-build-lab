@@ -63,6 +63,7 @@ type CliOptions = {
   trancheSize?: number;
   maxClassifiedPerRun?: number;
   maxSeedDiscoveryFailures?: number;
+  refreshDiscovery: boolean;
 };
 
 const PROGRESS_PERSIST_ATTEMPT_INTERVAL = 50;
@@ -81,6 +82,7 @@ function parseArgs(argv: string[]): CliOptions {
     maxIdsPerSeed: 300,
     dryRun: false,
     resetCheckpoint: false,
+    refreshDiscovery: false,
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -182,6 +184,9 @@ function parseArgs(argv: string[]): CliOptions {
       case "--max-seed-discovery-failures":
         options.maxSeedDiscoveryFailures = Number(next ?? "3");
         index += 1;
+        break;
+      case "--refresh-discovery":
+        options.refreshDiscovery = true;
         break;
       case "--dry-run":
         options.dryRun = true;
@@ -446,15 +451,14 @@ async function resolveSeeds(
   return resolvedSeeds;
 }
 
-function canReuseCheckpointState(input: {
+function canReuseResolvedSeedCheckpointState(input: {
   checkpoint: CompetitiveIngestionCheckpoint;
   manifestSeedSetVersion: string;
   policy: ReturnType<typeof resolveCompetitiveIngestionPolicy>;
   startTime: number | null;
   endTime: number | null;
-  classificationBudget: number;
 }) {
-  const { checkpoint, manifestSeedSetVersion, policy, startTime, endTime, classificationBudget } = input;
+  const { checkpoint, manifestSeedSetVersion, policy, startTime, endTime } = input;
   if (checkpoint.seedSetVersion !== manifestSeedSetVersion) {
     return false;
   }
@@ -488,11 +492,26 @@ function canReuseCheckpointState(input: {
     return false;
   }
 
-  if ((checkpoint.classificationBudget ?? 0) !== classificationBudget) {
-    return false;
-  }
+  return checkpoint.resolvedSeeds.length > 0;
+}
 
-  return checkpoint.resolvedSeeds.length > 0 && checkpoint.discoveredMatches.length > 0;
+function canReuseDiscoveryCheckpointState(input: {
+  checkpoint: CompetitiveIngestionCheckpoint;
+  manifestSeedSetVersion: string;
+  policy: ReturnType<typeof resolveCompetitiveIngestionPolicy>;
+  startTime: number | null;
+  endTime: number | null;
+  classificationBudget: number;
+  refreshDiscovery: boolean;
+}) {
+  const { checkpoint, manifestSeedSetVersion, policy, startTime, endTime, classificationBudget, refreshDiscovery } = input;
+  return canReuseResolvedSeedCheckpointState({
+    checkpoint,
+    manifestSeedSetVersion,
+    policy,
+    startTime,
+    endTime,
+  }) && (checkpoint.classificationBudget ?? 0) === classificationBudget && !refreshDiscovery && !checkpoint.discoveryStopReason && checkpoint.discoveredMatches.length > 0;
 }
 
 function rebuildDiscoveredMatchesFromCheckpoint(input: {
@@ -698,6 +717,7 @@ async function discoverSeeds(
     pageSize: number;
     maxIdsPerSeed: number;
     targetIdsPerSeed: number;
+    maxDiscoveredUniqueMatches?: number;
     queues: number[];
     startTime: number | null;
     endTime: number | null;
@@ -722,6 +742,14 @@ async function discoverSeeds(
   let stopReason: string | null = null;
   let discoveryStopReason: string | null = null;
   for (const seed of activeSeeds) {
+    if (typeof input.maxDiscoveredUniqueMatches === "number") {
+      const currentUniqueCount = new Set(discoveries.flatMap((entry) => entry.matchIds)).size;
+      if (currentUniqueCount >= input.maxDiscoveredUniqueMatches) {
+        stopReason = `discovery-unique-budget:${currentUniqueCount}`;
+        break;
+      }
+    }
+
     const seedKey = buildCompetitiveSeedKey(seed);
     const cached = discoveryCache.get(seedKey);
     const hasCachedScanState = Object.keys(cached?.scanStateByQueue ?? {}).length > 0;
@@ -823,6 +851,7 @@ async function classifyDiscoveredMatches(
   matchMetadataCache: Map<string, CompetitiveCachedMatchMetadata>,
   options?: {
     maxUniqueMatchesToClassify?: number;
+    concurrency?: number;
     onProgress?: (snapshot: {
       classifiedUniqueMatches: number;
       maxUniqueMatchesToClassify: number;
@@ -832,107 +861,151 @@ async function classifyDiscoveredMatches(
   },
 ) {
   const discoveredMatches: CompetitiveDiscoveredMatch[] = [];
-  const classifiedMatchIds = new Set<string>();
   const maxUniqueMatchesToClassify = options?.maxUniqueMatchesToClassify ?? Number.POSITIVE_INFINITY;
+  const concurrency = Math.max(1, Math.floor(options?.concurrency ?? 6));
+
+  const prioritizedCandidates = new Map<string, {
+    discovery: CompetitiveSeedMatchDiscovery;
+    matchPriorityScore: number;
+  }>();
 
   for (const discovery of discoveries) {
     for (const matchId of discovery.matchIds) {
-      if (!classifiedMatchIds.has(matchId)) {
-        if (classifiedMatchIds.size >= maxUniqueMatchesToClassify) {
-          continue;
-        }
-        classifiedMatchIds.add(matchId);
-        if (classifiedMatchIds.size % 100 === 0 || classifiedMatchIds.size === maxUniqueMatchesToClassify) {
-          console.info(
-            `[competitive-ingestion] classify-progress classified=${classifiedMatchIds.size}/${maxUniqueMatchesToClassify} matchId=${matchId}`,
-          );
-          await options?.onProgress?.({
-            classifiedUniqueMatches: classifiedMatchIds.size,
-            maxUniqueMatchesToClassify,
-            discoveredMatches,
-            currentMatchId: matchId,
-          });
-        }
+      const current = prioritizedCandidates.get(matchId);
+      if (!current || discovery.matchPriorityScore > current.matchPriorityScore) {
+        prioritizedCandidates.set(matchId, {
+          discovery,
+          matchPriorityScore: discovery.matchPriorityScore,
+        });
       }
-
-      const cachedMetadata = matchMetadataCache.get(matchId);
-      const cachedGameCreationAt = cachedMetadata?.gameCreationAt ? new Date(cachedMetadata.gameCreationAt) : null;
-      let gameCreationAt = cachedGameCreationAt;
-      let effectivePatch = cachedMetadata?.patch ?? null;
-      let effectiveQueueId = cachedMetadata?.queueId ?? null;
-
-      if (!cachedMetadata) {
-        try {
-          const match = await riotApiClient.getMatchByIdOnRegion(matchId, discovery.region);
-          effectivePatch = normalizePatch(match);
-          effectiveQueueId = normalizeQueueId(match);
-          gameCreationAt = normalizeGameCreationAt(match);
-          matchMetadataCache.set(matchId, {
-            patch: effectivePatch,
-            queueId: effectiveQueueId,
-            gameCreationAt: gameCreationAt?.toISOString() ?? null,
-          });
-        } catch (error) {
-          console.warn(
-            "[competitive-ingestion] classify-match-failed",
-            JSON.stringify({
-              matchId,
-              seed: discovery.playerName,
-              region: discovery.region,
-              message: error instanceof Error ? error.message : String(error),
-            }),
-          );
-          continue;
-        }
-      }
-
-      const policyResult = evaluateCompetitiveMatchPolicy(
-        {
-          patch: effectivePatch,
-          queueId: effectiveQueueId,
-          gameCreationAt,
-          priorityTier: discovery.priorityTier,
-        },
-        policy,
-      );
-      const matchPriorityScore = scoreCompetitiveMatch({
-        priorityTier: discovery.priorityTier,
-        priorityScore: discovery.priorityScore,
-        patch: effectivePatch,
-        gameCreationAt,
-        patchBucket: policyResult.patchBucket,
-        queueBucket: policyResult.queueBucket,
-        priorityBand: policyResult.priorityBand,
-      });
-
-      discoveredMatches.push({
-        matchId,
-        seedKey: discovery.seedKey,
-        playerName: discovery.playerName,
-        team: discovery.team,
-        league: discovery.league,
-        competition: discovery.competition,
-        role: discovery.role,
-        priorityTier: discovery.priorityTier,
-        priorityScore: discovery.priorityScore,
-        platform: null,
-        cluster: discovery.region,
-        queueId: effectiveQueueId,
-        patch: effectivePatch,
-        gameCreationAt: gameCreationAt?.toISOString() ?? null,
-        acceptedByPolicy: policyResult.accepted,
-        acceptedReason: policyResult.acceptedReason,
-        rejectionReason: policyResult.rejectionReason,
-        fallbackReason: policyResult.fallbackReason,
-        policyMode: policyResult.policyMode,
-        policyBucket: policyResult.patchBucket,
-        queueBucket: policyResult.queueBucket,
-        sourceBucket: policyResult.sourceBucket,
-        priorityBand: policyResult.priorityBand,
-        matchPriorityScore,
-      });
     }
   }
+
+  const orderedCandidates = [...prioritizedCandidates.entries()]
+    .map(([matchId, entry]) => ({ matchId, ...entry }))
+    .sort((left, right) => right.matchPriorityScore - left.matchPriorityScore || left.matchId.localeCompare(right.matchId))
+    .slice(0, maxUniqueMatchesToClassify);
+
+  let classifiedCount = 0;
+  let nextProgressLogAt = Math.min(100, orderedCandidates.length);
+  let nextIndex = 0;
+
+  const classifyCandidate = async (candidate: { matchId: string; discovery: CompetitiveSeedMatchDiscovery; matchPriorityScore: number }) => {
+    const { matchId, discovery } = candidate;
+    const cachedMetadata = matchMetadataCache.get(matchId);
+    const cachedGameCreationAt = cachedMetadata?.gameCreationAt ? new Date(cachedMetadata.gameCreationAt) : null;
+    let gameCreationAt = cachedGameCreationAt;
+    let effectivePatch = cachedMetadata?.patch ?? null;
+    let effectiveQueueId = cachedMetadata?.queueId ?? null;
+    let hasTargetParticipant = cachedMetadata?.targetParticipantPresent ?? true;
+
+    if (!cachedMetadata) {
+      try {
+        const match = await riotApiClient.getMatchByIdOnRegion(matchId, discovery.region);
+        const info = match as {
+          info?: {
+            participants?: Array<{ puuid?: string }>;
+          };
+        };
+        hasTargetParticipant = Boolean(info.info?.participants?.some((participant) => participant.puuid === discovery.puuid));
+        effectivePatch = normalizePatch(match);
+        effectiveQueueId = normalizeQueueId(match);
+        gameCreationAt = normalizeGameCreationAt(match);
+        matchMetadataCache.set(matchId, {
+          patch: effectivePatch,
+          queueId: effectiveQueueId,
+          gameCreationAt: gameCreationAt?.toISOString() ?? null,
+          targetParticipantPresent: hasTargetParticipant,
+        });
+      } catch (error) {
+        console.warn(
+          "[competitive-ingestion] classify-match-failed",
+          JSON.stringify({
+            matchId,
+            seed: discovery.playerName,
+            region: discovery.region,
+            message: error instanceof Error ? error.message : String(error),
+          }),
+        );
+        return;
+      }
+    }
+
+    const policyResult = evaluateCompetitiveMatchPolicy(
+      {
+        patch: effectivePatch,
+        queueId: effectiveQueueId,
+        gameCreationAt,
+        priorityTier: discovery.priorityTier,
+      },
+      policy,
+    );
+    const matchPriorityScore = scoreCompetitiveMatch({
+      priorityTier: discovery.priorityTier,
+      priorityScore: discovery.priorityScore,
+      patch: effectivePatch,
+      gameCreationAt,
+      patchBucket: policyResult.patchBucket,
+      queueBucket: policyResult.queueBucket,
+      priorityBand: policyResult.priorityBand,
+    });
+
+    discoveredMatches.push({
+      matchId,
+      seedKey: discovery.seedKey,
+      playerName: discovery.playerName,
+      team: discovery.team,
+      league: discovery.league,
+      competition: discovery.competition,
+      role: discovery.role,
+      priorityTier: discovery.priorityTier,
+      priorityScore: discovery.priorityScore,
+      platform: null,
+      cluster: discovery.region,
+      queueId: effectiveQueueId,
+      patch: effectivePatch,
+      gameCreationAt: gameCreationAt?.toISOString() ?? null,
+      acceptedByPolicy: hasTargetParticipant && policyResult.accepted,
+      acceptedReason: hasTargetParticipant ? policyResult.acceptedReason : null,
+      rejectionReason: hasTargetParticipant ? policyResult.rejectionReason : "target-participant-missing",
+      fallbackReason: policyResult.fallbackReason,
+      policyMode: policyResult.policyMode,
+      policyBucket: policyResult.patchBucket,
+      queueBucket: policyResult.queueBucket,
+      sourceBucket: policyResult.sourceBucket,
+      priorityBand: policyResult.priorityBand,
+      matchPriorityScore,
+    });
+  };
+
+  const workers = Array.from({ length: Math.min(concurrency, orderedCandidates.length) }, async () => {
+    for (;;) {
+      const currentIndex = nextIndex;
+      nextIndex += 1;
+      if (currentIndex >= orderedCandidates.length) {
+        break;
+      }
+      const candidate = orderedCandidates[currentIndex]!;
+      classifiedCount += 1;
+      if (classifiedCount >= nextProgressLogAt || classifiedCount === orderedCandidates.length) {
+        console.info(
+          `[competitive-ingestion] classify-progress classified=${classifiedCount}/${orderedCandidates.length} matchId=${candidate.matchId}`,
+        );
+        await options?.onProgress?.({
+          classifiedUniqueMatches: classifiedCount,
+          maxUniqueMatchesToClassify,
+          discoveredMatches,
+          currentMatchId: candidate.matchId,
+        });
+        nextProgressLogAt = Math.min(orderedCandidates.length, nextProgressLogAt + 100);
+      }
+      await classifyCandidate(candidate);
+    }
+  });
+
+  await Promise.all(workers);
+
+  discoveredMatches.sort((left, right) => right.matchPriorityScore - left.matchPriorityScore || left.matchId.localeCompare(right.matchId));
 
   return discoveredMatches;
 }
@@ -1190,13 +1263,21 @@ async function main() {
   const resolvedSeedCache = new Map(checkpoint.resolvedSeeds.map((seed) => [buildCompetitiveSeedKey(seed), seed]));
   const discoveryCache = new Map(checkpoint.discoveredMatches.map((seed) => [seed.seedKey, seed]));
   const matchMetadataCache = new Map(Object.entries(checkpoint.matchMetadataById ?? {}));
-  const canReuseCheckpoint = canReuseCheckpointState({
+  const canReuseResolvedSeeds = canReuseResolvedSeedCheckpointState({
+    checkpoint,
+    manifestSeedSetVersion: manifest.seedSetVersion,
+    policy,
+    startTime,
+    endTime,
+  });
+  const canReuseDiscoveryCheckpoint = canReuseDiscoveryCheckpointState({
     checkpoint,
     manifestSeedSetVersion: manifest.seedSetVersion,
     policy,
     startTime,
     endTime,
     classificationBudget,
+    refreshDiscovery: options.refreshDiscovery,
   });
 
   console.info(
@@ -1241,7 +1322,7 @@ async function main() {
     ]);
   };
 
-  let resolvedSeeds = canReuseCheckpoint
+  let resolvedSeeds = canReuseResolvedSeeds
     ? checkpoint.resolvedSeeds
     : await resolveSeeds(workingSeeds, resolvedSeedCache, {
       onProgress: async (snapshot) => {
@@ -1256,8 +1337,8 @@ async function main() {
         });
       },
     });
-  let discoveries: CompetitiveSeedMatchDiscovery[] = canReuseCheckpoint ? checkpoint.discoveredMatches : [];
-  let discoveredMatches: CompetitiveDiscoveredMatch[] = canReuseCheckpoint
+  let discoveries: CompetitiveSeedMatchDiscovery[] = canReuseDiscoveryCheckpoint ? checkpoint.discoveredMatches : [];
+  let discoveredMatches: CompetitiveDiscoveredMatch[] = canReuseDiscoveryCheckpoint
     ? rebuildDiscoveredMatchesFromCheckpoint({
       checkpoint,
       resolvedSeeds,
@@ -1269,6 +1350,13 @@ async function main() {
   let discoveryPass = 0;
   let stopReason: string | null = null;
   let discoveryStopReason: string | null = null;
+  const desiredCreatedBudget = options.maxCreatedPerRun
+    ? Math.max(options.maxCreatedPerRun * 4, options.maxCreatedPerRun + 50)
+    : remainingTargetMatches;
+  const discoveryUniqueBudget = Math.max(
+    150,
+    Math.min(remainingTargetMatches, classificationBudget, desiredCreatedBudget),
+  );
 
   const persistDiscoveryProgress = async (input: {
     processedSeeds: number;
@@ -1348,6 +1436,7 @@ async function main() {
         pageSize: options.countPerSeed,
         maxIdsPerSeed: options.maxIdsPerSeed,
         targetIdsPerSeed: currentTargetIdsPerSeed,
+        maxDiscoveredUniqueMatches: discoveryUniqueBudget,
         queues: [...policy.preferredQueues, ...policy.acceptedFallbackQueues],
         startTime,
         endTime,
@@ -1373,12 +1462,13 @@ async function main() {
       discoveryCache.set(discovery.seedKey, discovery);
     }
     const discoveredUniqueMatches = new Set(discoveries.flatMap((discovery) => discovery.matchIds)).size;
-    const maxUniqueMatchesToClassify = Math.max(150, Math.min(remainingTargetMatches, classificationBudget));
+    const maxUniqueMatchesToClassify = discoveryUniqueBudget;
     console.info(
       `[competitive-ingestion] classify-budget uniqueCap=${maxUniqueMatchesToClassify} discoveredUnique=${discoveredUniqueMatches}`,
     );
     discoveredMatches = await classifyDiscoveredMatches(discoveries, policy, matchMetadataCache, {
       maxUniqueMatchesToClassify,
+      concurrency: options.trancheSize ? Math.max(4, Math.min(12, Math.ceil(options.trancheSize / 10))) : 6,
       onProgress: async (snapshot) => {
         await persistClassificationProgress({
           classifiedUniqueMatches: snapshot.classifiedUniqueMatches,
@@ -1389,7 +1479,7 @@ async function main() {
     });
   };
 
-  if (canReuseCheckpoint) {
+  if (canReuseDiscoveryCheckpoint) {
     console.info(
       `[competitive-ingestion] reusing-checkpoint resolvedSeeds=${resolvedSeeds.length} discoveries=${discoveries.length} classifiedMatches=${discoveredMatches.length}`,
     );
@@ -1536,6 +1626,7 @@ async function main() {
       },
       policyMode: policy.mode,
       openedFallbackTiers: lastFallbackPlan.openedFallbackTiers,
+      discoveryStopReason,
       seedResolutionSummary: seedSummaries.seedResolutionSummary,
       seedDiscoverySummary: seedSummaries.seedDiscoverySummary,
       policyDecisionByMatchId,
@@ -1862,6 +1953,7 @@ async function main() {
     },
     policyMode: policy.mode,
     openedFallbackTiers: lastFallbackPlan.openedFallbackTiers,
+    discoveryStopReason,
     seedResolutionSummary: seedSummaries.seedResolutionSummary,
     seedDiscoverySummary: seedSummaries.seedDiscoverySummary,
     policyDecisionByMatchId,

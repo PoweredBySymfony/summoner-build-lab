@@ -3113,3 +3113,38 @@ Lire ce fichier au debut de chaque nouvelle conversation sur ce repo, puis le me
   - la croissance v1 reste saine
   - le volume n'est pas encore lineaire a 50 sur ce vivier
   - la qualite reste acceptable, sans degradation nouvelle evidente
+
+## 2026-04-23 Rendement D'Ingestion 50 Sur V1 Growth
+
+- Correctifs appliques:
+  - `scripts/importCompetitiveMatches.ts`
+    - separation de la reutilisation du checkpoint de resolution et de la reutilisation de la discovery
+    - ajout du mode `--refresh-discovery` pour refaire la discovery sans repayer la resolution
+    - ajout d'un plafond global de discovery pour ne pas scanner tout le seed set avant d'importer
+    - tri des candidats de classification par score pour traiter les meilleurs en premier
+    - prefiltre `target-participant-missing` avant la phase d'import pour eviter des tentatives inutiles
+    - classification en concurrence limitee au lieu d'un traitement strictement sequentiel
+  - `scripts/runCompetitiveCampaign.ts`
+    - propagation de `--refresh-discovery`
+  - `server/src/lib/riot/competitiveIngestion.ts`
+    - stockage optionnel de `targetParticipantPresent` dans le cache de metadonnees
+- Validation campagne:
+  - `npm run campaign:competitive:v1-growth -- --max-stages 1 --stage-size 50 --count-per-seed 40 --max-ids-per-seed 400 --audit-sample-size 20 --refresh-discovery`
+    - `createdMatches = 50`
+    - `runCreatedCount = 50`
+    - `runAuthFailureCount = 0`
+    - `stopReason = max-created-per-run:50`
+    - `attemptedMatches = 790`
+    - `failedMatchesCount = 307`
+    - `totalCompetitiveMatchesInDb = 1686`
+    - `importCountsByTier.tier1 = 50`
+- Qualite immediatement apres:
+  - `completedRate = 1`
+  - `noViableSnapshotFoundRate = 0`
+  - `rejectionReasonCounts`
+    - `low-confidence = 13`
+    - `choice-resolution-insufficient-distractors = 7`
+- Lecture:
+  - le vrai goulot etait le sur-scanning et la reutilisation trop rigide du checkpoint, pas la qualite pure
+  - le palier `50` est maintenant atteignable sans casser la qualite
+  - le prochain levier utile reste de reduire `target-participant-missing` et d'optimiser encore le rendement avant de viser `100`

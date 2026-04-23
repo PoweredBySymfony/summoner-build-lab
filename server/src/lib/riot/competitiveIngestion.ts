@@ -105,6 +105,7 @@ export type CompetitiveCachedMatchMetadata = {
   patch: string | null;
   queueId: number | null;
   gameCreationAt: string | null;
+  targetParticipantPresent?: boolean;
 };
 
 export type CompetitiveDiscoveredMatch = {
@@ -215,6 +216,7 @@ export type CompetitiveIngestionCheckpoint = {
   };
   policyMode?: CompetitivePolicyMode;
   openedFallbackTiers?: string[];
+  discoveryStopReason?: string | null;
   seedResolutionSummary?: CompetitiveSeedResolutionSummary;
   seedDiscoverySummary?: CompetitiveSeedDiscoverySummary;
   policyDecisionByMatchId?: CompetitivePolicyDecisionCheckpoint;

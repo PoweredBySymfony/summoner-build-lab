@@ -21,6 +21,7 @@ type CampaignOptions = {
   dryRun: boolean;
   resetCheckpoint: boolean;
   maxSeedDiscoveryFailures: number;
+  refreshDiscovery: boolean;
   minCompletedRate: number;
   maxNoViableRate: number;
 };
@@ -75,6 +76,7 @@ function parseArgs(argv: string[]): CampaignOptions {
     dryRun: false,
     resetCheckpoint: false,
     maxSeedDiscoveryFailures: 2,
+    refreshDiscovery: false,
     minCompletedRate: 0.9,
     maxNoViableRate: 0.1,
   };
@@ -140,6 +142,9 @@ function parseArgs(argv: string[]): CampaignOptions {
       case "--max-seed-discovery-failures":
         options.maxSeedDiscoveryFailures = Number(next ?? "2");
         index += 1;
+        break;
+      case "--refresh-discovery":
+        options.refreshDiscovery = true;
         break;
       case "--min-completed-rate":
         options.minCompletedRate = Number(next ?? "0.9");
@@ -343,6 +348,12 @@ async function main() {
       String(options.maxIdsPerSeed),
       "--tranche-size",
       String(options.stageSize),
+      "--max-created-per-run",
+      String(options.stageSize),
+      "--max-attempts-per-run",
+      String(Math.max(options.stageSize * 2, options.stageSize + 10)),
+      "--max-auth-failures-per-run",
+      "3",
       "--max-seed-discovery-failures",
       String(options.maxSeedDiscoveryFailures),
     ],
@@ -350,6 +361,7 @@ async function main() {
     options.ownerUserId ? ["--owner-user-id", options.ownerUserId] : [],
     options.ownerEmail ? ["--owner-email", options.ownerEmail] : [],
     options.resetCheckpoint ? ["--reset-checkpoint"] : [],
+    options.refreshDiscovery ? ["--refresh-discovery"] : [],
     ), process.cwd());
 
     const importReport = await safeReadJson<Record<string, unknown>>(importReportPath);
