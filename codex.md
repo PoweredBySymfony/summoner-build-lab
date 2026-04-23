@@ -2949,3 +2949,30 @@ Lire ce fichier au debut de chaque nouvelle conversation sur ce repo, puis le me
 - Usage cible:
   - utiliser ce runner pour piloter les paliers `2k`, puis `5k`, puis `8k`, puis `10k`
   - ne plus lancer les jobs longs a la main sans ce garde-fou
+
+## 2026-04-23 Campagne Controlee 50
+
+- Execution:
+  - `npm run campaign:competitive -- --max-stages 1 --stage-size 50 --count-per-seed 40 --max-ids-per-seed 400 --audit-sample-size 20`
+- Resultat preflight:
+  - base de donnees: OK
+  - Riot: OK
+- Resultat campagne:
+  - `stoppedReason = plateau`
+  - `qualityGatePassed = true`
+  - la tranche a bien execute les audits, mais n'a pas produit de progression nette sur les creations competives
+- Audits:
+  - `audit:match-based-validation -- --sample-size 20`
+    - `completedRate = 0.9`
+    - `noViableSnapshotFoundRate = 0.1`
+    - rejet dominant:
+      - `low-confidence`
+    - secondaires:
+      - `publishability-insufficient-credible-distractors`
+      - `choice-resolution-insufficient-distractors`
+- Lecture:
+  - le runner de campagne fonctionne
+  - la liaison preflight -> import -> audit -> arret est maintenant en place
+  - le probleme restant est de fond:
+    - le vivier actuel a atteint un plateau utile sur cette configuration
+    - il faut maintenant soit augmenter le vivier exploitable, soit corriger les raisons de rejet ML qui bloquent la publication

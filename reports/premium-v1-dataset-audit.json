@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-04-23T10:52:03.631Z",
+  "generatedAt": "2026-04-23T12:44:42.239Z",
   "baseline": {
     "id": "premium-v1",
     "state": "frozen-for-ml-audit",
@@ -12,18 +12,18 @@
     "competitiveReport": "Rapport pipeline competitif source-filtered, limite aux imports competitifs observes par le checkpoint/report."
   },
   "scopeComparison": {
-    "dbWideTotalMatches": 1534,
-    "competitiveMatchesInDb": 1521,
-    "premiumOnlyMatches": 1521,
-    "excludedNonCompetitiveMatches": 13,
+    "dbWideTotalMatches": 1571,
+    "competitiveMatchesInDb": 1557,
+    "premiumOnlyMatches": 1557,
+    "excludedNonCompetitiveMatches": 14,
     "excludedCompetitiveUnknownTierMatches": 0,
     "competitiveUnknownTierCount": 0,
     "explanation": "Le mismatch venait du fait que le report competitif ne couvre que les imports competitifs, alors que l'audit ML exportait toute la base. Le scope premium-only rend maintenant cet ecart explicite."
   },
   "scopes": {
     "dbWide": {
-      "totalImportedMatches": 1534,
-      "totalValidTimelines": 1533,
+      "totalImportedMatches": 1571,
+      "totalValidTimelines": 1569,
       "matchsParPatch": [
         {
           "patch": "26.6",
@@ -31,7 +31,7 @@
         },
         {
           "patch": "26.7",
-          "count": 425
+          "count": 432
         },
         {
           "patch": "26.3",
@@ -39,7 +39,7 @@
         },
         {
           "patch": "26.1",
-          "count": 84
+          "count": 85
         },
         {
           "patch": "26.2",
@@ -54,16 +54,16 @@
           "count": 60
         },
         {
+          "patch": "26.8",
+          "count": 45
+        },
+        {
           "patch": "15.23",
           "count": 27
         },
         {
           "patch": "14.20",
           "count": 19
-        },
-        {
-          "patch": "26.8",
-          "count": 16
         },
         {
           "patch": "15.24",
@@ -121,7 +121,7 @@
       "matchsParSourceKind": [
         {
           "sourceKind": "PRO_SEED",
-          "count": 1475
+          "count": 1511
         },
         {
           "sourceKind": "ELITE_SEED",
@@ -129,13 +129,13 @@
         },
         {
           "sourceKind": "unknown",
-          "count": 13
+          "count": 14
         }
       ],
       "matchsParSourceTier": [
         {
           "sourceTier": "pro",
-          "count": 1475
+          "count": 1511
         },
         {
           "sourceTier": "elite",
@@ -143,47 +143,47 @@
         },
         {
           "sourceTier": "unknown",
-          "count": 13
+          "count": 14
         }
       ],
       "matchsParSourceLeague": [
         {
           "sourceLeague": "LoL Champions Korea",
-          "count": 662
+          "count": 675
         },
         {
           "sourceLeague": "First Stand",
-          "count": 494
+          "count": 508
         },
         {
           "sourceLeague": "World Championship",
-          "count": 188
+          "count": 194
         },
         {
           "sourceLeague": "League of Legends Championship of The Americas",
           "count": 86
         },
         {
+          "sourceLeague": "Mid-Season Invitational",
+          "count": 48
+        },
+        {
           "sourceLeague": "Riot Ranked Ladder",
           "count": 46
         },
         {
-          "sourceLeague": "Mid-Season Invitational",
-          "count": 45
-        },
-        {
           "sourceLeague": "unknown",
-          "count": 13
+          "count": 14
         }
       ],
       "matchsParSourceRegionHint": [
         {
           "sourceRegionHint": "International",
-          "count": 727
+          "count": 750
         },
         {
           "sourceRegionHint": "Korea",
-          "count": 662
+          "count": 675
         },
         {
           "sourceRegionHint": "Americas",
@@ -195,19 +195,19 @@
         },
         {
           "sourceRegionHint": "europe",
-          "count": 11
+          "count": 12
         },
         {
           "sourceRegionHint": "asia",
           "count": 2
         }
       ],
-      "premiumRecentMatches26x": 1412,
-      "premiumRecentShare26x": 92.05
+      "premiumRecentMatches26x": 1420,
+      "premiumRecentShare26x": 90.39
     },
     "premiumOnly": {
-      "totalImportedMatches": 1521,
-      "totalValidTimelines": 1520,
+      "totalImportedMatches": 1557,
+      "totalValidTimelines": 1555,
       "matchsParPatch": [
         {
           "patch": "26.6",
@@ -215,7 +215,7 @@
         },
         {
           "patch": "26.7",
-          "count": 418
+          "count": 424
         },
         {
           "patch": "26.3",
@@ -223,7 +223,7 @@
         },
         {
           "patch": "26.1",
-          "count": 84
+          "count": 85
         },
         {
           "patch": "26.2",
@@ -238,16 +238,16 @@
           "count": 60
         },
         {
+          "patch": "26.8",
+          "count": 45
+        },
+        {
           "patch": "15.23",
           "count": 26
         },
         {
           "patch": "14.20",
           "count": 19
-        },
-        {
-          "patch": "26.8",
-          "count": 16
         },
         {
           "patch": "15.24",
@@ -305,7 +305,7 @@
       "matchsParSourceKind": [
         {
           "sourceKind": "PRO_SEED",
-          "count": 1475
+          "count": 1511
         },
         {
           "sourceKind": "ELITE_SEED",
@@ -315,7 +315,7 @@
       "matchsParSourceTier": [
         {
           "sourceTier": "pro",
-          "count": 1475
+          "count": 1511
         },
         {
           "sourceTier": "elite",
@@ -325,37 +325,37 @@
       "matchsParSourceLeague": [
         {
           "sourceLeague": "LoL Champions Korea",
-          "count": 662
+          "count": 675
         },
         {
           "sourceLeague": "First Stand",
-          "count": 494
+          "count": 508
         },
         {
           "sourceLeague": "World Championship",
-          "count": 188
+          "count": 194
         },
         {
           "sourceLeague": "League of Legends Championship of The Americas",
           "count": 86
         },
         {
-          "sourceLeague": "Riot Ranked Ladder",
-          "count": 46
+          "sourceLeague": "Mid-Season Invitational",
+          "count": 48
         },
         {
-          "sourceLeague": "Mid-Season Invitational",
-          "count": 45
+          "sourceLeague": "Riot Ranked Ladder",
+          "count": 46
         }
       ],
       "matchsParSourceRegionHint": [
         {
           "sourceRegionHint": "International",
-          "count": 727
+          "count": 750
         },
         {
           "sourceRegionHint": "Korea",
-          "count": 662
+          "count": 675
         },
         {
           "sourceRegionHint": "Americas",
@@ -366,8 +366,8 @@
           "count": 46
         }
       ],
-      "premiumRecentMatches26x": 1400,
-      "premiumRecentShare26x": 92.04
+      "premiumRecentMatches26x": 1407,
+      "premiumRecentShare26x": 90.37
     }
   },
   "dataset": {
@@ -442,20 +442,11 @@
     "recentFirstVerified": true
   },
   "ingestionCheckpoint": {
-    "resolvedCheckpointReportPath": "C:\\Users\\XavierTrouche\\dev\\summoner-build-lab\\data\\runtime\\competitive-ingestion\\phase-2000-2026-04-23.report.json",
-    "totalCompetitiveMatchesInDb": 1521,
-    "createdMatches": 3,
-    "discoveredUniqueMatches": 482,
-    "tierDistribution": [
-      {
-        "tier": "pro",
-        "count": 1475
-      },
-      {
-        "tier": "elite",
-        "count": 46
-      }
-    ]
+    "resolvedCheckpointReportPath": "C:\\Users\\XavierTrouche\\dev\\summoner-build-lab\\data\\runtime\\competitive-ingestion\\phase-2000-v3-2026-04-23.report.json",
+    "totalCompetitiveMatchesInDb": 1557,
+    "createdMatches": 36,
+    "discoveredUniqueMatches": 479,
+    "tierDistribution": []
   },
   "reproduction": {
     "commands": [

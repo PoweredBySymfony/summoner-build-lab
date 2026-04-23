@@ -166,10 +166,14 @@ function buildArgs(base: string[], ...extras: Array<Array<string | undefined>>) 
   ];
 }
 
-async function runCommand(command: string, args: string[], cwd = process.cwd()) {
-  const resolvedCommand = resolveCommand(command);
+function resolveTsxCliPath() {
+  return path.resolve("node_modules", "tsx", "dist", "cli.mjs");
+}
+
+async function runTsxScript(scriptPath: string, args: string[], cwd = process.cwd()) {
+  const cliPath = resolveTsxCliPath();
   await new Promise<void>((resolve, reject) => {
-    const child = spawn(resolvedCommand, args, {
+    const child = spawn(process.execPath, [cliPath, scriptPath, ...args], {
       cwd,
       stdio: "inherit",
       shell: false,
@@ -181,16 +185,16 @@ async function runCommand(command: string, args: string[], cwd = process.cwd()) 
         resolve();
         return;
       }
-      reject(new Error(`${command} ${args.join(" ")} exited with code ${code ?? "unknown"}`));
+      reject(new Error(`${scriptPath} ${args.join(" ")} exited with code ${code ?? "unknown"}`));
     });
   });
 }
 
-async function runCommandCaptureJson(command: string, args: string[], cwd = process.cwd()) {
-  const resolvedCommand = resolveCommand(command);
+async function runTsxScriptCaptureJson(scriptPath: string, args: string[], cwd = process.cwd()) {
+  const cliPath = resolveTsxCliPath();
   return new Promise<Record<string, unknown>>((resolve, reject) => {
     let stdout = "";
-    const child = spawn(resolvedCommand, args, {
+    const child = spawn(process.execPath, [cliPath, scriptPath, ...args], {
       cwd,
       stdio: ["ignore", "pipe", "inherit"],
       shell: false,
@@ -203,7 +207,7 @@ async function runCommandCaptureJson(command: string, args: string[], cwd = proc
     child.on("error", reject);
     child.on("exit", (code) => {
       if (code !== 0) {
-        reject(new Error(`${resolvedCommand} ${args.join(" ")} exited with code ${code ?? "unknown"}`));
+        reject(new Error(`${scriptPath} ${args.join(" ")} exited with code ${code ?? "unknown"}`));
         return;
       }
       const trimmed = stdout.trim();
@@ -212,7 +216,7 @@ async function runCommandCaptureJson(command: string, args: string[], cwd = proc
       try {
         resolve(JSON.parse(jsonText) as Record<string, unknown>);
       } catch (error) {
-        reject(new Error(`Unable to parse JSON from ${resolvedCommand} ${args.join(" ")}: ${error instanceof Error ? error.message : String(error)}`));
+        reject(new Error(`Unable to parse JSON from ${scriptPath} ${args.join(" ")}: ${error instanceof Error ? error.message : String(error)}`));
       }
     });
   });
@@ -312,9 +316,7 @@ async function main() {
     const premiumDatasetAuditPath = `${stagePrefix}.premium-dataset.json`;
 
     console.info(`[campaign] stage=${stage} import start tranche=${options.stageSize}`);
-    await runCommand("npx", buildArgs([
-      "tsx",
-      "scripts/importCompetitiveMatches.ts",
+    await runTsxScript("scripts/importCompetitiveMatches.ts", buildArgs([
       "--seed-path",
       options.seedPath,
       "--policy-path",
@@ -348,24 +350,19 @@ async function main() {
     console.info(`[campaign] stage=${stage} import done created=${runCreatedCount} authFailures=${runAuthFailureCount} stopReason=${stopReason ?? "none"}`);
 
     console.info(`[campaign] stage=${stage} throughput audit start`);
-    const throughputReport = await runCommandCaptureJson("npx", [
-      "tsx",
-      "scripts/reportCompetitiveThroughput.ts",
+    const throughputReport = await runTsxScriptCaptureJson("scripts/reportCompetitiveThroughput.ts", [
       "--checkpoint-path",
       options.checkpointPath,
     ]);
     await writeFile(throughputReportPath, `${JSON.stringify(throughputReport, null, 2)}\n`, "utf-8");
 
     console.info(`[campaign] stage=${stage} premium dataset audit start`);
-    await runCommand("npm", ["run", "audit:premium-v1-dataset"]);
+    await runTsxScript("scripts/auditPremiumV1Dataset.ts", []);
     const premiumDatasetSource = path.resolve("reports", "premium-v1-dataset-audit.json");
     await writeFile(premiumDatasetAuditPath, await readFile(premiumDatasetSource, "utf-8"), "utf-8");
 
     console.info(`[campaign] stage=${stage} validation audit start sample=${options.auditSampleSize}`);
-    await runCommand("npm", [
-      "run",
-      "audit:match-based-validation",
-      "--",
+    await runTsxScript("scripts/evaluateMatchBasedValidation.ts", [
       "--sample-size",
       String(options.auditSampleSize),
       "--report-path",
