@@ -34,6 +34,7 @@
     "riot:import-competitive": "tsx scripts/importCompetitiveMatches.ts",
     "riot:report-competitive": "tsx scripts/reportCompetitiveIngestion.ts",
     "riot:report-competitive-throughput": "tsx scripts/reportCompetitiveThroughput.ts",
+    "campaign:competitive": "tsx scripts/runCompetitiveCampaign.ts",
     "audit:readiness-10k": "tsx scripts/reportReadiness10k.ts",
     "audit:ai-puzzles": "tsx scripts/auditGeneratedAiPuzzles.ts",
     "audit:items": "tsx scripts/auditItemPresentation.ts",

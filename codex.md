@@ -2894,3 +2894,58 @@ Lire ce fichier au debut de chaque nouvelle conversation sur ce repo, puis le me
 - Regle de conduite:
   - avant tout job long Riot, faire un preflight court
   - si un auth failure apparait, stopper et corriger la cle avant de relancer
+
+## 2026-04-23 Audit Fiabilite Orchestrateur
+
+- Diagnostic principal:
+  - le probleme actuel n'est plus uniquement le debit d'import
+  - le vrai manque est un orchestrateur de campagne unique qui pilote:
+    - preflight infra
+    - refresh du seed set
+    - import borne par tranche
+    - audit automatique
+    - decision de passage au palier suivant
+- Points critiques observes:
+  - `scripts/prepareCompetitiveSeeds.ts`
+    - un refresh Leaguepedia/elite peut encore prendre longtemps sans checkpoint intermediaire
+    - quand le job est lance trop large, il faut l'interrompre manuellement
+  - `scripts/importCompetitiveMatches.ts`
+    - l'import borne fonctionne mieux, mais il reste attache a des chemins et parametres de campagne manuels
+    - sans preflight, un probleme Docker/Postgres peut faire perdre du temps avant meme le debut du run
+  - `server/src/lib/riot/competitiveSeeds.ts`
+    - le stop-fail-fast est bon pour les erreurs Riot auth, mais il ne resout pas le probleme de pilotage global
+- Fait important:
+  - le nouveau seed set `data/seeds/competitive-seeds-2026-v3.json` est plus large cote pro (`307` seeds), mais il est `pro-only`
+  - il ne faut pas le prendre comme nouveau canon sans verifier l'impact sur la couverture elite
+- Recommandation:
+  - garder un seed set canonique merge `pro + elite`
+  - traiter l'expansion pro comme un sidecar de refresh, pas comme remplacement direct
+  - ajouter un runner de campagne unique avec:
+    - preflight DB + Riot
+    - budget de tranche
+    - stop sur auth failure
+    - stop sur plateau de rendement
+    - audit automatique apres chaque palier
+  - c'est la seule maniere fiable de tenir les paliers `2k -> 5k -> 8k -> 10k` sans repartir dans des boucles manuelles
+
+## 2026-04-23 Runner Campagne
+
+- Nouveau point d'entree:
+  - `scripts/runCompetitiveCampaign.ts`
+  - script npm: `campaign:competitive`
+- Capacites:
+  - preflight base de donnees + Riot avant tout job long
+  - execution d'une tranche bornee d'import competitif
+  - audit automatique apres chaque tranche
+  - arret automatique si:
+    - preflight en echec
+    - auth failure
+    - plateau d'import
+    - quality gate ML en echec
+  - mode `--max-stages 0` pour tester uniquement le preflight sans lancer de campagne
+- Validation:
+  - `npm run campaign:competitive -- --max-stages 0`
+    - OK
+- Usage cible:
+  - utiliser ce runner pour piloter les paliers `2k`, puis `5k`, puis `8k`, puis `10k`
+  - ne plus lancer les jobs longs a la main sans ce garde-fou
