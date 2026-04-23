@@ -44,6 +44,7 @@ type CliOptions = {
   seedPath: string;
   policyPath: string;
   checkpointPath: string;
+  quarantinePath: string;
   reportPath: string;
   markdownReportPath: string;
   targetMatches: number;
@@ -66,6 +67,22 @@ type CliOptions = {
   refreshDiscovery: boolean;
 };
 
+type CompetitiveDiscoveryQuarantineEntry = {
+  reason: string;
+  count: number;
+  firstSeenAt: string;
+  lastSeenAt: string;
+  quarantinedAt: string;
+};
+
+type CompetitiveDiscoveryQuarantine = {
+  version: 1;
+  generatedAt: string;
+  seedSetVersion: string;
+  seedKeys: Record<string, CompetitiveDiscoveryQuarantineEntry>;
+  regions: Record<string, CompetitiveDiscoveryQuarantineEntry>;
+};
+
 const PROGRESS_PERSIST_ATTEMPT_INTERVAL = 50;
 const PROGRESS_PERSIST_CREATED_INTERVAL = 10;
 
@@ -74,6 +91,7 @@ function parseArgs(argv: string[]): CliOptions {
     seedPath: path.join("data", "seeds", "competitive-seeds-2026.json"),
     policyPath: path.join("data", "config", "competitive-ingestion-policy-2026.json"),
     checkpointPath: path.join("data", "runtime", "competitive-ingestion", "checkpoint.json"),
+    quarantinePath: path.join("data", "runtime", "competitive-ingestion", "quarantine.json"),
     reportPath: path.join("data", "runtime", "competitive-ingestion", "report.json"),
     markdownReportPath: path.join("data", "runtime", "competitive-ingestion", "report.md"),
     ownerEmail: "xtrouche@gmail.com",
@@ -107,6 +125,10 @@ function parseArgs(argv: string[]): CliOptions {
         break;
       case "--checkpoint-path":
         if (next) options.checkpointPath = next;
+        index += 1;
+        break;
+      case "--quarantine-path":
+        if (next) options.quarantinePath = next;
         index += 1;
         break;
       case "--report-path":
@@ -200,6 +222,27 @@ function parseArgs(argv: string[]): CliOptions {
   }
 
   return options;
+}
+
+async function loadDiscoveryQuarantine(quarantinePath: string, seedSetVersion: string) {
+  try {
+    const raw = (await readFile(quarantinePath, "utf-8")).replace(/^\uFEFF/, "");
+    const parsed = JSON.parse(raw) as CompetitiveDiscoveryQuarantine;
+    if (parsed.seedSetVersion !== seedSetVersion || parsed.version !== 1) {
+      return null;
+    }
+    return parsed;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return null;
+    }
+    throw error;
+  }
+}
+
+async function saveDiscoveryQuarantine(quarantinePath: string, quarantine: CompetitiveDiscoveryQuarantine) {
+  await mkdir(path.dirname(quarantinePath), { recursive: true });
+  await writeFile(quarantinePath, JSON.stringify(quarantine, null, 2), "utf-8");
 }
 
 function applyTranchePreset(options: CliOptions) {
@@ -503,15 +546,16 @@ function canReuseDiscoveryCheckpointState(input: {
   endTime: number | null;
   classificationBudget: number;
   refreshDiscovery: boolean;
+  hasActiveQuarantine: boolean;
 }) {
-  const { checkpoint, manifestSeedSetVersion, policy, startTime, endTime, classificationBudget, refreshDiscovery } = input;
+  const { checkpoint, manifestSeedSetVersion, policy, startTime, endTime, classificationBudget, refreshDiscovery, hasActiveQuarantine } = input;
   return canReuseResolvedSeedCheckpointState({
     checkpoint,
     manifestSeedSetVersion,
     policy,
     startTime,
     endTime,
-  }) && (checkpoint.classificationBudget ?? 0) === classificationBudget && !refreshDiscovery && !checkpoint.discoveryStopReason && checkpoint.discoveredMatches.length > 0;
+  }) && (checkpoint.classificationBudget ?? 0) === classificationBudget && !refreshDiscovery && !hasActiveQuarantine && !checkpoint.discoveryStopReason && checkpoint.discoveredMatches.length > 0;
 }
 
 function rebuildDiscoveredMatchesFromCheckpoint(input: {
@@ -722,6 +766,8 @@ async function discoverSeeds(
     startTime: number | null;
     endTime: number | null;
     maxConsecutiveFailures?: number;
+    quarantinedSeedKeys?: Set<string>;
+    quarantinedRegions?: Set<string>;
       onProgress?: (snapshot: {
         processedSeeds: number;
         totalActiveSeeds: number;
@@ -736,12 +782,19 @@ async function discoverSeeds(
   );
 
   const discoveries: CompetitiveSeedMatchDiscovery[] = [];
+  let processedSeeds = 0;
   let consecutiveFailureSignature: string | null = null;
   let consecutiveFailures = 0;
   const maxConsecutiveFailures = input.maxConsecutiveFailures ?? 2;
   let stopReason: string | null = null;
   let discoveryStopReason: string | null = null;
+  const authFailureCountsBySeedKey = new Map<string, number>();
+  const authFailureCountsByRegion = new Map<string, number>();
+  let lastFailureSeedKey: string | null = null;
+  let lastFailureRegion: string | null = null;
+  let lastFailureReason: string | null = null;
   for (const seed of activeSeeds) {
+    processedSeeds += 1;
     if (typeof input.maxDiscoveredUniqueMatches === "number") {
       const currentUniqueCount = new Set(discoveries.flatMap((entry) => entry.matchIds)).size;
       if (currentUniqueCount >= input.maxDiscoveredUniqueMatches) {
@@ -751,6 +804,19 @@ async function discoverSeeds(
     }
 
     const seedKey = buildCompetitiveSeedKey(seed);
+    if (input.quarantinedSeedKeys?.has(seedKey) || input.quarantinedRegions?.has(seed.cluster)) {
+      console.info(
+        `[competitive-ingestion] discover-seed-skipped quarantined seed=${seed.playerName} region=${seed.cluster}`,
+      );
+      await input.onProgress?.({
+        processedSeeds,
+        totalActiveSeeds: activeSeeds.length,
+        discoveries,
+        seed,
+      });
+      continue;
+    }
+
     const cached = discoveryCache.get(seedKey);
     const hasCachedScanState = Object.keys(cached?.scanStateByQueue ?? {}).length > 0;
     if (
@@ -762,7 +828,7 @@ async function discoverSeeds(
         `[competitive-ingestion] discover-seed-progress processed=${discoveries.length}/${activeSeeds.length} seed=${seed.playerName} cached=yes matchIds=${cached.matchIds.length}`,
       );
       await input.onProgress?.({
-        processedSeeds: discoveries.length,
+        processedSeeds,
         totalActiveSeeds: activeSeeds.length,
         discoveries,
         seed,
@@ -784,6 +850,13 @@ async function discoverSeeds(
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       const failureSignature = message.toLowerCase().trim();
+      lastFailureSeedKey = seedKey;
+      lastFailureRegion = seed.cluster;
+      lastFailureReason = failureSignature;
+      if (failureSignature.includes("authentication failed")) {
+        authFailureCountsBySeedKey.set(seedKey, (authFailureCountsBySeedKey.get(seedKey) ?? 0) + 1);
+        authFailureCountsByRegion.set(seed.cluster, (authFailureCountsByRegion.get(seed.cluster) ?? 0) + 1);
+      }
       consecutiveFailures = consecutiveFailureSignature === failureSignature
         ? consecutiveFailures + 1
         : 1;
@@ -832,7 +905,7 @@ async function discoverSeeds(
       `[competitive-ingestion] discover-seed-progress processed=${discoveries.length}/${activeSeeds.length} seed=${seed.playerName} cached=no matchIds=${discoveries[discoveries.length - 1]?.matchIds.length ?? 0}`,
     );
     await input.onProgress?.({
-      processedSeeds: discoveries.length,
+      processedSeeds,
       totalActiveSeeds: activeSeeds.length,
       discoveries,
       seed,
@@ -842,6 +915,11 @@ async function discoverSeeds(
   return {
     discoveries,
     stopReason,
+    authFailureCountsBySeedKey,
+    authFailureCountsByRegion,
+    lastFailureSeedKey,
+    lastFailureRegion,
+    lastFailureReason,
   };
 }
 
@@ -1263,6 +1341,10 @@ async function main() {
   const resolvedSeedCache = new Map(checkpoint.resolvedSeeds.map((seed) => [buildCompetitiveSeedKey(seed), seed]));
   const discoveryCache = new Map(checkpoint.discoveredMatches.map((seed) => [seed.seedKey, seed]));
   const matchMetadataCache = new Map(Object.entries(checkpoint.matchMetadataById ?? {}));
+  const discoveryQuarantinePath = path.resolve(options.quarantinePath);
+  const existingQuarantine = await loadDiscoveryQuarantine(discoveryQuarantinePath, manifest.seedSetVersion);
+  const quarantinedSeedKeys = new Set(Object.keys(existingQuarantine?.seedKeys ?? {}));
+  const quarantinedRegions = new Set(Object.keys(existingQuarantine?.regions ?? {}));
   const canReuseResolvedSeeds = canReuseResolvedSeedCheckpointState({
     checkpoint,
     manifestSeedSetVersion: manifest.seedSetVersion,
@@ -1278,6 +1360,7 @@ async function main() {
     endTime,
     classificationBudget,
     refreshDiscovery: options.refreshDiscovery,
+    hasActiveQuarantine: quarantinedSeedKeys.size > 0 || quarantinedRegions.size > 0,
   });
 
   console.info(
@@ -1350,6 +1433,8 @@ async function main() {
   let discoveryPass = 0;
   let stopReason: string | null = null;
   let discoveryStopReason: string | null = null;
+  const authFailureCountsBySeedKey = new Map<string, number>();
+  const authFailureCountsByRegion = new Map<string, number>();
   const desiredCreatedBudget = options.maxCreatedPerRun
     ? Math.max(options.maxCreatedPerRun * 4, options.maxCreatedPerRun + 50)
     : remainingTargetMatches;
@@ -1441,6 +1526,8 @@ async function main() {
         startTime,
         endTime,
         maxConsecutiveFailures: options.maxSeedDiscoveryFailures ?? 2,
+        quarantinedSeedKeys,
+        quarantinedRegions,
         onProgress: async (snapshot) => {
           if (snapshot.processedSeeds % 10 !== 0 && snapshot.processedSeeds !== snapshot.totalActiveSeeds) {
             return;
@@ -1457,6 +1544,26 @@ async function main() {
     discoveries = discoveryResult.discoveries;
     if (discoveryResult.stopReason) {
       discoveryStopReason = discoveryResult.stopReason;
+    }
+    if (discoveryResult.stopReason?.startsWith("discovery-failure-budget:")) {
+      if (discoveryResult.lastFailureSeedKey) {
+        authFailureCountsBySeedKey.set(
+          discoveryResult.lastFailureSeedKey,
+          Math.max(authFailureCountsBySeedKey.get(discoveryResult.lastFailureSeedKey) ?? 0, 2),
+        );
+      }
+      if (discoveryResult.lastFailureRegion) {
+        authFailureCountsByRegion.set(
+          discoveryResult.lastFailureRegion,
+          Math.max(authFailureCountsByRegion.get(discoveryResult.lastFailureRegion) ?? 0, 2),
+        );
+      }
+    }
+    for (const [seedKey, count] of discoveryResult.authFailureCountsBySeedKey) {
+      authFailureCountsBySeedKey.set(seedKey, (authFailureCountsBySeedKey.get(seedKey) ?? 0) + count);
+    }
+    for (const [region, count] of discoveryResult.authFailureCountsByRegion) {
+      authFailureCountsByRegion.set(region, (authFailureCountsByRegion.get(region) ?? 0) + count);
     }
     for (const discovery of discoveries) {
       discoveryCache.set(discovery.seedKey, discovery);
@@ -1740,6 +1847,9 @@ async function main() {
     let passDuplicateLike = 0;
 
     for (const candidate of queue) {
+      if (!candidate) {
+        continue;
+      }
       if (updateStopReason()) {
         break;
       }
@@ -1823,6 +1933,11 @@ async function main() {
           });
         }
       } catch (error) {
+        const failureMessage = error instanceof Error ? error.message : String(error);
+        if (failureMessage.toLowerCase().includes("authentication failed")) {
+          authFailureCountsBySeedKey.set(candidate.discovery.seedKey, (authFailureCountsBySeedKey.get(candidate.discovery.seedKey) ?? 0) + 1);
+          authFailureCountsByRegion.set(candidate.discovery.region, (authFailureCountsByRegion.get(candidate.discovery.region) ?? 0) + 1);
+        }
         failedMatches.push({
           matchId: candidate.matchId,
           seedKey: candidate.seedKey,
@@ -1845,7 +1960,7 @@ async function main() {
           targetRole: null,
           gameCreationAt: candidate.gameCreationAt,
           created: false,
-          failureReason: error instanceof Error ? error.message : String(error),
+          failureReason: failureMessage,
         });
       }
 
@@ -2104,6 +2219,54 @@ async function main() {
     writeFile(reportPath, JSON.stringify(reportPayload, null, 2), "utf-8"),
     writeFile(markdownReportPath, renderMarkdownReport(reportPayload), "utf-8"),
   ]);
+
+  const quarantinedAt = new Date().toISOString();
+  const nextQuarantine: CompetitiveDiscoveryQuarantine = existingQuarantine ?? {
+    version: 1,
+    generatedAt: quarantinedAt,
+    seedSetVersion: manifest.seedSetVersion,
+    seedKeys: {},
+    regions: {},
+  };
+  nextQuarantine.generatedAt = quarantinedAt;
+
+  const mergeQuarantineEntry = (
+    bucket: Record<string, CompetitiveDiscoveryQuarantineEntry>,
+    key: string,
+    count: number,
+    reason: string,
+  ) => {
+    const existing = bucket[key];
+    if (existing) {
+      existing.count += count;
+      existing.lastSeenAt = quarantinedAt;
+      existing.reason = reason;
+      if (existing.count >= 2) {
+        existing.quarantinedAt = quarantinedAt;
+      }
+      return;
+    }
+    bucket[key] = {
+      reason,
+      count,
+      firstSeenAt: quarantinedAt,
+      lastSeenAt: quarantinedAt,
+      quarantinedAt,
+    };
+  };
+
+  for (const [seedKey, count] of authFailureCountsBySeedKey) {
+    if (count >= 2) {
+      mergeQuarantineEntry(nextQuarantine.seedKeys, seedKey, count, "authentication-failed");
+    }
+  }
+  for (const [region, count] of authFailureCountsByRegion) {
+    if (count >= 2) {
+      mergeQuarantineEntry(nextQuarantine.regions, region, count, "authentication-failed");
+    }
+  }
+
+  await saveDiscoveryQuarantine(discoveryQuarantinePath, nextQuarantine);
 
   console.info(JSON.stringify(reportPayload, null, 2));
 }

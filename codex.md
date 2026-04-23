@@ -3168,3 +3168,36 @@ Lire ce fichier au debut de chaque nouvelle conversation sur ce repo, puis le me
   - le palier `100` n'est pas bloque par la qualite ML
   - le rendement chute parce que la discovery retombe sur des seeds / regions qui enchainent des erreurs auth Riot
   - le vrai prochain correctif utile n'est pas d'augmenter encore la tranche, mais d'ajouter une quarantaine persistante des seeds / regions qui repetent les erreurs pour ne pas rebruler du temps au prochain run
+
+## 2026-04-23 Quarantaine Persistante Et Test 100 Rejoue
+
+- Correctifs appliques:
+  - `scripts/importCompetitiveMatches.ts`
+    - chargement / sauvegarde d'une quarantaine persistante par region et par seed
+    - chargement tolerant au BOM
+    - coupure de la reuse de discovery quand une quarantaine active existe
+    - skip des seeds quarantines pendant la discovery
+    - quarantine automatique des seeds / regions quand la discovery s'arrete sur un budget d'erreur
+    - quarantine automatique des seeds / regions sur auth failure
+    - garde sur candidate vide pendant l'import
+  - `scripts/runCompetitiveCampaign.ts`
+    - propagation du chemin de quarantaine
+- Quarantaine active:
+  - `asia`
+  - `europe`
+  - `BR1`
+  - `americas`
+- Test rejoue:
+  - `npm run campaign:competitive:v1-growth -- --max-stages 1 --stage-size 100 --count-per-seed 40 --max-ids-per-seed 400 --audit-sample-size 20 --refresh-discovery`
+    - `createdMatches = 49`
+    - `runCreatedCount = 49`
+    - `runAuthFailureCount = 0`
+    - `stopReason = discovery-failure-budget:2`
+    - `failedMatchesCount = 402`
+    - `topFailureReasons`
+      - `target-participant-missing = 292`
+      - `Riot API authentication failed. = 110`
+- Lecture:
+  - la quarantaine fonctionne: les zones toxiques sont effectivement sautees
+  - le palier `100` reste toutefois au-dessus du vivier utile actuel
+  - le prochain levier n'est plus le filtrage des zones toxiques, mais l'augmentation du vivier exploitable hors quarantaine ou un changement de politique d'ingestion plus large avant nouvelle tentative `100`

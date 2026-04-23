@@ -9,6 +9,7 @@ type CampaignOptions = {
   seedPath: string;
   policyPath: string;
   checkpointPath: string;
+  quarantinePath: string;
   targetMatches: number;
   stageSize: number;
   countPerSeed: number;
@@ -66,6 +67,7 @@ function parseArgs(argv: string[]): CampaignOptions {
     seedPath: path.join("data", "seeds", "competitive-seeds-2026.json"),
     policyPath: path.join("data", "config", "competitive-ingestion-policy-2026.json"),
     checkpointPath: path.join("data", "runtime", "competitive-ingestion", "phase-2000-2026-04-19.checkpoint.json"),
+    quarantinePath: path.join("data", "runtime", "competitive-ingestion", "quarantine.json"),
     targetMatches: 2000,
     stageSize: 50,
     countPerSeed: 40,
@@ -95,6 +97,10 @@ function parseArgs(argv: string[]): CampaignOptions {
         break;
       case "--checkpoint-path":
         if (next) options.checkpointPath = next;
+        index += 1;
+        break;
+      case "--quarantine-path":
+        if (next) options.quarantinePath = next;
         index += 1;
         break;
       case "--target-matches":
@@ -336,6 +342,8 @@ async function main() {
       options.policyPath,
       "--checkpoint-path",
       options.checkpointPath,
+      "--quarantine-path",
+      options.quarantinePath,
       "--report-path",
       importReportPath,
       "--markdown-report-path",

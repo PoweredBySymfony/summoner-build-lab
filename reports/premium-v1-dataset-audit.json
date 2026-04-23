@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-04-23T14:21:35.787Z",
+  "generatedAt": "2026-04-23T14:35:21.111Z",
   "baseline": {
     "id": "premium-v1",
     "state": "frozen-for-ml-audit",
@@ -12,9 +12,9 @@
     "competitiveReport": "Rapport pipeline competitif source-filtered, limite aux imports competitifs observes par le checkpoint/report."
   },
   "scopeComparison": {
-    "dbWideTotalMatches": 1725,
-    "competitiveMatchesInDb": 1710,
-    "premiumOnlyMatches": 1710,
+    "dbWideTotalMatches": 1858,
+    "competitiveMatchesInDb": 1843,
+    "premiumOnlyMatches": 1843,
     "excludedNonCompetitiveMatches": 15,
     "excludedCompetitiveUnknownTierMatches": 0,
     "competitiveUnknownTierCount": 0,
@@ -22,8 +22,8 @@
   },
   "scopes": {
     "dbWide": {
-      "totalImportedMatches": 1725,
-      "totalValidTimelines": 1722,
+      "totalImportedMatches": 1858,
+      "totalValidTimelines": 1855,
       "matchsParPatch": [
         {
           "patch": "26.6",
@@ -31,11 +31,11 @@
         },
         {
           "patch": "26.7",
-          "count": 485
+          "count": 504
         },
         {
           "patch": "26.8",
-          "count": 146
+          "count": 260
         },
         {
           "patch": "26.3",
@@ -121,7 +121,7 @@
       "matchsParSourceKind": [
         {
           "sourceKind": "PRO_SEED",
-          "count": 1641
+          "count": 1774
         },
         {
           "sourceKind": "ELITE_SEED",
@@ -135,7 +135,7 @@
       "matchsParSourceTier": [
         {
           "sourceTier": "pro",
-          "count": 1641
+          "count": 1774
         },
         {
           "sourceTier": "elite",
@@ -153,7 +153,7 @@
         },
         {
           "sourceLeague": "First Stand",
-          "count": 521
+          "count": 654
         },
         {
           "sourceLeague": "World Championship",
@@ -178,12 +178,12 @@
       ],
       "matchsParSourceRegionHint": [
         {
-          "sourceRegionHint": "Korea",
-          "count": 792
+          "sourceRegionHint": "International",
+          "count": 896
         },
         {
-          "sourceRegionHint": "International",
-          "count": 763
+          "sourceRegionHint": "Korea",
+          "count": 792
         },
         {
           "sourceRegionHint": "Americas",
@@ -206,12 +206,12 @@
           "count": 2
         }
       ],
-      "premiumRecentMatches26x": 1473,
-      "premiumRecentShare26x": 85.39
+      "premiumRecentMatches26x": 1492,
+      "premiumRecentShare26x": 80.3
     },
     "premiumOnly": {
-      "totalImportedMatches": 1710,
-      "totalValidTimelines": 1707,
+      "totalImportedMatches": 1843,
+      "totalValidTimelines": 1840,
       "matchsParPatch": [
         {
           "patch": "26.6",
@@ -219,11 +219,11 @@
         },
         {
           "patch": "26.7",
-          "count": 477
+          "count": 496
         },
         {
           "patch": "26.8",
-          "count": 145
+          "count": 259
         },
         {
           "patch": "26.3",
@@ -309,7 +309,7 @@
       "matchsParSourceKind": [
         {
           "sourceKind": "PRO_SEED",
-          "count": 1641
+          "count": 1774
         },
         {
           "sourceKind": "ELITE_SEED",
@@ -319,7 +319,7 @@
       "matchsParSourceTier": [
         {
           "sourceTier": "pro",
-          "count": 1641
+          "count": 1774
         },
         {
           "sourceTier": "elite",
@@ -333,7 +333,7 @@
         },
         {
           "sourceLeague": "First Stand",
-          "count": 521
+          "count": 654
         },
         {
           "sourceLeague": "World Championship",
@@ -354,12 +354,12 @@
       ],
       "matchsParSourceRegionHint": [
         {
-          "sourceRegionHint": "Korea",
-          "count": 792
+          "sourceRegionHint": "International",
+          "count": 896
         },
         {
-          "sourceRegionHint": "International",
-          "count": 763
+          "sourceRegionHint": "Korea",
+          "count": 792
         },
         {
           "sourceRegionHint": "Americas",
@@ -374,8 +374,8 @@
           "count": 11
         }
       ],
-      "premiumRecentMatches26x": 1460,
-      "premiumRecentShare26x": 85.38
+      "premiumRecentMatches26x": 1479,
+      "premiumRecentShare26x": 80.25
     }
   },
   "dataset": {
