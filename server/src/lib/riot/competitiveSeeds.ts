@@ -67,6 +67,7 @@ export type EliteSeedDiscoveryOptions = {
   queue: "RANKED_SOLO_5x5";
   tiers: Array<"challenger" | "grandmaster" | "master">;
   maxEntriesPerTier: number;
+  maxConsecutiveFailures: number;
   season: string;
   seedSetVersion: string;
 };
@@ -98,6 +99,7 @@ export const DEFAULT_ELITE_SEED_OPTIONS: EliteSeedDiscoveryOptions = {
   queue: "RANKED_SOLO_5x5",
   tiers: ["challenger", "grandmaster", "master"],
   maxEntriesPerTier: 150,
+  maxConsecutiveFailures: 3,
   season: DEFAULT_COMPETITIVE_SEASON,
   seedSetVersion: DEFAULT_COMPETITIVE_SEED_SET_VERSION,
 };
@@ -183,21 +185,35 @@ async function fetchEliteSeedsForPlatform(
   const cluster = PLATFORM_TO_REGION[platform];
   const seeds: CompetitiveSeed[] = [];
   const isAuthFailure = (message: string) => /forbidden|authentication failed/i.test(message);
+  let consecutiveFailures = 0;
+
+  const recordFailure = (context: string, error: unknown) => {
+    consecutiveFailures += 1;
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn(
+      "[competitive-seeds] elite-request-failed",
+      JSON.stringify({
+        platform,
+        context,
+        consecutiveFailures,
+        message,
+      }),
+    );
+    if (consecutiveFailures >= options.maxConsecutiveFailures) {
+      throw new Error(
+        `Elite seed discovery stopped after ${consecutiveFailures} consecutive failures on ${platform}.`,
+      );
+    }
+  };
 
   for (const tier of options.tiers) {
     let response: RiotLeagueListResponse;
     try {
       response = await riotApiClient.getLeagueEntriesByQueueOnPlatform(platform, options.queue, tier);
+      consecutiveFailures = 0;
     } catch (error) {
+      recordFailure(`tier:${tier}`, error);
       const message = error instanceof Error ? error.message : String(error);
-      console.warn(
-        "[competitive-seeds] elite-tier-fetch-failed",
-        JSON.stringify({
-          platform,
-          tier,
-          message,
-        }),
-      );
       if (isAuthFailure(message)) {
         throw error;
       }
@@ -231,6 +247,7 @@ async function fetchEliteSeedsForPlatform(
         }
 
         const account = await riotApiClient.getAccountByPuuidOnRegion(resolvedPuuid, cluster);
+        consecutiveFailures = 0;
         const riotId = account.gameName && account.tagLine
           ? `${account.gameName}#${account.tagLine}`
           : null;
@@ -258,7 +275,11 @@ async function fetchEliteSeedsForPlatform(
           sourceTournamentDate: null,
           sourceUrl: null,
         }));
-      } catch (error) {
+        } catch (error) {
+        recordFailure(
+          `tier:${tier}:entry:${index}`,
+          error,
+        );
         console.warn(
           "[competitive-seeds] elite-seed-resolution-failed",
           JSON.stringify({

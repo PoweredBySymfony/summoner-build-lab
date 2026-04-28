@@ -1,4 +1,4 @@
-import { AlertCircle, BarChart3, Crosshair, Eye, Sparkles, Swords, Trophy } from "lucide-react";
+import { AlertCircle, BarChart3, Crosshair, Eye, Loader2, Plus, Sparkles, Swords, Trophy } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { RiotIdSearch } from "@/components/RiotIdSearch";
@@ -12,10 +12,13 @@ const PlayerProfile = () => {
   const params = useParams();
   const riotId = params.gameName && params.tagLine ? `${params.gameName}#${params.tagLine}` : undefined;
   const { data: user } = useCurrentUser();
-  const { data, isLoading, error } = usePlayerSearch(riotId);
+  const [matchFetchCount, setMatchFetchCount] = useState(5);
+  const { data, isLoading, error, isFetching } = usePlayerSearch(riotId, matchFetchCount);
   const importRecentMatches = useImportRecentMatches();
   const generateMatchSeries = useGenerateMatchPuzzleSeries();
   const [generationResult, setGenerationResult] = useState<GeneratedMatchPuzzleResponse | null>(null);
+  const [generationError, setGenerationError] = useState<string | null>(null);
+  const [selectedMatchId, setSelectedMatchId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!data) {
@@ -30,6 +33,43 @@ const PlayerProfile = () => {
   }, [data]);
 
   const profileIconUrl = buildRiotProfileIconUrl(data?.profile.profileIconId);
+  const canLoadMoreMatches = matchFetchCount < 20 && data ? data.recentMatches.length >= matchFetchCount : false;
+
+  const generateSeriesFromMatch = async (matchId: string, matchIndex: number) => {
+    if (!data) {
+      return;
+    }
+
+    setGenerationResult(null);
+    setGenerationError(null);
+    setSelectedMatchId(matchId);
+
+    try {
+      const importCount = Math.max(1, Math.min(20, matchIndex + 1));
+      const importedMatches = await importRecentMatches.mutateAsync({
+        puuid: data.profile.puuid,
+        count: importCount,
+      });
+      const importedMatch = importedMatches.find((match) => match.riotMatchId === matchId);
+
+      if (!importedMatch) {
+        throw new Error("Cette partie n'a pas pu etre importee pour l'analyse.");
+      }
+
+      const series = await generateMatchSeries.mutateAsync({ importedMatchId: importedMatch.id });
+      if (series.generationStatus === "completed") {
+        savePuzzleSeries(series.slugs);
+        navigate(`/training/${series.slug}`);
+        return;
+      }
+
+      setGenerationResult(series);
+    } catch (generationError) {
+      setGenerationError(generationError instanceof Error ? generationError.message : "Generation impossible pour cette partie.");
+    } finally {
+      setSelectedMatchId(null);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-background pb-10 pt-20">
@@ -64,23 +104,13 @@ const PlayerProfile = () => {
                     <button
                       type="button"
                       className="inline-flex min-h-11 items-center gap-2 rounded-2xl bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground transition hover:opacity-90"
-                      onClick={async () => {
-                        setGenerationResult(null);
-                        const imported = await importRecentMatches.mutateAsync({ puuid: data.profile.puuid, count: 1 });
-                        if (!imported[0]) {
-                          return;
+                      onClick={() => {
+                        const latestMatch = data.recentMatches[0];
+                        if (latestMatch) {
+                          void generateSeriesFromMatch(latestMatch.matchId, 0);
                         }
-
-                        const series = await generateMatchSeries.mutateAsync({ importedMatchId: imported[0].id });
-                        if (series.generationStatus === "completed") {
-                          savePuzzleSeries(series.slugs);
-                          navigate(`/training/${series.slug}`);
-                          return;
-                        }
-
-                        setGenerationResult(series);
                       }}
-                      disabled={importRecentMatches.isPending || generateMatchSeries.isPending}
+                      disabled={!data.recentMatches[0] || importRecentMatches.isPending || generateMatchSeries.isPending}
                     >
                       <Sparkles className="h-4 w-4" />
                       Generer une serie depuis la derniere partie
@@ -115,6 +145,11 @@ const PlayerProfile = () => {
                         Rejets dominants: {generationResult.dominantRejectionReasons.join(", ")}
                       </p>
                     ) : null}
+                  </div>
+                ) : null}
+                {generationError ? (
+                  <div className="mt-4 rounded-2xl border border-destructive/30 bg-background/60 px-4 py-3 text-sm text-destructive">
+                    {generationError}
                   </div>
                 ) : null}
               </div>
@@ -228,12 +263,12 @@ const PlayerProfile = () => {
               <div className="glass-surface rounded-[32px] p-6">
                 <div className="flex items-center justify-between gap-3">
                   <p className="text-xs font-semibold uppercase tracking-[0.24em] text-primary">Parties recentes</p>
-                  <p className="text-sm text-muted-foreground">{data.summary.matchesAnalyzed} dernieres parties</p>
+                  <p className="text-sm text-muted-foreground">{data.recentMatches.length} parties chargees</p>
                 </div>
                 <div className="mt-5 space-y-3">
-                  {data.recentMatches.map((match) => (
+                  {data.recentMatches.map((match, matchIndex) => (
                     <div key={match.matchId} className="rounded-3xl border border-border/60 bg-background/60 p-5">
-                      <div className="grid gap-4 xl:grid-cols-[0.2fr_0.12fr_0.18fr_0.14fr_0.18fr_0.18fr] xl:items-center">
+                      <div className="grid gap-4 xl:grid-cols-[0.18fr_0.11fr_0.16fr_0.12fr_0.14fr_0.17fr_0.12fr] xl:items-center">
                         <div>
                           <p className="font-semibold text-foreground">{match.championName}</p>
                           <p className="mt-1 text-sm text-muted-foreground">{match.queueLabel}</p>
@@ -280,10 +315,44 @@ const PlayerProfile = () => {
                             )
                           ))}
                         </div>
+                        <div className="flex xl:justify-end">
+                          {user ? (
+                            <button
+                              type="button"
+                              className="inline-flex min-h-11 items-center gap-2 rounded-2xl border border-primary/40 px-3 py-2 text-sm font-semibold text-primary transition hover:bg-primary/10 disabled:cursor-not-allowed disabled:opacity-60"
+                              onClick={() => generateSeriesFromMatch(match.matchId, matchIndex)}
+                              disabled={
+                                selectedMatchId === match.matchId
+                                || importRecentMatches.isPending
+                                || generateMatchSeries.isPending
+                              }
+                            >
+                              {selectedMatchId === match.matchId ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : (
+                                <Sparkles className="h-4 w-4" />
+                              )}
+                              Analyser
+                            </button>
+                          ) : null}
+                        </div>
                       </div>
                     </div>
                   ))}
                 </div>
+                {canLoadMoreMatches ? (
+                  <div className="mt-5 flex justify-center">
+                    <button
+                      type="button"
+                      className="inline-flex min-h-11 items-center gap-2 rounded-2xl border border-border/70 px-4 py-2 text-sm font-semibold text-foreground transition hover:border-primary/50 hover:text-primary disabled:cursor-not-allowed disabled:opacity-60"
+                      onClick={() => setMatchFetchCount((current) => Math.min(20, current + 5))}
+                      disabled={isFetching}
+                    >
+                      {isFetching ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+                      Charger plus de parties
+                    </button>
+                  </div>
+                ) : null}
               </div>
             </section>
           </>

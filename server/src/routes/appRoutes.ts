@@ -367,7 +367,7 @@ router.get("/players/search", playerSearchLimiter, async (request, response, nex
         .string()
         .trim()
         .regex(/^[^#]+#[^#]+$/, "Le Riot ID doit respecter le format GameName#TAG"),
-      count: z.coerce.number().min(1).max(10).default(5),
+      count: z.coerce.number().min(1).max(20).default(5),
     }).parse(request.query);
 
     const [gameName, tagLine] = payload.riotId.split("#");

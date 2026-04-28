@@ -27,6 +27,7 @@ type CliOptions = {
   includeElite: boolean;
   elitePlatforms: RiotPlatform[];
   eliteMaxEntriesPerTier: number;
+  eliteMaxConsecutiveFailures: number;
   curatedProPath: string;
   enableLeaguepedia: boolean;
   seedsCachePath: string;
@@ -43,6 +44,7 @@ function parseArgs(argv: string[]): CliOptions {
     includeElite: true,
     elitePlatforms: DEFAULT_ELITE_SEED_OPTIONS.platforms,
     eliteMaxEntriesPerTier: DEFAULT_ELITE_SEED_OPTIONS.maxEntriesPerTier,
+    eliteMaxConsecutiveFailures: DEFAULT_ELITE_SEED_OPTIONS.maxConsecutiveFailures,
     curatedProPath: path.join("data", "seeds", "pro-curated-2026.json"),
     enableLeaguepedia: true,
     seedsCachePath: DEFAULT_SEEDS_CACHE_PATH,
@@ -86,6 +88,12 @@ function parseArgs(argv: string[]): CliOptions {
         options.eliteMaxEntriesPerTier = Number(next ?? String(DEFAULT_ELITE_SEED_OPTIONS.maxEntriesPerTier));
         index += 1;
         break;
+      case "--elite-max-consecutive-failures":
+        options.eliteMaxConsecutiveFailures = Number(
+          next ?? String(DEFAULT_ELITE_SEED_OPTIONS.maxConsecutiveFailures),
+        );
+        index += 1;
+        break;
       case "--curated-pro-path":
         if (next) {
           options.curatedProPath = next;
@@ -116,6 +124,9 @@ function parseArgs(argv: string[]): CliOptions {
       case "--source-profile":
         if (next === "canon" || next === "wide") {
           options.sourceProfile = next;
+          if (next === "wide") {
+            options.includeElite = false;
+          }
         }
         index += 1;
         break;
@@ -203,6 +214,7 @@ async function main() {
     eliteOptions: {
       platforms: options.elitePlatforms,
       maxEntriesPerTier: options.eliteMaxEntriesPerTier,
+      maxConsecutiveFailures: options.eliteMaxConsecutiveFailures,
     },
   });
   const quality = buildSeedQualityReport(manifest.players);

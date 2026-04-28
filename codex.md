@@ -63,6 +63,87 @@ Lire ce fichier au debut de chaque nouvelle conversation sur ce repo, puis le me
     - au `2026-04-05`, `15` puzzles AI recents ont ete flagges puis quarantaines
     - les cas confirmes incluent les puzzles Yunara avec `Dague` comme bonne reponse
 
+## 2026-04-28 Audit Reprise Objectifs + UX Profil Joueur
+
+- Sources relues:
+  - plans PDF/Markdown fournis dans `Downloads`
+  - rapports locaux `reports/*`
+  - scripts d'ingestion / audit / generation match-based
+  - page `src/pages/PlayerProfile.tsx`
+- Objectifs deja remplis:
+  - separation import policy / training policy en place via `competitive-ingestion-policy-2026*.json`
+  - sourcing competitif versionne en place (`pro`, `elite`, provenance connue)
+  - Mongo sidecar actif:
+    - `npm run audit:readiness-10k`
+    - `totalImportedMatches = 1858`
+    - `mongoMatchCount = 1858`
+    - `mongoTimelineCount = 1855`
+    - `mongoBackedMatchCoverage = 100`
+  - provenance premium fiabilisee:
+    - `premiumOnlyMatches = 1843`
+    - `competitiveUnknownTierCount = 0`
+    - repartition: `pro = 1774`, `elite = 69`
+  - qualite produit match-based redevenue exploitable:
+    - `npm run audit:match-based-validation -- --sample-size 20`
+    - `completedRate = 0.95`
+    - `noViableSnapshotFoundRate = 0.05`
+    - `distinctSelectedSnapshotSignatureCount = 19`
+    - `reusedSelectedSnapshotSignatureCount = 0`
+    - `patchCatalogFallbackOccurrences = 0`
+  - dataset premium strict recent disponible:
+    - `totalSnapshotsGenerated = 12019`
+    - `snapshotsTrainableStrictRecents = 12019`
+    - `goldIncoherentRatio = 0.3123387969049006`
+- Objectifs partiellement remplis:
+  - volume:
+    - `targetCompletionPercent = 18.58` vers `10000`
+    - il manque `8142` matchs pour la cible 10k
+    - il manque environ `142` matchs pour passer le palier `2000`
+  - ingestion:
+    - la qualite est saine, mais le rendement reste bloque par le vivier exploitable, `target-participant-missing`, seeds sans matchs et echecs Riot
+    - `riot:report-competitive` remonte `resolvedButNoMatches = 270`, `failedFetch = 402`, `resolvedWithAcceptedMatches = 5`
+  - training/reporting:
+    - le dataset ML est recent-first, mais l'audit premium reste marque `ingestionFrozen = true`; il faut acter explicitement la reprise d'ingestion avant les runs lourds
+  - UI profil joueur:
+    - avant ce passage, la generation depuis profil utilisait uniquement la derniere partie
+- Changements appliques:
+  - `src/pages/PlayerProfile.tsx`
+    - affichage initial conserve a `5` parties
+    - ajout d'un bouton `Charger plus de parties`
+    - chargement par increments de `5` jusqu'a `20`
+    - ajout d'une action `Analyser` par partie visible
+    - chaque action importe le match correspondant et genere une serie depuis ce match, pas seulement depuis la derniere partie
+  - `src/api/hooks.ts`
+    - `usePlayerSearch(riotId, count)` inclut maintenant `count` dans la query key et l'URL
+  - `server/src/routes/appRoutes.ts`
+    - `/players/search` accepte maintenant `count <= 20`
+- Plan d'attaque recommande:
+  - phase 0, avant import lourd:
+    - garder `npm run audit:match-based-validation -- --sample-size 20` comme gate qualite
+    - garder `npm run audit:readiness-10k` comme compteur de palier
+    - ne pas lancer d'import lourd tant que l'utilisateur n'a pas explicitement valide le run foreground
+  - phase A `2000`:
+    - viser les `142` matchs manquants avec checkpoint dedie
+    - commencer par le canon `v1-growth`
+    - si rendement insuffisant, tester `campaign:competitive:wide` en run borne, puis comparer les rapports
+  - phase B `5000`:
+    - promouvoir seulement le seed set qui augmente les imports reels sans degrader `completedRate`, `timelineCoveragePercent` et la part premium 26.x
+    - ajouter un diagnostic automatique des seeds `resolvedButNoMatches`
+  - phase C `8000`:
+    - elargir le sourcing uniquement si le rapport dit que le blocage vient du vivier, pas de la qualite ML
+    - maintenir les caps par tier et la separation strict train / fallback import
+  - phase D `10000`:
+    - run foreground avec `phase-10000.*`
+    - validation finale: `mongoMatchCount >= 10000`, `mongoTimelineCount` proche, `noViableSnapshotRate < 15%`, aucune resurgence de `patch-catalog-fallback`
+- Dette technique constatee:
+  - `npx tsc -p tsconfig.server.json --noEmit` passe
+  - `npx tsc -p tsconfig.app.json --noEmit` echoue encore sur dettes hors changement:
+    - lib target trop bas pour `replaceAll`
+    - type `LocalizedText` manquant
+    - mismatch readonly dans tests ML
+    - types d'ARIA dans `ItemIcon`
+  - `npx eslint src/pages/PlayerProfile.tsx src/api/hooks.ts server/src/routes/appRoutes.ts` passe
+
 ## Execution Strategy 10k + Publishability
 
 - Garde-fous deja en place:
@@ -95,6 +176,11 @@ Lire ce fichier au debut de chaque nouvelle conversation sur ce repo, puis le me
     - le payload Riot ladder renvoie maintenant `puuid` directement dans les entries
     - le code attendait encore `summonerId` comme source primaire, ce qui cassait artificiellement la resolution des seeds elite
     - `server/src/lib/riot/competitiveSeeds.ts` consomme maintenant `puuid` en priorite et garde `summonerId` en fallback legacy
+  - correction `2026-04-23`:
+    - le profil `wide` de generation de seeds competitive est maintenant `pro-only` par defaut
+    - le job wide ne repasse plus par la discovery elite Riot, ce qui evite de rebruiter les memes erreurs pendant l'expansion du vivier
+    - la discovery elite dispose maintenant d'un budget de consecutive failures pour stopper les boucles de `Riot API request failed`
+    - l'artefact wide est maintenant separé du canon: `competitive-seeds-2026-wide-pro.json`
   - elite ladder par defaut:
     - plateformes: `kr`, `euw1`, `na1`, `br1`, `eun1`, `jp1`, `la1`, `la2`
     - tiers: `challenger`, `grandmaster`, `master`

@@ -165,10 +165,10 @@ export const useGenerateMatchPuzzleSeries = () => {
   });
 };
 
-export const usePlayerSearch = (riotId: string | undefined) =>
+export const usePlayerSearch = (riotId: string | undefined, count = 5) =>
   useQuery({
-    queryKey: ["players", riotId],
-    queryFn: () => apiFetch<PlayerSearchPayload>(`/players/search?riotId=${encodeURIComponent(riotId ?? "")}`),
+    queryKey: ["players", riotId, count],
+    queryFn: () => apiFetch<PlayerSearchPayload>(`/players/search?riotId=${encodeURIComponent(riotId ?? "")}&count=${count}`),
     enabled: Boolean(riotId),
     retry: false,
   });
