@@ -35,6 +35,7 @@
     "riot:prepare-competitive-seeds:wide": "tsx scripts/prepareCompetitiveSeeds.ts --source-profile wide --output data/seeds/competitive-seeds-2026-wide-pro.json",
     "riot:import-competitive": "tsx scripts/importCompetitiveMatches.ts",
     "riot:report-competitive": "tsx scripts/reportCompetitiveIngestion.ts",
+    "riot:report-seed-yield": "tsx scripts/reportCompetitiveSeedYield.ts",
     "riot:report-competitive-throughput": "tsx scripts/reportCompetitiveThroughput.ts",
     "campaign:competitive": "tsx scripts/runCompetitiveCampaign.ts",
     "campaign:competitive:v1-growth": "tsx scripts/runCompetitiveCampaign.ts --seed-path data/seeds/competitive-seeds-2026.json --policy-path data/config/competitive-ingestion-policy-2026-v1-growth.json --max-seed-discovery-failures 2",

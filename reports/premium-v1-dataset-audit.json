@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-04-28T10:26:31.022Z",
+  "generatedAt": "2026-04-28T10:51:03.738Z",
   "baseline": {
     "id": "premium-v1",
     "state": "frozen-for-ml-audit",
@@ -12,9 +12,9 @@
     "competitiveReport": "Rapport pipeline competitif source-filtered, limite aux imports competitifs observes par le checkpoint/report."
   },
   "scopeComparison": {
-    "dbWideTotalMatches": 1858,
-    "competitiveMatchesInDb": 1843,
-    "premiumOnlyMatches": 1843,
+    "dbWideTotalMatches": 1912,
+    "competitiveMatchesInDb": 1897,
+    "premiumOnlyMatches": 1897,
     "excludedNonCompetitiveMatches": 15,
     "excludedCompetitiveUnknownTierMatches": 0,
     "competitiveUnknownTierCount": 0,
@@ -22,8 +22,8 @@
   },
   "scopes": {
     "dbWide": {
-      "totalImportedMatches": 1858,
-      "totalValidTimelines": 1855,
+      "totalImportedMatches": 1912,
+      "totalValidTimelines": 1909,
       "matchsParPatch": [
         {
           "patch": "26.6",
@@ -35,7 +35,7 @@
         },
         {
           "patch": "26.8",
-          "count": 260
+          "count": 314
         },
         {
           "patch": "26.3",
@@ -121,7 +121,7 @@
       "matchsParSourceKind": [
         {
           "sourceKind": "PRO_SEED",
-          "count": 1774
+          "count": 1828
         },
         {
           "sourceKind": "ELITE_SEED",
@@ -135,7 +135,7 @@
       "matchsParSourceTier": [
         {
           "sourceTier": "pro",
-          "count": 1774
+          "count": 1828
         },
         {
           "sourceTier": "elite",
@@ -149,7 +149,7 @@
       "matchsParSourceLeague": [
         {
           "sourceLeague": "LoL Champions Korea",
-          "count": 792
+          "count": 846
         },
         {
           "sourceLeague": "First Stand",
@@ -183,7 +183,7 @@
         },
         {
           "sourceRegionHint": "Korea",
-          "count": 792
+          "count": 846
         },
         {
           "sourceRegionHint": "Americas",
@@ -207,11 +207,11 @@
         }
       ],
       "premiumRecentMatches26x": 1492,
-      "premiumRecentShare26x": 80.3
+      "premiumRecentShare26x": 78.03
     },
     "premiumOnly": {
-      "totalImportedMatches": 1843,
-      "totalValidTimelines": 1840,
+      "totalImportedMatches": 1897,
+      "totalValidTimelines": 1894,
       "matchsParPatch": [
         {
           "patch": "26.6",
@@ -223,7 +223,7 @@
         },
         {
           "patch": "26.8",
-          "count": 259
+          "count": 313
         },
         {
           "patch": "26.3",
@@ -309,7 +309,7 @@
       "matchsParSourceKind": [
         {
           "sourceKind": "PRO_SEED",
-          "count": 1774
+          "count": 1828
         },
         {
           "sourceKind": "ELITE_SEED",
@@ -319,7 +319,7 @@
       "matchsParSourceTier": [
         {
           "sourceTier": "pro",
-          "count": 1774
+          "count": 1828
         },
         {
           "sourceTier": "elite",
@@ -329,7 +329,7 @@
       "matchsParSourceLeague": [
         {
           "sourceLeague": "LoL Champions Korea",
-          "count": 792
+          "count": 846
         },
         {
           "sourceLeague": "First Stand",
@@ -359,7 +359,7 @@
         },
         {
           "sourceRegionHint": "Korea",
-          "count": 792
+          "count": 846
         },
         {
           "sourceRegionHint": "Americas",
@@ -375,7 +375,7 @@
         }
       ],
       "premiumRecentMatches26x": 1479,
-      "premiumRecentShare26x": 80.25
+      "premiumRecentShare26x": 77.97
     }
   },
   "dataset": {

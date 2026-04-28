@@ -210,6 +210,29 @@ export interface GeneratedPuzzleItemExplanation {
     comparedValue: number;
     delta: number;
   }>;
+  damageRows: Array<{
+    key: string;
+    label: string;
+    recommendedValue: number;
+    comparedValue: number;
+    delta: number;
+    unit: string;
+    interpretation: string;
+  }>;
+  efficiencyRows: Array<{
+    key: string;
+    label: string;
+    recommendedValue: number;
+    comparedValue: number;
+    delta: number;
+    unit: string;
+  }>;
+  strategicVerdict: {
+    winner: "recommended" | "compared" | "tie";
+    confidence: "low" | "medium" | "high";
+    summary: string;
+    reasons: string[];
+  };
   exportPayload: {
     filename: string;
     rows: Array<{
@@ -218,6 +241,8 @@ export interface GeneratedPuzzleItemExplanation {
       recommended: number;
       compared: number;
       delta: number;
+      unit?: string;
+      note?: string;
     }>;
   };
   cacheHit: boolean;

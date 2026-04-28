@@ -787,7 +787,6 @@ async function discoverSeeds(
   let consecutiveFailures = 0;
   const maxConsecutiveFailures = input.maxConsecutiveFailures ?? 2;
   let stopReason: string | null = null;
-  let discoveryStopReason: string | null = null;
   const authFailureCountsBySeedKey = new Map<string, number>();
   const authFailureCountsByRegion = new Map<string, number>();
   let lastFailureSeedKey: string | null = null;
@@ -1935,8 +1934,8 @@ async function main() {
       } catch (error) {
         const failureMessage = error instanceof Error ? error.message : String(error);
         if (failureMessage.toLowerCase().includes("authentication failed")) {
-          authFailureCountsBySeedKey.set(candidate.discovery.seedKey, (authFailureCountsBySeedKey.get(candidate.discovery.seedKey) ?? 0) + 1);
-          authFailureCountsByRegion.set(candidate.discovery.region, (authFailureCountsByRegion.get(candidate.discovery.region) ?? 0) + 1);
+          authFailureCountsBySeedKey.set(candidate.seedKey, (authFailureCountsBySeedKey.get(candidate.seedKey) ?? 0) + 1);
+          authFailureCountsByRegion.set(candidate.cluster, (authFailureCountsByRegion.get(candidate.cluster) ?? 0) + 1);
         }
         failedMatches.push({
           matchId: candidate.matchId,

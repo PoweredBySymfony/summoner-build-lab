@@ -146,6 +146,108 @@ Lire ce fichier au debut de chaque nouvelle conversation sur ce repo, puis le me
 
 ## Execution Strategy 10k + Publishability
 
+## 2026-04-28 Suite Plan D'attaque 2000 + UX Operationnelle
+
+- Skills utilises:
+  - `skill-creator` et `skill-installer` relus; pas de nouveau skill installe car le besoin est specifique au produit et mieux documente ici + dans les scripts repo
+  - `frontend-design` applique pour compacter la page profil et rendre la preuve item plus operationnelle
+- Ingestion vers le palier `2000`:
+  - canon `v1-growth` relance en foreground:
+    - `createdMatches = 0`
+    - `totalCompetitiveMatchesInDb = 1843`
+    - `resolvedSeedCount = 275`
+    - `resolvedButNoMatches = 270`
+    - `resolvedWithAcceptedMatches = 5`
+    - blocage principal: vivier deja epuise + `target-participant-missing`
+  - artefact wide regenere:
+    - commande: `npm run riot:prepare-competitive-seeds:wide`
+    - sortie: `data/seeds/competitive-seeds-2026-wide-pro.json`
+    - `180` seeds pro, `75` resolues apres run, `105` unresolved dans le checkpoint wide
+  - attention workflow:
+    - le script `campaign:competitive:wide` doit recevoir un `--checkpoint-path` dedie
+    - sans cela il peut reutiliser le checkpoint canon et fausser le test wide
+  - checkpoint dedie utilise:
+    - `data/runtime/competitive-ingestion/phase-2000-wide-pro-2026-04-28.checkpoint.json`
+  - resultat du run wide dedie:
+    - +`54` matchs importes en deux passages sur ce checkpoint (`15` avant crash observe, puis `39` apres correctif)
+    - dernier run: `createdMatches = 39`, `failedMatchesCount = 3`
+    - stop gate: `max-auth-failures-per-run:3`
+    - `policyAcceptedMatches = 150`
+    - `importCountsByTier = { tier1: 39 }`
+    - `importCountsByPatchBucket = { exact_target_patch: 39 }`
+    - `importCountsByQueueBucket = { preferred_queue: 39 }`
+- Etat readiness apres run:
+  - commande: `npm run audit:readiness-10k`
+  - `totalImportedMatches = 1912`
+  - `mongoMatchCount = 1912`
+  - `mongoTimelineCount = 1909`
+  - `targetCompletionPercent = 19.12`
+  - `mongoBackedMatchCoverage = 100`
+  - `noViableSnapshotRate = 5.6`
+  - `viableSnapshotRate = 96.22`
+  - `publishableSnapshotRate = 67.3`
+  - rejet dominant restant: `low-confidence`
+- Gate qualite du run wide:
+  - `audit:match-based-validation` du run: `sample-size = 20`
+  - `completedRate = 0.95`
+  - `noViableSnapshotFoundRate = 0.05`
+  - `distinctSelectedSnapshotSignatureCount = 19`
+  - `reusedSelectedSnapshotSignatureCount = 0`
+  - `patchCatalogFallbackOccurrences = 0`
+- Diagnostic seeds ajoute:
+  - script: `scripts/reportCompetitiveSeedYield.ts`
+  - commande: `npm run riot:report-seed-yield`
+  - sorties:
+    - `reports/competitive-seed-yield-report.json`
+    - `reports/competitive-seed-yield-report.md`
+  - dernier rapport:
+    - `productiveSeeds = 5`
+    - `resolvedNoMatchesSeeds = 70`
+    - `discoveredNoImportSeeds = 0`
+    - `importedMatchesInCheckpoint = 49`
+    - `attemptedMatchesInCheckpoint = 52`
+    - `failedMatchesInCheckpoint = 3`
+  - interpretation:
+    - le blocage avant `5000` vient du vivier wide trop pauvre, pas d'une degradation ML
+    - prochain run utile: enrichir/remplacer les `105` unresolved et investiguer les `70` seeds resolues sans match avant d'elargir encore
+- Correctifs import:
+  - `scripts/importCompetitiveMatches.ts`
+    - crash corrige dans le compteur d'echecs auth:
+      - symptome: `TypeError: Cannot read properties of undefined (reading 'seedKey')`
+      - cause: le catch d'import lisait `candidate.discovery.seedKey` alors que le candidat aplati expose `seedKey` et `cluster`
+      - correctif: compter par `candidate.seedKey` et `candidate.cluster`
+- UX profil joueur:
+  - `src/pages/PlayerProfile.tsx`
+    - passage a une vue plus compacte et operationnelle
+    - stats principales regroupees en bandeau dense
+    - hero, recherche, panels et lignes de matchs reduits en hauteur
+    - les parties visibles gardent le bouton `Analyser`
+    - le bouton `Charger plus de parties` reste le mecanisme d'expansion par tranche
+- Preuve item v2:
+  - `server/src/services/itemExplanationService.ts`
+    - cache key versionnee en `v2`
+    - ajout de `damageRows`, `efficiencyRows`, `strategicVerdict`
+    - export CSV enrichi avec `unit` et `note`
+  - `src/components/PuzzleItemExplanationDialog.tsx`
+    - refonte compacte type tableau d'audit
+    - lecture par sections `Degats reels`, `Efficacite`, `Strategie`, `Stats item`
+    - objectif: expliquer pourquoi l'item choisi est juste/faux via degats reels, degats potentiels, budget, timing et strategie plutot qu'un texte generique
+  - `src/types/domain.ts`
+    - contrat frontend aligne sur la preuve v2
+- Validations:
+  - `npx eslint scripts/reportCompetitiveSeedYield.ts scripts/importCompetitiveMatches.ts src/pages/PlayerProfile.tsx src/components/PuzzleItemExplanationDialog.tsx server/src/services/itemExplanationService.ts`
+  - `npm run build`
+- Plan actualise:
+  - finir `2000` par micro-runs foreground wide avec le checkpoint dedie, tant que `audit:match-based-validation` reste >= `0.9 completedRate` et sans fallback catalogue
+  - avant `5000`, enrichir le manifest wide:
+    - corriger/ajouter Riot IDs pour les `105` unresolved
+    - trier les `70` resolved sans match via `reports/competitive-seed-yield-report.md`
+    - ne pas ouvrir de fallback non-pro tant que le diagnostic prouve que le souci est la resolution/vivier
+  - pour `8000` puis `10000`, elargir seulement apres preuve de rendement par seed et maintien de:
+    - `mongoBackedMatchCoverage = 100`
+    - `noViableSnapshotRate < 15%`
+    - `patchCatalogFallbackOccurrences = 0`
+
 - Garde-fous deja en place:
   - `low-confidence`
   - `good-answer-too-cheap`

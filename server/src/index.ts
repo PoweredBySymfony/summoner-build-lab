@@ -31,6 +31,7 @@ app.use(rateLimit({
   limit: 300,
   standardHeaders: true,
   legacyHeaders: false,
+  skip: (request) => request.path === "/api/generated-puzzles/item-explanation",
 }));
 app.use(cookieParser());
 app.use(express.json({ limit: "1mb" }));

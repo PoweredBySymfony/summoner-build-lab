@@ -145,6 +145,155 @@ function scoreProfiles(stats: NormalizedStats) {
   };
 }
 
+function estimateDamageProfile(stats: NormalizedStats) {
+  const critMultiplier = 1 + Math.min(100, Math.max(0, stats.critChance)) * 0.0075;
+  const attackSpeedMultiplier = 1 + Math.max(0, stats.attackSpeed) / 100;
+  const physicalAccess = 1 + Math.max(0, stats.armorPen) * 0.004 + Math.max(0, stats.lethality) * 0.012;
+  const magicAccess = 1 + Math.max(0, stats.magicPen) * 0.01;
+  const hasteMultiplier = 1 + Math.max(0, stats.abilityHaste) / 180;
+
+  const physicalBurst = stats.attackDamage * 1.35 * critMultiplier * physicalAccess + stats.lethality * 8;
+  const magicBurst = stats.abilityPower * 0.82 * magicAccess + stats.magicPen * 5.5;
+  const sustainedDps =
+    (stats.attackDamage * attackSpeedMultiplier * critMultiplier * physicalAccess)
+    + (stats.abilityPower * 0.22 * hasteMultiplier)
+    + stats.abilityHaste * 0.35;
+  const frontlineDps =
+    sustainedDps
+    + stats.armorPen * 2.6
+    + stats.magicPen * 2.2
+    + stats.attackSpeed * 0.7;
+  const effectiveDurability =
+    stats.health
+    + stats.armor * 13
+    + stats.magicResist * 13
+    + stats.healthRegen * 4;
+
+  return {
+    burstWindow: Math.round(physicalBurst + magicBurst),
+    sustainedDps: Math.round(sustainedDps),
+    frontlineDps: Math.round(frontlineDps),
+    effectiveDurability: Math.round(effectiveDurability),
+  };
+}
+
+function buildDamageRows(recommendedStats: NormalizedStats, comparedStats: NormalizedStats) {
+  const recommendedDamage = estimateDamageProfile(recommendedStats);
+  const comparedDamage = estimateDamageProfile(comparedStats);
+  const labels: Record<keyof typeof recommendedDamage, { label: string; unit: string; positive: string; negative: string }> = {
+    burstWindow: {
+      label: "Fenetre burst",
+      unit: "pts",
+      positive: "meilleur spike immediat",
+      negative: "moins de burst brut",
+    },
+    sustainedDps: {
+      label: "DPS potentiel",
+      unit: "pts",
+      positive: "meilleur rendement en combat long",
+      negative: "moins de degats continus",
+    },
+    frontlineDps: {
+      label: "Degats vs frontline",
+      unit: "pts",
+      positive: "meilleure valeur contre resistances",
+      negative: "moins de pression sur cibles epaisses",
+    },
+    effectiveDurability: {
+      label: "Survie effective",
+      unit: "pts",
+      positive: "meilleure marge defensive",
+      negative: "moins de marge defensive",
+    },
+  };
+
+  return (Object.keys(recommendedDamage) as Array<keyof typeof recommendedDamage>).map((key) => {
+    const recommendedValue = recommendedDamage[key];
+    const comparedValue = comparedDamage[key];
+    const delta = recommendedValue - comparedValue;
+    return {
+      key,
+      label: labels[key].label,
+      recommendedValue,
+      comparedValue,
+      delta,
+      unit: labels[key].unit,
+      interpretation: Math.abs(delta) < 1 ? "equivalent" : delta > 0 ? labels[key].positive : labels[key].negative,
+    };
+  });
+}
+
+function buildEfficiencyRows(input: {
+  recommendedGold: number;
+  comparedGold: number;
+  damageRows: ReturnType<typeof buildDamageRows>;
+  profileDeltaRows: Array<{ key: string; label: string; recommendedValue: number; comparedValue: number; delta: number }>;
+}) {
+  const recommendedDamageScore = input.damageRows.reduce((sum, row) => sum + Math.max(0, row.recommendedValue), 0);
+  const comparedDamageScore = input.damageRows.reduce((sum, row) => sum + Math.max(0, row.comparedValue), 0);
+  const recommendedProfileScore = input.profileDeltaRows.reduce((sum, row) => sum + Math.max(0, row.recommendedValue), 0);
+  const comparedProfileScore = input.profileDeltaRows.reduce((sum, row) => sum + Math.max(0, row.comparedValue), 0);
+  const perThousand = (value: number, gold: number) => Math.round((value / Math.max(1, gold)) * 1000);
+
+  return [
+    {
+      key: "damage-per-1000g",
+      label: "Degats / 1000 or",
+      recommendedValue: perThousand(recommendedDamageScore, input.recommendedGold),
+      comparedValue: perThousand(comparedDamageScore, input.comparedGold),
+      delta: 0,
+      unit: "pts",
+    },
+    {
+      key: "profile-per-1000g",
+      label: "Profil strategic / 1000 or",
+      recommendedValue: perThousand(recommendedProfileScore, input.recommendedGold),
+      comparedValue: perThousand(comparedProfileScore, input.comparedGold),
+      delta: 0,
+      unit: "pts",
+    },
+  ].map((row) => ({
+    ...row,
+    delta: row.recommendedValue - row.comparedValue,
+  }));
+}
+
+function buildStrategicVerdict(input: {
+  recommendedItemName: string;
+  comparedItemName: string;
+  blockedReasons: Array<{ code: string; message: string }>;
+  damageRows: ReturnType<typeof buildDamageRows>;
+  profileDeltaRows: Array<{ key: string; label: string; recommendedValue: number; comparedValue: number; delta: number }>;
+  efficiencyRows: ReturnType<typeof buildEfficiencyRows>;
+}) {
+  const damageDelta = input.damageRows.reduce((sum, row) => sum + row.delta, 0);
+  const profileDelta = input.profileDeltaRows.reduce((sum, row) => sum + row.delta, 0);
+  const efficiencyDelta = input.efficiencyRows.reduce((sum, row) => sum + row.delta, 0);
+  const blockerPenalty = input.blockedReasons.length > 0 ? 80 : 0;
+  const total = damageDelta * 0.55 + profileDelta * 6 + efficiencyDelta * 1.2 + blockerPenalty;
+  const winner = Math.abs(total) < 15 ? "tie" : total > 0 ? "recommended" : "compared";
+  const confidence = Math.abs(total) >= 90 || input.blockedReasons.length > 0 ? "high" : Math.abs(total) >= 35 ? "medium" : "low";
+  const bestDamageRows = [...input.damageRows].sort((left, right) => Math.abs(right.delta) - Math.abs(left.delta)).slice(0, 2);
+  const bestProfileRows = [...input.profileDeltaRows].sort((left, right) => Math.abs(right.delta) - Math.abs(left.delta)).slice(0, 2);
+  const reasons = [
+    ...bestDamageRows.map((row) => `${row.label}: ${row.delta >= 0 ? "+" : ""}${row.delta} ${row.unit} (${row.interpretation}).`),
+    ...bestProfileRows.map((row) => `${row.label}: ${row.delta >= 0 ? "+" : ""}${row.delta} pts de profil.`),
+    ...input.blockedReasons.slice(0, 2).map((reason) => reason.message),
+  ].slice(0, 5);
+
+  return {
+    winner,
+    confidence,
+    summary:
+      winner === "recommended"
+        ? `${input.recommendedItemName} est plus coherent ici: meilleur compromis degats reels, profil de fight et contraintes d'achat.`
+        : winner === "compared"
+          ? `${input.comparedItemName} gagne certains chiffres bruts, mais cette lecture doit etre verifiee contre les contraintes du snapshot.`
+          : "Les deux options sont proches: la decision depend surtout du contexte de fight et des contraintes d'achat.",
+    reasons,
+  };
+}
+
 function extractScenarioItemSlugs(currentBuild: unknown) {
   if (!Array.isArray(currentBuild)) {
     return [];
@@ -286,6 +435,7 @@ export const itemExplanationService = {
 
     const availableGold = puzzle.scenario.playerGold ?? 0;
     const cacheKey = buildCacheKey([
+      "v2",
       puzzle.id,
       recommendedChoice.item.slug,
       comparedItem.slug,
@@ -359,6 +509,21 @@ export const itemExplanationService = {
       comparedValue: comparedProfiles[key],
       delta: recommendedProfiles[key] - comparedProfiles[key],
     }));
+    const damageRows = buildDamageRows(recommendedStats, comparedStats);
+    const efficiencyRows = buildEfficiencyRows({
+      recommendedGold: recommendedChoice.item.goldTotal,
+      comparedGold: comparedItem.goldTotal,
+      damageRows,
+      profileDeltaRows,
+    });
+    const strategicVerdict = buildStrategicVerdict({
+      recommendedItemName: recommendedChoice.item.name,
+      comparedItemName: comparedItem.name,
+      blockedReasons: comparedBlockedReasons,
+      damageRows,
+      profileDeltaRows,
+      efficiencyRows,
+    });
 
     const payload = {
       recommendedItem: {
@@ -391,6 +556,9 @@ export const itemExplanationService = {
       blockedReasons: comparedBlockedReasons,
       statRows,
       profileDeltaRows,
+      damageRows,
+      efficiencyRows,
+      strategicVerdict,
       exportPayload: {
         filename: `item-proof-${puzzle.slug}-${recommendedChoice.item.slug}-vs-${comparedItem.slug}.csv`,
         rows: statRows.map((row) => ({
@@ -399,6 +567,8 @@ export const itemExplanationService = {
           recommended: row.recommendedValue,
           compared: row.comparedValue,
           delta: row.delta,
+          unit: "",
+          note: "",
         })).concat(
           profileDeltaRows.map((row) => ({
             type: "profile",
@@ -406,6 +576,26 @@ export const itemExplanationService = {
             recommended: row.recommendedValue,
             compared: row.comparedValue,
             delta: row.delta,
+            unit: "pts",
+            note: "",
+          })),
+          damageRows.map((row) => ({
+            type: "damage",
+            label: row.label,
+            recommended: row.recommendedValue,
+            compared: row.comparedValue,
+            delta: row.delta,
+            unit: row.unit,
+            note: row.interpretation,
+          })),
+          efficiencyRows.map((row) => ({
+            type: "efficiency",
+            label: row.label,
+            recommended: row.recommendedValue,
+            compared: row.comparedValue,
+            delta: row.delta,
+            unit: row.unit,
+            note: "",
           })),
         ),
       },

@@ -35,6 +35,13 @@ const syncLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
 });
+const itemExplanationLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 120,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Trop de demandes de preuve item. Patientez quelques secondes puis relancez l'analyse." },
+});
 
 router.use(attachUser);
 
@@ -311,7 +318,7 @@ router.post("/generated-puzzles/match", requireAuth, async (request, response, n
   }
 });
 
-router.post("/generated-puzzles/item-explanation", async (request, response, next) => {
+router.post("/generated-puzzles/item-explanation", itemExplanationLimiter, async (request, response, next) => {
   try {
     const payload = z.object({
       puzzleSlug: z.string().min(1),
