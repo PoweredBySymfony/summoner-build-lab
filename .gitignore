@@ -44,3 +44,5 @@ data/runtime/**
 *.njsproj
 *.sln
 *.sw?
+.vercel
+.env*.local
