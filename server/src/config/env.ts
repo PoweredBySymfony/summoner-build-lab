@@ -9,6 +9,7 @@ const envSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   DATABASE_URL: z.string().min(1),
   MONGODB_URL: z.string().optional(),
+  MONGODB_URI: z.string().optional(),
   MONGODB_DB_NAME: z.string().default("summoner_build_lab"),
   PORT: z.coerce.number().default(3001),
   CLIENT_URL: z.string().default("http://localhost:8080"),

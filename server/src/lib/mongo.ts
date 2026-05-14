@@ -16,7 +16,7 @@ type MongoClientLike = {
 let clientPromise: Promise<MongoClientLike | null> | null = null;
 
 export function isMongoConfigured() {
-  return Boolean(env.MONGODB_URL?.trim());
+  return Boolean((env.MONGODB_URL ?? env.MONGODB_URI)?.trim());
 }
 
 async function createMongoClient() {
@@ -25,7 +25,7 @@ async function createMongoClient() {
   }
 
   const mongodb = await import("mongodb");
-  const client = new mongodb.MongoClient(env.MONGODB_URL!, {
+  const client = new mongodb.MongoClient((env.MONGODB_URL ?? env.MONGODB_URI)!, {
     maxPoolSize: 10,
   });
   await client.connect();
