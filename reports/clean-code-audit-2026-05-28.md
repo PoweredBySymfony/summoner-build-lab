@@ -16,10 +16,17 @@ Applied in follow-up commit:
 - Removed the stale Prisma eslint-disable warning.
 - Documented `main = production`, `dev = integration preview`, and `feature/*` / `optimization/* = preview` in `README.md`.
 
+Applied in second follow-up commit:
+
+- Migrated `appRoutes` to the shared `asyncRoute` wrapper, removing repeated route-level `try/catch` boilerplate.
+- Extracted UI variant definitions for button, badge, toggle, and navigation-menu into non-component modules.
+- Stopped exporting non-component helpers from component files where they were only used internally.
+- Moved the i18n hook into `src/i18n/useLanguage.ts` and kept `src/i18n/context.tsx` focused on the provider component.
+- Cleared the previous React Fast Refresh lint warnings.
+
 Still remaining:
 
 - Large-module extractions for `mlPuzzleGenerationService.ts`, `importCompetitiveMatches.ts`, `riotSyncService.ts`, and `Admin.tsx`.
-- Fast Refresh warnings in shadcn-style UI primitives.
 - Dependency freshness warnings for Browserslist/Prisma/punycode.
 
 ## Audit Health Score
@@ -41,7 +48,7 @@ The product does not look like a pure AI-generated shell: it has domain-specific
 
 - Audit Health Score: **11/20** (Acceptable).
 - Issues found: **0 P0 / 5 P1 / 5 P2 / 2 P3**.
-- Checks: `npm run build` passed, `npm run lint` passed with 9 warnings, `npm run test` passed with 25 files and 112 tests.
+- Checks: `npm run build` passed, `npm run lint` passed with 0 warnings, `npm run test` passed with 25 files and 112 tests.
 - Top priorities: split the ML puzzle generator, split the competitive import script, type the admin write APIs, extract admin page modules, and replace the custom `div` button in `ItemIcon` with proper keyboard semantics.
 
 ## Detailed Findings by Severity
@@ -127,6 +134,7 @@ The product does not look like a pure AI-generated shell: it has domain-specific
 ### [P3] Lint passes but reports persistent warnings
 - Location: `server/src/lib/prisma.ts:8`, `src/components/ui/button.tsx:50`, `src/components/ui/sidebar.tsx:636`, and related UI primitives
 - Category: Tooling / Clean Code
+- Status: resolved in follow-up commits; `npm run lint` now passes with 0 warnings.
 - Impact: warnings normalize noise in CI output. The unused eslint-disable is directly fixable; Fast Refresh warnings are lower risk but indicate mixed component/non-component exports.
 - Recommendation: remove the stale eslint-disable and consider extracting exported variants/constants from UI component files over time.
 - Verification: `npm run lint`.
@@ -171,5 +179,5 @@ Re-run `$audit` after fixes to see your score improve.
 
 - `python C:\Users\XavierTrouche\.codex\skills\.system\skill-creator\scripts\quick_validate.py C:\Users\XavierTrouche\.codex\skills\coder-proprement` - passed.
 - `npm run build` - passed.
-- `npm run lint` - passed with 9 warnings.
+- `npm run lint` - passed with 0 warnings after second follow-up.
 - `npm run test` - passed: 25 test files, 112 tests.

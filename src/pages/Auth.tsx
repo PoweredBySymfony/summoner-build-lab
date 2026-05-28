@@ -4,7 +4,7 @@ import { Chrome, LockKeyhole, Mail, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useGoogleAuthUrl, useLogin, useRegister } from "@/api/hooks";
-import { useLanguage } from "@/i18n/context";
+import { useLanguage } from "@/i18n/useLanguage";
 
 const Auth = () => {
   const navigate = useNavigate();

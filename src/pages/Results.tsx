@@ -1,6 +1,6 @@
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { useLanguage } from "@/i18n/context";
+import { useLanguage } from "@/i18n/useLanguage";
 
 const Results = () => {
   const { t } = useLanguage();

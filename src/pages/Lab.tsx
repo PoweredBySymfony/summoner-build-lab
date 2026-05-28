@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Download, FlaskConical, Save, Trash2 } from "lucide-react";
-import { toast } from "@/components/ui/sonner";
+import { toast } from "sonner";
 import { useCatalog } from "@/api/hooks";
 import ComparisonSummary from "@/components/lab/ComparisonSummary";
 import SetupColumn from "@/components/lab/SetupColumn";
