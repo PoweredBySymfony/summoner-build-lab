@@ -45,6 +45,11 @@ export const itemSlugAliases: Record<string, string> = {
   "zhonyas-hourglass": "sablier-de-zhonya",
 };
 
+function stripDynamicSuffix(slug: string) {
+  return slug.replace(/-\d+(?:-\d+)*$/u, "");
+}
+
 export function resolveItemSlug(slug: string) {
-  return itemSlugAliases[slug] ?? slug;
+  const resolved = itemSlugAliases[slug] ?? slug;
+  return stripDynamicSuffix(resolved);
 }

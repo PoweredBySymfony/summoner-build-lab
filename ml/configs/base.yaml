@@ -1,0 +1,63 @@
+project:
+  name: summoner-build-lab-ml
+  version: 0.2.0
+  environment: local
+
+paths:
+  artifacts_dir: artifacts
+  raw_data_dir: data/raw
+  interim_data_dir: data/interim
+  processed_data_dir: data/processed
+  raw_matches_path: data/raw/imported_matches.jsonl
+  item_catalog_path: data/raw/item_catalog.json
+  champion_catalog_path: data/raw/champion_catalog.json
+  export_manifest_path: data/raw/manifest.json
+  ranking_dataset_path: data/processed/next_item_ranking_ready.parquet
+  analytic_dataset_path: data/processed/next_item_analytic_dataset.parquet
+  train_dataset_path: data/processed/next_item_train.parquet
+  validation_dataset_path: data/processed/next_item_validation.parquet
+  test_dataset_path: data/processed/next_item_test.parquet
+  dataset_report_path: artifacts/reports/dataset-report.json
+  baseline_model_path: artifacts/models/next-item-model.joblib
+  baseline_metadata_path: artifacts/models/next-item-model-metadata.json
+  evaluation_metrics_path: artifacts/reports/next-item-evaluation.json
+  evaluation_report_path: artifacts/reports/next-item-evaluation.md
+
+dataset:
+  validation_ratio: 0.15
+  test_ratio: 0.15
+  min_rows: 20
+  min_unique_labels: 2
+  min_train_label_frequency: 2
+  max_missing_actual_item_ratio: 0.25
+  max_gold_incoherent_ratio: 0.65
+  max_unknown_role_ratio: 0.2
+  min_candidate_pool_median: 3
+  strict_train_patch_prefixes:
+    - "26."
+  adjacent_train_patch_prefixes:
+    - "26.6"
+    - "26.5"
+    - "26.4"
+    - "26.3"
+  train_patch_mode: strict_recent_competitive
+
+training:
+  random_seed: 42
+  top_k: 3
+  max_top_k: 5
+  xgboost_estimators: 160
+  xgboost_max_depth: 6
+  xgboost_learning_rate: 0.08
+  xgboost_subsample: 0.9
+  xgboost_colsample_bytree: 0.9
+
+puzzle:
+  min_confidence: 0.35
+  min_confidence_gap: 0.08
+  distractor_count: 3
+
+api:
+  host: 0.0.0.0
+  port: 8001
+  log_level: info

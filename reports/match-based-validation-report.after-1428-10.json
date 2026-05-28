@@ -1,0 +1,383 @@
+{
+  "generatedAt": "2026-04-23T10:43:43.914Z",
+  "baseline": {
+    "state": "premium-v1-frozen",
+    "note": "Validation match-based apres retrain baseline sans modifier le coeur ML."
+  },
+  "evaluationUser": {
+    "id": "cmn4plsrz0000s0raoam4eco5",
+    "email": "xtrouche@gmail.com",
+    "isAdmin": true
+  },
+  "selectionPolicy": {
+    "strictPatchPrefix": "26.",
+    "sampleSize": 10,
+    "ordering": "fewest-previous-requests-first, then newest imported matches"
+  },
+  "summary": {
+    "completedCount": 10,
+    "noViableSnapshotFoundCount": 0,
+    "totalGenerations": 10,
+    "completedRate": 1,
+    "noViableSnapshotFoundRate": 0,
+    "rejectionReasonCounts": [
+      {
+        "reason": "low-confidence",
+        "count": 12
+      },
+      {
+        "reason": "publishability-insufficient-credible-distractors",
+        "count": 3
+      },
+      {
+        "reason": "choice-resolution-good-answer-exclusive-group",
+        "count": 1
+      },
+      {
+        "reason": "good-answer-exclusive-group",
+        "count": 1
+      }
+    ],
+    "distinctSelectedSnapshotCount": 10,
+    "distinctSelectedSnapshotSignatureCount": 10,
+    "reusedSelectedSnapshotSignatureCount": 0,
+    "patchCatalogFallbackOccurrences": 0,
+    "distinctChampionCount": 9,
+    "snapshotSegmentCounts": [
+      {
+        "segment": "mid",
+        "count": 5
+      },
+      {
+        "segment": "early",
+        "count": 4
+      },
+      {
+        "segment": "late",
+        "count": 1
+      }
+    ],
+    "averageCandidatePoolSize": 11
+  },
+  "delta": null,
+  "generations": [
+    {
+      "index": 1,
+      "importedMatchId": "cmobcsf2g00f91cras11zih2n",
+      "requestId": "cmobcsuie0000swra8friwqjl",
+      "patch": "26.2",
+      "sourceKind": "PRO_SEED",
+      "sourceTier": "pro",
+      "championSlug": "sylas",
+      "role": "MID",
+      "generationStatus": "completed",
+      "selectedSnapshotIndex": 17,
+      "minute": 18.47,
+      "gold": 4207,
+      "candidatePoolSize": 11,
+      "qualityScore": 100,
+      "failureReason": null,
+      "rejectionReasons": [
+        "good-answer-exclusive-group",
+        "choice-resolution-good-answer-exclusive-group"
+      ],
+      "observedRejectionReasons": [
+        "good-answer-exclusive-group",
+        "choice-resolution-good-answer-exclusive-group"
+      ],
+      "attemptsEvaluated": 6,
+      "successfulSnapshots": 5,
+      "selectedSnapshotHistoryKey": "17:18.47",
+      "selectedSnapshotSignature": "MID::18.47::4207::anneau-de-doran|ceinture-roquette-hextech|sceau-noir",
+      "selectedSnapshotSegment": "mid",
+      "lowConfidence": false,
+      "draft": false,
+      "resultSlug": "sylas-ai-generated-1776941016518-158019785973000-17-1-cmobcsf2g00f91cras11zih2n-cmn4plsrz0000s0raoam4eco5-17-1776941016281"
+    },
+    {
+      "index": 2,
+      "importedMatchId": "cmobcse1k00ey1craur1ytrqo",
+      "requestId": "cmobcsvfd000jswrabeyosc2b",
+      "patch": "26.3",
+      "sourceKind": "ELITE_SEED",
+      "sourceTier": "elite",
+      "championSlug": "yunara",
+      "role": "ADC",
+      "generationStatus": "completed",
+      "selectedSnapshotIndex": 26,
+      "minute": 26.88,
+      "gold": 1784,
+      "candidatePoolSize": 11,
+      "qualityScore": 103.77,
+      "failureReason": null,
+      "rejectionReasons": [
+        "publishability-insufficient-credible-distractors"
+      ],
+      "observedRejectionReasons": [
+        "publishability-insufficient-credible-distractors",
+        "publishability-insufficient-credible-distractors",
+        "low-confidence"
+      ],
+      "attemptsEvaluated": 9,
+      "successfulSnapshots": 6,
+      "selectedSnapshotHistoryKey": "26:26.88",
+      "selectedSnapshotSignature": "ADC::26.88::1784::chasseur-de-monstres|lame-de-doran|pioche|rappel-mortel|tueur-de-krakens",
+      "selectedSnapshotSegment": "late",
+      "lowConfidence": false,
+      "draft": false,
+      "resultSlug": "yunara-ai-generated-1776941017864-158021132342300-26-1-cmobcse1k00ey1craur1ytrqo-cmn4plsrz0000s0raoam4eco5-26-1776941017627"
+    },
+    {
+      "index": 3,
+      "importedMatchId": "cmobcscx100en1craw4pbqu6s",
+      "requestId": "cmobcswg80012swragy9yudzi",
+      "patch": "26.4",
+      "sourceKind": "PRO_SEED",
+      "sourceTier": "pro",
+      "championSlug": "neeko",
+      "role": "SUPPORT",
+      "generationStatus": "completed",
+      "selectedSnapshotIndex": 11,
+      "minute": 9.62,
+      "gold": 2774,
+      "candidatePoolSize": 11,
+      "qualityScore": 87.46,
+      "failureReason": null,
+      "rejectionReasons": [
+        "low-confidence"
+      ],
+      "observedRejectionReasons": [
+        "low-confidence",
+        "low-confidence",
+        "low-confidence",
+        "low-confidence",
+        "low-confidence"
+      ],
+      "attemptsEvaluated": 6,
+      "successfulSnapshots": 1,
+      "selectedSnapshotHistoryKey": "11:9.62",
+      "selectedSnapshotSignature": "SUPPORT::9.62::2774::balise-de-controle",
+      "selectedSnapshotSegment": "early",
+      "lowConfidence": false,
+      "draft": false,
+      "resultSlug": "neeko-ai-generated-1776941019047-158022315112800-11-1-cmobcscx100en1craw4pbqu6s-cmn4plsrz0000s0raoam4eco5-11-1776941018360"
+    },
+    {
+      "index": 4,
+      "importedMatchId": "cmobcsbve00ec1cra2alahdox",
+      "requestId": "cmobcsxc90019swramsjuzuu3",
+      "patch": "26.3",
+      "sourceKind": "PRO_SEED",
+      "sourceTier": "pro",
+      "championSlug": "jarvan-iv",
+      "role": "JUNGLE",
+      "generationStatus": "completed",
+      "selectedSnapshotIndex": 18,
+      "minute": 19.59,
+      "gold": 1459,
+      "candidatePoolSize": 11,
+      "qualityScore": 96,
+      "failureReason": null,
+      "rejectionReasons": [
+        "low-confidence"
+      ],
+      "observedRejectionReasons": [
+        "low-confidence"
+      ],
+      "attemptsEvaluated": 4,
+      "successfulSnapshots": 3,
+      "selectedSnapshotHistoryKey": "18:19.59",
+      "selectedSnapshotSignature": "JUNGLE::19.59::1459::balise-de-controle|ciel-eventre|hydre-profane|sceau-dacier",
+      "selectedSnapshotSegment": "mid",
+      "lowConfidence": false,
+      "draft": false,
+      "resultSlug": "jarvan-iv-ai-generated-1776941019739-158023007331600-18-1-cmobcsbve00ec1cra2alahdox-cmn4plsrz0000s0raoam4eco5-18-1776941019713"
+    },
+    {
+      "index": 5,
+      "importedMatchId": "cmobcqajz00e11craoedbu8kp",
+      "requestId": "cmobcsxvr001mswra3j84nnzw",
+      "patch": "26.4",
+      "sourceKind": "PRO_SEED",
+      "sourceTier": "pro",
+      "championSlug": "poppy",
+      "role": "SUPPORT",
+      "generationStatus": "completed",
+      "selectedSnapshotIndex": 13,
+      "minute": 10.93,
+      "gold": 2388,
+      "candidatePoolSize": 11,
+      "qualityScore": 84.84,
+      "failureReason": null,
+      "rejectionReasons": [
+        "low-confidence"
+      ],
+      "observedRejectionReasons": [
+        "low-confidence",
+        "low-confidence",
+        "low-confidence"
+      ],
+      "attemptsEvaluated": 4,
+      "successfulSnapshots": 1,
+      "selectedSnapshotHistoryKey": "13:10.93",
+      "selectedSnapshotSignature": "SUPPORT::10.93::2388::balise-de-controle|potion-rechargeable",
+      "selectedSnapshotSegment": "early",
+      "lowConfidence": false,
+      "draft": false,
+      "resultSlug": "poppy-ai-generated-1776941020539-158023807558700-13-1-cmobcqajz00e11craoedbu8kp-cmn4plsrz0000s0raoam4eco5-13-1776941020129"
+    },
+    {
+      "index": 6,
+      "importedMatchId": "cmobco29i00dq1crarqf9a24e",
+      "requestId": "cmobcsyhg001tswravfufwt0p",
+      "patch": "26.2",
+      "sourceKind": "ELITE_SEED",
+      "sourceTier": "elite",
+      "championSlug": "twisted-fate",
+      "role": "MID",
+      "generationStatus": "completed",
+      "selectedSnapshotIndex": 18,
+      "minute": 21.37,
+      "gold": 1317,
+      "candidatePoolSize": 11,
+      "qualityScore": 108,
+      "failureReason": null,
+      "rejectionReasons": [],
+      "observedRejectionReasons": [],
+      "attemptsEvaluated": 5,
+      "successfulSnapshots": 5,
+      "selectedSnapshotHistoryKey": "18:21.37",
+      "selectedSnapshotSignature": "MID::21.37::1317::anneau-de-doran|baton-seculaire|fleau-de-liche|sceau-noir",
+      "selectedSnapshotSegment": "mid",
+      "lowConfidence": false,
+      "draft": false,
+      "resultSlug": "twisted-fate-ai-generated-1776941021164-158024432310200-18-1-cmobco29i00dq1crarqf9a24e-cmn4plsrz0000s0raoam4eco5-18-1776941021110"
+    },
+    {
+      "index": 7,
+      "importedMatchId": "cmobcnuur00df1craghor1iio",
+      "requestId": "cmobcsyz90026swraxiswnkb0",
+      "patch": "26.5",
+      "sourceKind": "PRO_SEED",
+      "sourceTier": "pro",
+      "championSlug": "rakan",
+      "role": "SUPPORT",
+      "generationStatus": "completed",
+      "selectedSnapshotIndex": 12,
+      "minute": 10.47,
+      "gold": 2463,
+      "candidatePoolSize": 11,
+      "qualityScore": 93.2,
+      "failureReason": null,
+      "rejectionReasons": [],
+      "observedRejectionReasons": [],
+      "attemptsEvaluated": 2,
+      "successfulSnapshots": 2,
+      "selectedSnapshotHistoryKey": "12:10.47",
+      "selectedSnapshotSignature": "SUPPORT::10.47::2463::balise-de-controle",
+      "selectedSnapshotSegment": "early",
+      "lowConfidence": false,
+      "draft": false,
+      "resultSlug": "rakan-ai-generated-1776941021674-158024942641900-12-1-cmobcnuur00df1craghor1iio-cmn4plsrz0000s0raoam4eco5-12-1776941021504"
+    },
+    {
+      "index": 8,
+      "importedMatchId": "cmobcnu8o00d41crawv4h66b2",
+      "requestId": "cmobcszdj002jswracenssx0z",
+      "patch": "26.1",
+      "sourceKind": "PRO_SEED",
+      "sourceTier": "pro",
+      "championSlug": "yunara",
+      "role": "ADC",
+      "generationStatus": "completed",
+      "selectedSnapshotIndex": 13,
+      "minute": 11.54,
+      "gold": 1370,
+      "candidatePoolSize": 11,
+      "qualityScore": 83.55,
+      "failureReason": null,
+      "rejectionReasons": [
+        "low-confidence"
+      ],
+      "observedRejectionReasons": [
+        "low-confidence",
+        "low-confidence"
+      ],
+      "attemptsEvaluated": 5,
+      "successfulSnapshots": 3,
+      "selectedSnapshotHistoryKey": "13:11.54",
+      "selectedSnapshotSignature": "ADC::11.54::1370::lame-de-doran|potion-rechargeable|tueur-de-krakens",
+      "selectedSnapshotSegment": "early",
+      "lowConfidence": false,
+      "draft": false,
+      "resultSlug": "yunara-ai-generated-1776941022594-158025862555400-13-1-cmobcnu8o00d41crawv4h66b2-cmn4plsrz0000s0raoam4eco5-13-1776941022175"
+    },
+    {
+      "index": 9,
+      "importedMatchId": "cmobcntm900ct1crau9xq732j",
+      "requestId": "cmobct032002wswra1i7pt6nb",
+      "patch": "26.2",
+      "sourceKind": "ELITE_SEED",
+      "sourceTier": "elite",
+      "championSlug": "yone",
+      "role": "MID",
+      "generationStatus": "completed",
+      "selectedSnapshotIndex": 15,
+      "minute": 15.08,
+      "gold": 1447,
+      "candidatePoolSize": 11,
+      "qualityScore": 112,
+      "failureReason": null,
+      "rejectionReasons": [
+        "publishability-insufficient-credible-distractors"
+      ],
+      "observedRejectionReasons": [
+        "publishability-insufficient-credible-distractors"
+      ],
+      "attemptsEvaluated": 3,
+      "successfulSnapshots": 2,
+      "selectedSnapshotHistoryKey": "15:15.08",
+      "selectedSnapshotSignature": "MID::15.08::1447::bouclier-de-doran|lame-du-roi-dechu|potion-rechargeable",
+      "selectedSnapshotSegment": "mid",
+      "lowConfidence": false,
+      "draft": false,
+      "resultSlug": "yone-ai-generated-1776941022988-158026256430700-15-1-cmobcntm900ct1crau9xq732j-cmn4plsrz0000s0raoam4eco5-15-1776941022935"
+    },
+    {
+      "index": 10,
+      "importedMatchId": "cmobcnt1k00ci1crako2g5chy",
+      "requestId": "cmobct0dw0039swram0b5x0h3",
+      "patch": "26.5",
+      "sourceKind": "PRO_SEED",
+      "sourceTier": "pro",
+      "championSlug": "bard",
+      "role": "SUPPORT",
+      "generationStatus": "completed",
+      "selectedSnapshotIndex": 21,
+      "minute": 17.39,
+      "gold": 1366,
+      "candidatePoolSize": 11,
+      "qualityScore": 100.53,
+      "failureReason": null,
+      "rejectionReasons": [],
+      "observedRejectionReasons": [],
+      "attemptsEvaluated": 5,
+      "successfulSnapshots": 5,
+      "selectedSnapshotHistoryKey": "21:17.39",
+      "selectedSnapshotSignature": "SUPPORT::17.39::1366::balise-de-controle|benediction-de-mikael|bottes-de-celerite",
+      "selectedSnapshotSegment": "mid",
+      "lowConfidence": false,
+      "draft": false,
+      "resultSlug": "bard-ai-generated-1776941023855-158027123524700-21-1-cmobcnt1k00ci1crako2g5chy-cmn4plsrz0000s0raoam4eco5-21-1776941023584"
+    }
+  ],
+  "reproduction": {
+    "commands": [
+      "npm run ml:export-raw",
+      "cd ml",
+      ".\\.venv\\Scripts\\python.exe scripts\\tasks.py build-dataset",
+      ".\\.venv\\Scripts\\python.exe scripts\\tasks.py train-baseline",
+      "npm run audit:match-based-validation -- --sample-size 10"
+    ]
+  }
+}

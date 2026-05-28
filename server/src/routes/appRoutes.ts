@@ -3,11 +3,13 @@ import rateLimit from "express-rate-limit";
 import { z } from "zod";
 import { puzzleRepository } from "../repositories/puzzleRepository.js";
 import { env } from "../config/env.js";
+import { getMongoHealth } from "../lib/mongo.js";
 import { attachUser, requireAuth, requireSyncAccess } from "../middleware/authMiddleware.js";
 import { appService } from "../services/appService.js";
 import { authService } from "../services/authService.js";
 import { dailyChallengeService } from "../services/dailyChallengeService.js";
 import { GOOGLE_OAUTH_STATE_COOKIE, GOOGLE_OAUTH_STATE_TTL_MS, oauthService } from "../services/oauthService.js";
+import { itemExplanationService } from "../services/itemExplanationService.js";
 import { progressService } from "../services/progressService.js";
 import { puzzleGenerationService } from "../services/puzzleGenerationService.js";
 import { riotSyncService } from "../services/riotSyncService.js";
@@ -33,11 +35,19 @@ const syncLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
 });
+const itemExplanationLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 120,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Trop de demandes de preuve item. Patientez quelques secondes puis relancez l'analyse." },
+});
 
 router.use(attachUser);
 
-router.get("/health", (_request, response) => {
-  response.json({ ok: true });
+router.get("/health", async (_request, response) => {
+  const mongo = await getMongoHealth();
+  response.json({ ok: true, mongo });
 });
 
 router.get("/auth/me", async (request, response, next) => {
@@ -172,7 +182,7 @@ router.get("/puzzles", async (request, response, next) => {
 
 router.get("/puzzles/:slug", async (request, response, next) => {
   try {
-    const puzzle = await appService.getPuzzleDetail(request.params.slug);
+    const puzzle = await appService.getPuzzleDetail(request.params.slug, request.user);
     if (!puzzle) {
       throw new HttpError(404, "Puzzle introuvable.");
     }
@@ -289,8 +299,61 @@ router.post("/generated-puzzles/champion", requireAuth, async (request, response
 
 router.post("/generated-puzzles/match", requireAuth, async (request, response, next) => {
   try {
-    const payload = z.object({ importedMatchId: z.string().min(1) }).parse(request.body);
-    response.status(201).json(await puzzleGenerationService.generateMatchBasedPuzzle(payload.importedMatchId, request.user!.id));
+    const payload = z.object({
+      importedMatchId: z.string().min(1),
+      forceDraftOnLowConfidence: z.boolean().optional(),
+    }).parse(request.body);
+    if (payload.forceDraftOnLowConfidence && !request.user!.isAdmin) {
+      throw new HttpError(403, "Le mode brouillon low-confidence est reserve aux administrateurs.");
+    }
+
+    response.status(201).json(
+      await puzzleGenerationService.generateMatchBasedPuzzle(payload.importedMatchId, request.user!.id, {
+        forceDraftOnLowConfidence: payload.forceDraftOnLowConfidence,
+        actorIsAdmin: request.user!.isAdmin,
+      }),
+    );
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post("/generated-puzzles/item-explanation", itemExplanationLimiter, async (request, response, next) => {
+  try {
+    const payload = z.object({
+      puzzleSlug: z.string().min(1),
+      selectedChoiceId: z.string().min(1).optional(),
+      comparedItemSlug: z.string().min(1).optional(),
+    }).parse(request.body);
+
+    response.status(200).json(
+      await itemExplanationService.buildExplanation({
+        puzzleSlug: payload.puzzleSlug,
+        selectedChoiceId: payload.selectedChoiceId,
+        comparedItemSlug: payload.comparedItemSlug,
+        currentUserId: request.user?.id ?? null,
+      }),
+    );
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get("/generated-puzzles/requests/:requestId/draft", requireAuth, async (request, response, next) => {
+  try {
+    response.json(
+      await appService.getGeneratedPuzzleDraftByRequestId(String(request.params.requestId), request.user!),
+    );
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get("/generated-puzzles/requests/:requestId", requireAuth, async (request, response, next) => {
+  try {
+    response.json(
+      await appService.getGeneratedPuzzleRequestById(String(request.params.requestId), request.user!),
+    );
   } catch (error) {
     next(error);
   }
@@ -311,7 +374,7 @@ router.get("/players/search", playerSearchLimiter, async (request, response, nex
         .string()
         .trim()
         .regex(/^[^#]+#[^#]+$/, "Le Riot ID doit respecter le format GameName#TAG"),
-      count: z.coerce.number().min(1).max(10).default(5),
+      count: z.coerce.number().min(1).max(20).default(5),
     }).parse(request.query);
 
     const [gameName, tagLine] = payload.riotId.split("#");

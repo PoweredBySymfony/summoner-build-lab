@@ -1,5 +1,5 @@
 import { Link, useLocation } from "react-router-dom";
-import { BrainCircuit, Flame, LayoutDashboard, Shield, Swords, Trophy, User } from "lucide-react";
+import { BrainCircuit, Flame, FlaskConical, LayoutDashboard, Shield, Swords, Trophy, User } from "lucide-react";
 import { useCurrentUser, useLogout } from "@/api/hooks";
 
 const Navbar = () => {
@@ -12,6 +12,7 @@ const Navbar = () => {
     { path: "/dashboard", label: "Progression", icon: LayoutDashboard },
     { path: "/modules", label: "Entrainement", icon: BrainCircuit },
     { path: "/daily", label: "Quotidien", icon: Flame },
+    { path: "/lab", label: "Lab", icon: FlaskConical },
   ];
 
   return (

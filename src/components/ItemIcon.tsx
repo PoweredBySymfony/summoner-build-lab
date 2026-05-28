@@ -40,6 +40,7 @@ const iconTintMap: Record<ItemStatIconKey, string> = {
   magicPen: "text-[#78c2ff]",
   healthRegen: "text-[#8cf5ad]",
   manaRegen: "text-[#8fc6ff]",
+  tenacity: "text-[#f4c86a]",
   default: "text-[#d9d7cf]",
 };
 
@@ -60,6 +61,7 @@ const badgeTintMap: Record<ItemStatIconKey, string> = {
   magicPen: "from-[#173858] to-[#0b1724] border-[#61aee8]/60",
   healthRegen: "from-[#1d492a] to-[#0d2113] border-[#67db8b]/60",
   manaRegen: "from-[#1b3a57] to-[#0c1824] border-[#5f9ce1]/60",
+  tenacity: "from-[#52401d] to-[#24190c] border-[#d7ae58]/60",
   default: "from-[#343126] to-[#171610] border-white/10",
 };
 
@@ -151,6 +153,13 @@ const renderGlyph = (icon: ItemStatIconKey) => {
         <>
           <path d="M12 3c3.2 4.1 5.5 7 5.5 10A5.5 5.5 0 1 1 6.5 13c0-3 2.3-5.9 5.5-10z" fill="currentColor" />
           <path d="M12 8v6M9 11h6" stroke="rgba(10,12,18,.55)" strokeWidth="2" />
+        </>
+      );
+    case "tenacity":
+      return (
+        <>
+          <path d="M12 3l7 3v5c0 4.8-2.9 8.3-7 10-4.1-1.7-7-5.2-7-10V6l7-3z" fill="currentColor" />
+          <path d="M8 12l2.2 2.2L16 8.4" stroke="rgba(10,12,18,.55)" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" />
         </>
       );
     default:
@@ -539,10 +548,15 @@ const ItemTooltip = ({
                       key={`${item.id}-block-${index}`}
                       className={`rounded-xl border border-white/6 bg-white/[0.03] ${layoutMode === "compact" ? "px-3 py-2.5" : "px-3 py-3"}`}
                     >
-                      {block.title ? (
-                        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#f7e3a1]">{block.title}</p>
-                      ) : null}
-                      <p className={`text-sm text-[#d4dae5]/84 ${layoutMode === "compact" ? "leading-5" : "leading-6"}`}>{block.body}</p>
+                      <div className={`flex ${block.icon ? "items-start gap-3" : "block"}`}>
+                        {block.icon ? <div className="pt-0.5"><StatBadge icon={block.icon} /></div> : null}
+                        <div className="min-w-0 flex-1">
+                          {block.title ? (
+                            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#f7e3a1]">{block.title}</p>
+                          ) : null}
+                          <p className={`text-sm text-[#d4dae5]/84 ${layoutMode === "compact" ? "leading-5" : "leading-6"}`}>{block.body}</p>
+                        </div>
+                      </div>
                     </div>
                   ))}
                 </div>

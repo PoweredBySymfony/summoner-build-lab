@@ -118,6 +118,14 @@ router.get("/admin/puzzles", async (_request, response, next) => {
   }
 });
 
+router.get("/admin/puzzles/ai-generated", async (_request, response, next) => {
+  try {
+    response.json(await adminService.listAiGeneratedPuzzles());
+  } catch (error) {
+    next(error);
+  }
+});
+
 router.get("/admin/puzzles/:id", async (request, response, next) => {
   try {
     response.json(await adminService.getPuzzleDetail(request.params.id));
@@ -146,6 +154,14 @@ router.patch("/admin/puzzles/:id", async (request, response, next) => {
     }).parse(request.body) as Parameters<typeof adminService.updatePuzzle>[1];
 
     response.json(await adminService.updatePuzzle(request.params.id, payload));
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post("/admin/puzzles/:id/publish", async (request, response, next) => {
+  try {
+    response.json(await adminService.publishPuzzle(request.params.id));
   } catch (error) {
     next(error);
   }

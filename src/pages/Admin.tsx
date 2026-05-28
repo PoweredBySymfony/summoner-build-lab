@@ -15,6 +15,7 @@ import {
   Trash2,
 } from "lucide-react";
 import {
+  useAdminAiGeneratedPuzzles,
   useAdminDeleteChampion,
   useAdminDeleteItem,
   useAdminDeletePuzzle,
@@ -22,6 +23,7 @@ import {
   useAdminItems,
   useAdminOverview,
   useAdminPatchStatus,
+  useAdminPublishPuzzle,
   useAdminPuzzleDetail,
   useAdminPuzzles,
   useAdminSyncPatch,
@@ -211,12 +213,14 @@ const Admin = () => {
   const champions = useAdminChampions(adminEnabled);
   const items = useAdminItems(adminEnabled);
   const puzzles = useAdminPuzzles(adminEnabled);
+  const aiGeneratedPuzzles = useAdminAiGeneratedPuzzles(adminEnabled && section === "puzzles");
   const puzzleDetail = useAdminPuzzleDetail(puzzleEditorId, adminEnabled);
   const patchStatus = useAdminPatchStatus(patchDialogOpen && adminEnabled);
 
   const updateChampion = useAdminUpdateChampion();
   const updateItem = useAdminUpdateItem();
   const updatePuzzle = useAdminUpdatePuzzle();
+  const publishPuzzle = useAdminPublishPuzzle();
   const deleteChampion = useAdminDeleteChampion();
   const deleteItem = useAdminDeleteItem();
   const deletePuzzle = useAdminDeletePuzzle();
@@ -244,6 +248,15 @@ const Admin = () => {
       ),
     );
   }, [puzzles.data, puzzleQuery]);
+
+  const filteredAiGeneratedPuzzles = useMemo(() => {
+    const query = puzzleQuery.trim().toLowerCase();
+    return (aiGeneratedPuzzles.data ?? []).filter((entry) =>
+      [entry.title, entry.mode, entry.difficulty, entry.patch, entry.champion?.name ?? ""].some((value) =>
+        value.toLowerCase().includes(query),
+      ),
+    );
+  }, [aiGeneratedPuzzles.data, puzzleQuery]);
 
   if (!userLoading && !user) {
     return <Navigate to="/auth" replace />;
@@ -455,6 +468,58 @@ const Admin = () => {
                 <div className="flex max-w-md items-center gap-3 rounded-2xl border border-border/60 bg-card/80 px-4 py-3">
                   <Search className="h-4 w-4 text-muted-foreground" />
                   <Input value={puzzleQuery} onChange={(event) => setPuzzleQuery(event.target.value)} placeholder="Filtrer par titre, mode, difficulte..." className="border-0 bg-transparent p-0 focus-visible:ring-0" />
+                </div>
+                <div className="rounded-[28px] border border-primary/20 bg-primary/5 p-5">
+                  <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-[0.24em] text-primary">Review queue ML</p>
+                      <h2 className="mt-2 text-xl font-semibold text-foreground">Puzzles AI_GENERATED non publies</h2>
+                      <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
+                        Cette file sert de garde-fou avant publication. Les puzzles a faible confiance ne sont pas publies automatiquement.
+                      </p>
+                    </div>
+                    <div className="rounded-2xl border border-primary/20 bg-background/80 px-4 py-3 text-sm text-foreground">
+                      En attente: <span className="font-semibold">{filteredAiGeneratedPuzzles.length}</span>
+                    </div>
+                  </div>
+                  <div className="mt-5 space-y-3">
+                    {filteredAiGeneratedPuzzles.length ? (
+                      filteredAiGeneratedPuzzles.map((entry) => (
+                        <div key={entry.id} className="flex flex-col gap-4 rounded-2xl border border-border/60 bg-background/80 p-4 lg:flex-row lg:items-center lg:justify-between">
+                          <div className="min-w-0">
+                            <p className="font-medium text-foreground">{entry.title}</p>
+                            <p className="mt-1 text-sm text-muted-foreground">
+                              {entry.champion?.name ?? "Sans champion"} · patch {entry.patch} · source {entry.sourceType}
+                            </p>
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            <Button variant="outline" onClick={() => setPuzzleEditorId(entry.id)}>
+                              <PencilLine className="h-4 w-4" />
+                              Ouvrir
+                            </Button>
+                            <Button
+                              variant="gold"
+                              disabled={publishPuzzle.isPending}
+                              onClick={() =>
+                                void publishPuzzle.mutateAsync(entry.id).then(() => {
+                                  toast.success("Puzzle AI publie.");
+                                }).catch((error: unknown) => {
+                                  toast.error(error instanceof Error ? error.message : "Publication impossible.");
+                                })
+                              }
+                            >
+                              <Sparkles className="h-4 w-4" />
+                              Publier
+                            </Button>
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="rounded-2xl border border-dashed border-border/60 bg-background/60 p-4 text-sm text-muted-foreground">
+                        Aucun puzzle AI_GENERATED non publie pour le filtre courant.
+                      </div>
+                    )}
+                  </div>
                 </div>
                 <div className="glass-surface overflow-hidden rounded-[28px]">
                   <Table>

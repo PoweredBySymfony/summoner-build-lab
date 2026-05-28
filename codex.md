@@ -13,13 +13,1126 @@ Lire ce fichier au debut de chaque nouvelle conversation sur ce repo, puis le me
   - recherche de profil joueur Riot
   - page profil joueur
   - generation de serie depuis une game importee
+  - Lab d'Items dedie (`/lab`) pour comparer deux setups cote a cote en mode miroir ou duel
+
+## Roadmap Lab V2
+
+- Cible de volumetrie:
+  - `600 -> 2000 -> 5000 -> 8000 -> 10000`
+- Invariants architecture:
+  - PostgreSQL reste la source applicative canonique pour les entites produit
+  - MongoDB devient le sidecar analytique pour les imports lourds, timelines, snapshots et caches d'analyse
+  - `ImportedMatch` devient progressivement un index relationnel leger avec refs Mongo; les nouveaux imports doivent etre Mongo-first
+  - le JSON brut PostgreSQL ne reste qu'en heritage pour les imports historiques et les environnements sans Mongo configuree
+- Invariants produit:
+  - un reroll sur une meme game doit tendre vers un moment sensiblement different
+  - la diversite ne se limite plus a `snapshotSignature`; elle suit aussi une distance minute/or/inventaire
+  - la preuve item doit etre visible directement depuis la correction du puzzle
+- Etat reel de la branche `lab`:
+  - la generation multi-snapshots et l'anti-repetition existent deja
+  - le gate `OK pour relancer import vers 2000` existe deja dans les audits match-based
+  - l'Item Lab sait deja calculer stats, ecarts, restrictions de familles et comparaison de setups
+  - `Training` expose maintenant une modal de preuve item avec export CSV
+  - la generation match-based prevalide maintenant les snapshots contre l'achat reel suivant avant tentative finale
+  - les sous-achats triviaux au sein d'un meme shop burst sont desormais de-priorises ou filtres
+  - une gate de `publishability` existe maintenant en plus de la viabilite technique:
+    - une bonne reponse triviale au regard de l'or disponible est refusee
+    - des distracteurs hors bande de decision sont refuses
+    - les snapshots techniquement viables mais non publiables sont mesures separement
+  - la politique produit retenue pour les achats triviaux est `Reject and Shift`
+  - bug corrige:
+    - la resolution finale des choix pouvait encore utiliser `seed.goodAnswer` apres fallback vers un achat reel plus credible
+    - cela expliquait des puzzles triviaux confirmes, par exemple `Yunara 2594g -> Dague`
+  - les reponses `no_viable_snapshot_found` exposent maintenant:
+    - `failureCode`
+    - `snapshotsEvaluated`
+    - `viableSnapshots`
+    - `publishableSnapshots`
+    - `nonPublishableButViableSnapshots`
+    - `dominantRejectionReasons`
+  - la page profil joueur explique maintenant mieux l'echec controle d'une “derniere partie”
+  - un reporting de readiness `10k` existe:
+    - script: `scripts/reportReadiness10k.ts`
+    - commande: `npm run audit:readiness-10k`
+  - audits persistants ajoutes:
+    - `npm run audit:ai-puzzles`
+    - `npm run audit:ml-unresolved-slugs`
+    - `npm run riot:report-competitive-throughput`
+  - quarantaine AI:
+    - `npm run audit:ai-puzzles -- --apply-quarantine`
+    - au `2026-04-05`, `15` puzzles AI recents ont ete flagges puis quarantaines
+    - les cas confirmes incluent les puzzles Yunara avec `Dague` comme bonne reponse
+
+## 2026-04-28 Audit Reprise Objectifs + UX Profil Joueur
+
+- Sources relues:
+  - plans PDF/Markdown fournis dans `Downloads`
+  - rapports locaux `reports/*`
+  - scripts d'ingestion / audit / generation match-based
+  - page `src/pages/PlayerProfile.tsx`
+- Objectifs deja remplis:
+  - separation import policy / training policy en place via `competitive-ingestion-policy-2026*.json`
+  - sourcing competitif versionne en place (`pro`, `elite`, provenance connue)
+  - Mongo sidecar actif:
+    - `npm run audit:readiness-10k`
+    - `totalImportedMatches = 1858`
+    - `mongoMatchCount = 1858`
+    - `mongoTimelineCount = 1855`
+    - `mongoBackedMatchCoverage = 100`
+  - provenance premium fiabilisee:
+    - `premiumOnlyMatches = 1843`
+    - `competitiveUnknownTierCount = 0`
+    - repartition: `pro = 1774`, `elite = 69`
+  - qualite produit match-based redevenue exploitable:
+    - `npm run audit:match-based-validation -- --sample-size 20`
+    - `completedRate = 0.95`
+    - `noViableSnapshotFoundRate = 0.05`
+    - `distinctSelectedSnapshotSignatureCount = 19`
+    - `reusedSelectedSnapshotSignatureCount = 0`
+    - `patchCatalogFallbackOccurrences = 0`
+  - dataset premium strict recent disponible:
+    - `totalSnapshotsGenerated = 12019`
+    - `snapshotsTrainableStrictRecents = 12019`
+    - `goldIncoherentRatio = 0.3123387969049006`
+- Objectifs partiellement remplis:
+  - volume:
+    - `targetCompletionPercent = 18.58` vers `10000`
+    - il manque `8142` matchs pour la cible 10k
+    - il manque environ `142` matchs pour passer le palier `2000`
+  - ingestion:
+    - la qualite est saine, mais le rendement reste bloque par le vivier exploitable, `target-participant-missing`, seeds sans matchs et echecs Riot
+    - `riot:report-competitive` remonte `resolvedButNoMatches = 270`, `failedFetch = 402`, `resolvedWithAcceptedMatches = 5`
+  - training/reporting:
+    - le dataset ML est recent-first, mais l'audit premium reste marque `ingestionFrozen = true`; il faut acter explicitement la reprise d'ingestion avant les runs lourds
+  - UI profil joueur:
+    - avant ce passage, la generation depuis profil utilisait uniquement la derniere partie
+- Changements appliques:
+  - `src/pages/PlayerProfile.tsx`
+    - affichage initial conserve a `5` parties
+    - ajout d'un bouton `Charger plus de parties`
+    - chargement par increments de `5` jusqu'a `20`
+    - ajout d'une action `Analyser` par partie visible
+    - chaque action importe le match correspondant et genere une serie depuis ce match, pas seulement depuis la derniere partie
+  - `src/api/hooks.ts`
+    - `usePlayerSearch(riotId, count)` inclut maintenant `count` dans la query key et l'URL
+  - `server/src/routes/appRoutes.ts`
+    - `/players/search` accepte maintenant `count <= 20`
+- Plan d'attaque recommande:
+  - phase 0, avant import lourd:
+    - garder `npm run audit:match-based-validation -- --sample-size 20` comme gate qualite
+    - garder `npm run audit:readiness-10k` comme compteur de palier
+    - ne pas lancer d'import lourd tant que l'utilisateur n'a pas explicitement valide le run foreground
+  - phase A `2000`:
+    - viser les `142` matchs manquants avec checkpoint dedie
+    - commencer par le canon `v1-growth`
+    - si rendement insuffisant, tester `campaign:competitive:wide` en run borne, puis comparer les rapports
+  - phase B `5000`:
+    - promouvoir seulement le seed set qui augmente les imports reels sans degrader `completedRate`, `timelineCoveragePercent` et la part premium 26.x
+    - ajouter un diagnostic automatique des seeds `resolvedButNoMatches`
+  - phase C `8000`:
+    - elargir le sourcing uniquement si le rapport dit que le blocage vient du vivier, pas de la qualite ML
+    - maintenir les caps par tier et la separation strict train / fallback import
+  - phase D `10000`:
+    - run foreground avec `phase-10000.*`
+    - validation finale: `mongoMatchCount >= 10000`, `mongoTimelineCount` proche, `noViableSnapshotRate < 15%`, aucune resurgence de `patch-catalog-fallback`
+- Dette technique constatee:
+  - `npx tsc -p tsconfig.server.json --noEmit` passe
+  - `npx tsc -p tsconfig.app.json --noEmit` echoue encore sur dettes hors changement:
+    - lib target trop bas pour `replaceAll`
+    - type `LocalizedText` manquant
+    - mismatch readonly dans tests ML
+    - types d'ARIA dans `ItemIcon`
+  - `npx eslint src/pages/PlayerProfile.tsx src/api/hooks.ts server/src/routes/appRoutes.ts` passe
+
+## Execution Strategy 10k + Publishability
+
+## 2026-04-28 Suite Plan D'attaque 2000 + UX Operationnelle
+
+- Skills utilises:
+  - `skill-creator` et `skill-installer` relus; pas de nouveau skill installe car le besoin est specifique au produit et mieux documente ici + dans les scripts repo
+  - `frontend-design` applique pour compacter la page profil et rendre la preuve item plus operationnelle
+- Ingestion vers le palier `2000`:
+  - canon `v1-growth` relance en foreground:
+    - `createdMatches = 0`
+    - `totalCompetitiveMatchesInDb = 1843`
+    - `resolvedSeedCount = 275`
+    - `resolvedButNoMatches = 270`
+    - `resolvedWithAcceptedMatches = 5`
+    - blocage principal: vivier deja epuise + `target-participant-missing`
+  - artefact wide regenere:
+    - commande: `npm run riot:prepare-competitive-seeds:wide`
+    - sortie: `data/seeds/competitive-seeds-2026-wide-pro.json`
+    - `180` seeds pro, `75` resolues apres run, `105` unresolved dans le checkpoint wide
+  - attention workflow:
+    - le script `campaign:competitive:wide` doit recevoir un `--checkpoint-path` dedie
+    - sans cela il peut reutiliser le checkpoint canon et fausser le test wide
+  - checkpoint dedie utilise:
+    - `data/runtime/competitive-ingestion/phase-2000-wide-pro-2026-04-28.checkpoint.json`
+  - resultat du run wide dedie:
+    - +`54` matchs importes en deux passages sur ce checkpoint (`15` avant crash observe, puis `39` apres correctif)
+    - dernier run: `createdMatches = 39`, `failedMatchesCount = 3`
+    - stop gate: `max-auth-failures-per-run:3`
+    - `policyAcceptedMatches = 150`
+    - `importCountsByTier = { tier1: 39 }`
+    - `importCountsByPatchBucket = { exact_target_patch: 39 }`
+    - `importCountsByQueueBucket = { preferred_queue: 39 }`
+- Etat readiness apres run:
+  - commande: `npm run audit:readiness-10k`
+  - `totalImportedMatches = 1912`
+  - `mongoMatchCount = 1912`
+  - `mongoTimelineCount = 1909`
+  - `targetCompletionPercent = 19.12`
+  - `mongoBackedMatchCoverage = 100`
+  - `noViableSnapshotRate = 5.6`
+  - `viableSnapshotRate = 96.22`
+  - `publishableSnapshotRate = 67.3`
+  - rejet dominant restant: `low-confidence`
+- Gate qualite du run wide:
+  - `audit:match-based-validation` du run: `sample-size = 20`
+  - `completedRate = 0.95`
+  - `noViableSnapshotFoundRate = 0.05`
+  - `distinctSelectedSnapshotSignatureCount = 19`
+  - `reusedSelectedSnapshotSignatureCount = 0`
+  - `patchCatalogFallbackOccurrences = 0`
+- Diagnostic seeds ajoute:
+  - script: `scripts/reportCompetitiveSeedYield.ts`
+  - commande: `npm run riot:report-seed-yield`
+  - sorties:
+    - `reports/competitive-seed-yield-report.json`
+    - `reports/competitive-seed-yield-report.md`
+  - dernier rapport:
+    - `productiveSeeds = 5`
+    - `resolvedNoMatchesSeeds = 70`
+    - `discoveredNoImportSeeds = 0`
+    - `importedMatchesInCheckpoint = 49`
+    - `attemptedMatchesInCheckpoint = 52`
+    - `failedMatchesInCheckpoint = 3`
+  - interpretation:
+    - le blocage avant `5000` vient du vivier wide trop pauvre, pas d'une degradation ML
+    - prochain run utile: enrichir/remplacer les `105` unresolved et investiguer les `70` seeds resolues sans match avant d'elargir encore
+- Correctifs import:
+  - `scripts/importCompetitiveMatches.ts`
+    - crash corrige dans le compteur d'echecs auth:
+      - symptome: `TypeError: Cannot read properties of undefined (reading 'seedKey')`
+      - cause: le catch d'import lisait `candidate.discovery.seedKey` alors que le candidat aplati expose `seedKey` et `cluster`
+      - correctif: compter par `candidate.seedKey` et `candidate.cluster`
+- UX profil joueur:
+  - `src/pages/PlayerProfile.tsx`
+    - passage a une vue plus compacte et operationnelle
+    - stats principales regroupees en bandeau dense
+    - hero, recherche, panels et lignes de matchs reduits en hauteur
+    - les parties visibles gardent le bouton `Analyser`
+    - le bouton `Charger plus de parties` reste le mecanisme d'expansion par tranche
+- Preuve item v2:
+  - `server/src/services/itemExplanationService.ts`
+    - cache key versionnee en `v2`
+    - ajout de `damageRows`, `efficiencyRows`, `strategicVerdict`
+    - export CSV enrichi avec `unit` et `note`
+  - `src/components/PuzzleItemExplanationDialog.tsx`
+    - refonte compacte type tableau d'audit
+    - lecture par sections `Degats reels`, `Efficacite`, `Strategie`, `Stats item`
+    - objectif: expliquer pourquoi l'item choisi est juste/faux via degats reels, degats potentiels, budget, timing et strategie plutot qu'un texte generique
+  - `src/types/domain.ts`
+    - contrat frontend aligne sur la preuve v2
+- Validations:
+  - `npx eslint scripts/reportCompetitiveSeedYield.ts scripts/importCompetitiveMatches.ts src/pages/PlayerProfile.tsx src/components/PuzzleItemExplanationDialog.tsx server/src/services/itemExplanationService.ts`
+  - `npm run build`
+- Plan actualise:
+  - finir `2000` par micro-runs foreground wide avec le checkpoint dedie, tant que `audit:match-based-validation` reste >= `0.9 completedRate` et sans fallback catalogue
+  - avant `5000`, enrichir le manifest wide:
+    - corriger/ajouter Riot IDs pour les `105` unresolved
+    - trier les `70` resolved sans match via `reports/competitive-seed-yield-report.md`
+    - ne pas ouvrir de fallback non-pro tant que le diagnostic prouve que le souci est la resolution/vivier
+  - pour `8000` puis `10000`, elargir seulement apres preuve de rendement par seed et maintien de:
+    - `mongoBackedMatchCoverage = 100`
+    - `noViableSnapshotRate < 15%`
+    - `patchCatalogFallbackOccurrences = 0`
+
+- Garde-fous deja en place:
+  - `low-confidence`
+  - `good-answer-too-cheap`
+  - `good-answer-too-expensive`
+  - `good-answer-incoherent-with-champion`
+  - `candidate-pool-too-small`
+  - restrictions patch / role / familles
+  - anti-repetition / distance de reroll
+- Ce qui etait incomplet:
+  - absence d'une vraie gate de `publishability`
+  - trou de resolution sur la bonne reponse finale apres fallback
+  - seed universe trop etroit pour une trajectoire credible vers `10k`
+- Politique puzzle:
+  - `Reject and Shift`
+  - si l'achat reel suivant est techniquement vrai mais trivial, on rejette le snapshot et on se decale dans la meme game
+- Politique volume:
+  - `Pro + Elite`
+  - pas `Pro only`
+  - pas de fallback non-pro par defaut
+- Ajustements ingestion actifs:
+  - `prepareCompetitiveSeeds` active maintenant Leaguepedia par defaut
+  - client Riot:
+    - `RIOT_API_KEY` reste la cle primaire
+    - `RIOT_API_KEY_2` est un fallback optionnel
+    - la cle 2 n'est tentee qu'apres un `401/403` de la cle 1
+    - une preference de route en memoire evite de retester inutilement une cle deja refusee sur la meme famille d'endpoint
+  - correction elite ladder `2026-04-05`:
+    - le payload Riot ladder renvoie maintenant `puuid` directement dans les entries
+    - le code attendait encore `summonerId` comme source primaire, ce qui cassait artificiellement la resolution des seeds elite
+    - `server/src/lib/riot/competitiveSeeds.ts` consomme maintenant `puuid` en priorite et garde `summonerId` en fallback legacy
+  - correction `2026-04-23`:
+    - le profil `wide` de generation de seeds competitive est maintenant `pro-only` par defaut
+    - le job wide ne repasse plus par la discovery elite Riot, ce qui evite de rebruiter les memes erreurs pendant l'expansion du vivier
+    - la discovery elite dispose maintenant d'un budget de consecutive failures pour stopper les boucles de `Riot API request failed`
+    - l'artefact wide est maintenant separé du canon: `competitive-seeds-2026-wide-pro.json`
+  - elite ladder par defaut:
+    - plateformes: `kr`, `euw1`, `na1`, `br1`, `eun1`, `jp1`, `la1`, `la2`
+    - tiers: `challenger`, `grandmaster`, `master`
+    - `maxEntriesPerTier = 150`
+  - `competitive-ingestion-policy-2026.json`:
+    - n'attend plus `autoEnrichEliteIfNeeded`
+    - releve les caps elite pour rendre `10k` atteignable
+- KPIs cibles de rattrapage:
+  - `mongoMatchCount >= 10000`
+  - `publishableSnapshotRate > 20%`
+  - `noViableSnapshotRate < 15%`
+  - baisse nette de `good-answer-unresolved`
+- Regle d'execution terminal:
+  - ne plus lancer les imports competitifs lourds en arriere-plan sans accord explicite
+  - privilegier un run foreground avec logs visibles directement dans le terminal utilisateur
+- Programme d'execution par paliers:
+  - phase A `2000`:
+    - objectif: atteindre `2000` matchs competitifs indexes et archives Mongo
+    - commande canonique:
+      - `npm run riot:import-competitive -- --target-matches 2000 --checkpoint-path data/runtime/competitive-ingestion/phase-2000.checkpoint.json --report-path data/runtime/competitive-ingestion/phase-2000.report.json --markdown-report-path data/runtime/competitive-ingestion/phase-2000.report.md --count-per-seed 40 --max-ids-per-seed 400`
+  - phase B `5000`:
+    - commande canonique:
+      - `npm run riot:import-competitive -- --target-matches 5000 --checkpoint-path data/runtime/competitive-ingestion/phase-5000.checkpoint.json --report-path data/runtime/competitive-ingestion/phase-5000.report.json --markdown-report-path data/runtime/competitive-ingestion/phase-5000.report.md --count-per-seed 50 --max-ids-per-seed 500`
+  - phase C `8000`:
+    - commande canonique:
+      - `npm run riot:import-competitive -- --target-matches 8000 --checkpoint-path data/runtime/competitive-ingestion/phase-8000.checkpoint.json --report-path data/runtime/competitive-ingestion/phase-8000.report.json --markdown-report-path data/runtime/competitive-ingestion/phase-8000.report.md --count-per-seed 60 --max-ids-per-seed 600`
+  - phase D `10000`:
+    - commande canonique:
+      - `npm run riot:import-competitive -- --target-matches 10000 --checkpoint-path data/runtime/competitive-ingestion/phase-10000.checkpoint.json --report-path data/runtime/competitive-ingestion/phase-10000.report.json --markdown-report-path data/runtime/competitive-ingestion/phase-10000.report.md --count-per-seed 80 --max-ids-per-seed 800`
+  - pour chaque phase:
+    - execution foreground obligatoire
+    - checkpoint dedie
+    - report JSON + Markdown dedies
+    - verification immediate de:
+      - volume Mongo
+      - volume competitif PostgreSQL
+      - repartition `pro / elite`
+      - top failure reasons
+  - observabilite import competitive:
+    - `scripts/importCompetitiveMatches.ts` persiste maintenant un checkpoint et un report intermediaires pendant l'execution
+    - points de flush actuels:
+      - pendant la resolution toutes les `10` seeds traitees
+      - apres la decouverte initiale
+      - pendant la decouverte toutes les `10` seeds traitees
+      - apres enrichissement elite
+      - en milieu de passe d'import
+      - en fin de passe
+      - apres approfondissement de la decouverte
+    - objectif:
+      - ne plus piloter un run `2000/5000/8000/10000` a l'aveugle
+    - correctif `2026-04-05`:
+      - le premier flush `discovery-initial` etait appele avant l'initialisation complete des structures de checkpoint
+      - symptome: crash `ReferenceError: Cannot access 'persistIntermediateProgress' before initialization` juste avant la premiere passe d'import
+      - correctif: le flush initial est maintenant differe apres initialisation de `attemptedMatchIds`, `importedMatchIds`, `createdCandidates` et `lastFallbackPlan`
+  - garde-fou performance `2026-04-05`:
+    - la classification post-decouverte ne traite plus tous les matchs decouverts d'un coup
+    - budget actuel par passe:
+      - `maxUniqueMatchesToClassify = max(150, min(remainingTargetMatches, 300))`
+    - objectif:
+      - eviter de bloquer des minutes sur plusieurs milliers de `match-v5` avant le moindre import
+    - observabilite associee:
+      - report `classification-running`
+      - flush toutes les `100` classifications uniques
+  - resilience Riot `2026-04-05`:
+    - `server/src/lib/riot/riotApiClient.ts` retry maintenant les erreurs reseau transitoires et les `5xx` upstream
+    - `RIOT_API_KEY_2` sert aussi maintenant de fallback sur `429` quand la cle primaire est rate limited
+    - la decouverte par seed ne tue plus toute la campagne sur un seul echec Riot:
+      - warning `discover-seed-failed`
+      - fallback sur cache existant ou seed vide
+    - la classification metadata `match-v5` saute les matchs temporairement indisponibles au lieu d'arreter tout le run:
+      - warning `classify-match-failed`
+- Etat mesure au `2026-04-05`:
+  - Mongo: `1132 / 10000`
+  - `noViableSnapshotRate`: `45.2%`
+  - `viableSnapshotRate`: `0.43%`
+  - `publishableSnapshotRate`: `0%` sur la fenetre historique auditee
+  - manifest competitif regenere au premier plan:
+    - commande: `npm run riot:prepare-competitive-seeds -- --elite-max-entries-per-tier 10`
+    - resultat: `324` seeds dont `94 pro` et `230 elite`
+    - point notable:
+      - `br1/master` a timeoute sur ce run, donc le manifest n'est pas encore le maximum theorique
 
 ## Stack
 
 - Frontend: Vite + React + TypeScript + React Query + Tailwind + shadcn/ui
 - Backend: Express + TypeScript
-- DB: PostgreSQL + Prisma
+- DB:
+  - PostgreSQL + Prisma pour:
+    - users
+    - progression
+    - puzzles
+    - catalogues
+    - review admin
+    - index relationnel leger des matchs importes
+  - MongoDB sidecar analytique pour:
+    - `match_imports_raw`
+    - `timeline_frames_raw`
+    - `snapshot_candidates`
+    - `item_explanation_cache`
+    - `ingestion_runs`
 - Data jeu: Riot API + Data Dragon
+- ML local:
+  - une brique Python isolee doit vivre a la racine dans `ml/`
+  - aucun couplage direct avec `server/`, `src/` ou `prisma/`
+  - objectif V1:
+    - environnement CPU-first reproductible
+    - scripts locaux de lint / typecheck / test / train baseline / run api
+    - API FastAPI minimale de serving en stub
+    - structure dediee data / features / training / inference / artifacts
+  - toute extension ML doit rester optionnelle et ne pas casser le workflow Node existant
+  - fondation en place:
+    - config centrale: `ml/configs/base.yaml`
+    - bootstrap env:
+      - `ml/scripts/create_venv.py`
+      - `ml/scripts/install_deps.py`
+      - wrappers PowerShell:
+        - `ml/scripts/create_venv.ps1`
+        - `ml/scripts/install.ps1`
+    - task runner:
+      - `ml/scripts/tasks.py`
+      - commandes:
+        - `install`
+        - `lint`
+        - `typecheck`
+        - `test`
+        - `train-baseline`
+        - `run-api`
+    - serving:
+      - `ml/inference/api.py`
+      - endpoints:
+        - `GET /health`
+        - `GET /version`
+        - `POST /predict-next-item`
+    - entrainement stub:
+      - `ml/training/baseline.py`
+      - dataset tabulaire synthetique CPU-first
+      - artefact local `joblib` sous `ml/artifacts/models/`
+    - tests ML:
+      - `ml/tests/test_pipeline.py`
+    - docker optionnel:
+      - `ml/Dockerfile`
+      - service compose profile `ml`: `ml-api`
+      - volumes montes:
+        - `ml/artifacts`
+        - `ml/configs`
+        - `ml/data`
+    - skills projet ajoutes:
+      - `.agents/skills/python-ml-bootstrap/`
+      - `.agents/skills/python-ml-data-pipeline/`
+      - `.agents/skills/python-ml-fastapi-serving/`
+    - subagents Cursor ajoutes:
+      - `.cursor/agents/ml-bootstrapper.md`
+      - `.cursor/agents/ml-data-pipeline.md`
+      - `.cursor/agents/ml-fastapi-serving.md`
+  - phase 1 next-item en place:
+    - collecte enrichie cote backend:
+      - `ImportedMatch` stocke maintenant en plus:
+        - `sourceRegion`
+        - `targetPuuid`
+        - `targetGameName`
+        - `targetTagLine`
+        - `targetChampionId`
+        - `targetChampionSlug`
+        - `targetRole`
+        - `gameCreationAt`
+        - `gameDurationSeconds`
+        - `timelineFetchedAt`
+        - `timelineMissingReason`
+        - `timelineData`
+        - `mongoMatchImportRef`
+        - `mongoTimelineRef`
+        - `mongoSnapshotRef`
+        - `mongoBackfilledAt`
+      - migration Prisma:
+        - `prisma/migrations/20260331110000_imported_match_ml_phase1/`
+      - `server/src/lib/riot/riotApiClient.ts` supporte:
+        - `getMatchTimelineByIdOnRegion()`
+      - `server/src/services/riotSyncService.ts`:
+        - importe maintenant match + timeline
+        - ecrit d'abord le brut dans Mongo quand `MONGODB_URL` est configuree
+        - ne garde dans PostgreSQL qu'un payload leger `mongo-primary` + metadata pour les nouveaux imports
+        - enrichit les metadata ML de la partie importee
+        - ajoute logs de progression / fallback / retry minimal
+      - lecture ML:
+        - `server/src/services/mlPuzzleGenerationService.ts` lit d'abord le sidecar Mongo puis fallback PostgreSQL
+        - les snapshots candidats reconstruits sont aussi archives dans `snapshot_candidates`
+        - la selection de reroll expose maintenant un `rerollDistanceScore`
+        - les snapshots sont maintenant prevalides via l'achat reel suivant pour ecarter plus tot les cas non publiables
+        - certains snapshots peuvent utiliser l'achat reel du match comme bonne reponse de secours quand la prediction ML retombe sur un achat trivial non publiable, sans lever le garde-fou `low-confidence`
+      - script de backfill:
+        - `scripts/backfillImportedMatchTimelines.ts`
+        - commande: `npm run ml:backfill-timelines`
+      - script de backfill Mongo:
+        - `scripts/backfillImportedMatchesToMongo.ts`
+        - commande: `npm run backfill:matches-to-mongo`
+    - preuve item:
+      - endpoint:
+        - `POST /api/generated-puzzles/item-explanation`
+      - service:
+        - `server/src/services/itemExplanationService.ts`
+      - cache:
+        - collection Mongo `item_explanation_cache`
+      - UI:
+        - `src/components/PuzzleItemExplanationDialog.tsx`
+        - bouton d'ouverture depuis `src/pages/Training.tsx`
+    - export brut vers Python:
+      - script:
+        - `scripts/exportImportedMatchesForMl.ts`
+      - commande:
+        - `npm run ml:export-raw`
+      - sorties:
+        - `ml/data/raw/imported_matches.jsonl`
+        - `ml/data/raw/item_catalog.json`
+        - `ml/data/raw/champion_catalog.json`
+        - `ml/data/raw/manifest.json`
+        - catalogues patch-aware sous `ml/data/raw/catalogs/<patch>/`
+      - manifest enrichi:
+        - `patchCatalogs[patch] -> { itemCatalogPath, championCatalogPath, ddVersion }`
+      - export item patch-aware:
+        - `goldTotal`
+        - `goldBase`
+        - `goldSell`
+        - `isBoots`
+        - `isLegendary`
+        - `isConsumable`
+        - `isStarter`
+        - `isActive`
+        - `tags`
+        - `buildsFrom`
+        - `buildsInto`
+        - `mapAvailability`
+    - dataset analytique Python:
+      - builder:
+        - `ml/features/analytics.py`
+      - quality gates:
+        - `ml/features/quality.py`
+      - granularite:
+        - 1 ligne = 1 achat `ITEM_PURCHASED` du joueur cible
+      - colonnes cle:
+        - match id / timestamp / patch / champion / role
+        - or dispo approx via timeline frame precedent
+        - niveau / KDA / CS
+        - inventaire courant
+        - `candidate_pool`
+        - `candidate_pool_size`
+        - `actual_next_item`
+        - agregats ally/enemy simples
+      - sorties:
+        - parquet complet
+        - parquet ranking-ready optionnel par snapshot/candidat
+        - splits `train` / `validation` / `test`
+        - rapport dataset JSON avec gates qualite
+      - candidate pool V1:
+        - charge le catalogue correspondant au patch du match via `manifest.json`
+        - garde les items actifs Summoner's Rift
+        - retire les items deja possedes
+        - retire consommables / starters / trinkets
+        - filtre par cout quand `gold_available > 0`
+      - gates dataset suivis:
+        - `% actual_next_item absent du catalogue patch`
+        - `% gold_available incoherent vs cout de l'item achete`
+        - `% roles UNKNOWN`
+        - `candidate_pool_size` min / median / p95
+    - baseline modele:
+      - transition en cours vers learning-to-rank:
+        - dataset ranking-ready `1 snapshot = N candidats`
+        - futur entrainement principal:
+          - `ml/training/ranking.py`
+          - `XGBoost rank:ndcg`
+        - qid:
+          - `snapshot_id`
+        - metriques visees:
+          - `NDCG@k`
+          - `MAP@k`
+          - `top-k accuracy`
+      - baseline historique encore presente:
+        - `ml/training/baseline.py`
+    - inference FastAPI:
+      - endpoints:
+        - `GET /health`
+        - `GET /version`
+        - `POST /predict-next-item`
+      - fichiers:
+        - `ml/inference/api.py`
+        - `ml/inference/schemas.py`
+        - `ml/inference/service.py`
+        - `ml/inference/puzzle_prep.py`
+      - reponse prediction:
+        - prediction principale
+        - top-k predictions avec score
+        - version modele
+        - candidate pool explicite si fourni par le caller
+      - prep puzzle:
+        - seed avec bonne reponse
+        - distracteurs plausibles
+        - difficulte heuristique
+        - flag faible confiance base sur gap de score + taille de pool
+    - commandes de workflow ML:
+      - `npm run ml:backfill-timelines`
+      - `npm run ml:export-raw`
+      - `python scripts/create_venv.py`
+      - `python scripts/install_deps.py`
+      - `python scripts/tasks.py build-dataset`
+      - `python scripts/tasks.py train-baseline`
+      - `python scripts/tasks.py run-api`
+      - `python scripts/tasks.py test`
+    - integration backend Node -> ML:
+      - variables env:
+        - `ML_ENABLED`
+        - `ML_API_URL`
+        - `ML_API_TIMEOUT_MS`
+        - `ML_API_RETRY_COUNT`
+        - `ML_ALLOW_LOW_CONFIDENCE_DRAFTS`
+      - backend service dedie:
+        - `server/src/services/mlPuzzleGenerationService.ts`
+      - helper ML backend pur:
+        - `server/src/lib/ml/mlPuzzle.ts`
+      - flux de generation match:
+        - `server/src/services/puzzleGenerationService.ts`
+        - si ML est active et configuree:
+          - construit un snapshot a partir de `ImportedMatch`
+          - appelle `POST /predict-next-item`
+          - construit un seed puzzle cote backend
+          - si `lowConfidence`:
+            - mode normal:
+              - ne publie rien
+              - marque la `GeneratedPuzzleRequest` en `FAILED`
+              - renvoie `422` avec message explicite
+            - mode test/admin:
+              - seulement pour admin
+              - active via `ML_ALLOW_LOW_CONFIDENCE_DRAFTS=true` ou `forceDraftOnLowConfidence=true`
+              - cree quand meme un puzzle `AI_GENERATED` en brouillon
+              - garde `isPublished=false`
+              - garde `isDailyEligible=false`
+              - marque le puzzle via tags `ml-draft` et `low-confidence`
+              - marque la `GeneratedPuzzleRequest` en `COMPLETED`
+          - sinon:
+            - cree un puzzle `sourceType=AI_GENERATED`
+            - laisse `isPublished=false` pour revue manuelle
+            - marque la `GeneratedPuzzleRequest` en `COMPLETED`
+        - si ML n'est pas configuree:
+          - fallback explicite vers la generation template existante
+      - garde-fous admin:
+        - route backoffice:
+          - `GET /admin/puzzles/ai-generated`
+          - liste les puzzles `AI_GENERATED` non publies
+        - publication manuelle:
+          - `POST /admin/puzzles/:id/publish`
+        - UI admin:
+          - `src/pages/Admin.tsx`
+          - file de revue visible dans l'onglet puzzles avec bouton `Publier`
+      - consultation des drafts ML:
+        - `GET /api/generated-puzzles/requests/:requestId/draft`
+        - accessible au proprietaire de la request et aux admins
+        - `GET /api/puzzles/:slug` autorise aussi la lecture d'un brouillon `AI_GENERATED` pour son proprietaire/admin
+      - metadonnees stockees dans `GeneratedPuzzleRequest.parameters`:
+        - `lowConfidence`
+        - `confidenceScore`
+        - `confidenceGap`
+        - `candidatePoolSize`
+        - `snapshotTimestampMinutes`
+        - payload et prediction bruts
+      - contrat canonique items ML -> backend:
+        - format attendu en priorite:
+          - `Item.slug` canonique de l'application
+        - backend tolere aussi:
+          - alias EN -> FR via `server/src/lib/itemSlugAliases.ts`
+          - IDs numeriques `riotItemId` stringifies si besoin futur
+        - resolution centralisee:
+          - `server/src/lib/ml/puzzleChoiceResolution.ts`
+        - comportement:
+          - le `goodAnswer` doit etre resolvable absolument
+          - les distracteurs ML invalides / dupliques sont filtres
+          - si moins de 3 distracteurs valides restent, le backend complete via fallback sur items actifs du patch courant
+          - si on ne peut toujours pas obtenir `1 bonne reponse + 3 distracteurs`, on renvoie une erreur metier explicite avec details
+      - bug racine corrige (2026-03-31):
+        - le flow pouvait echouer sur `Unable to resolve AI-generated puzzle choices.`
+        - cause principale:
+          - certains outputs ML donnaient moins de 4 choix exploitables
+          - exemple reel:
+            - `candidate_pool_size = 3`
+            - distracteurs dupliques / introuvables comme `lance-noire-de-kalista(-3600)`
+          - le backend exigeait 4 choix strictement resolus sans fallback
+        - correctif:
+          - logs structures `choice-resolution`
+          - fallback de distracteurs depuis la table `Item` patch courante
+          - erreurs explicites avec details si le contrat reste impossible a satisfaire
+      - garde-fous credibilite produit ajoutes (2026-03-31):
+        - nouvelle couche backend pure:
+          - `server/src/lib/ml/puzzleBusinessRules.ts`
+        - objectif:
+          - ameliorer la qualite percue des puzzles `AI_GENERATED` sans modifier le modele ML
+        - regles metier appliquees avant creation du puzzle:
+          - filtrage champion -> types d'items autorises selon `role` + tags Riot du champion
+          - exclusion des items incoherents avec le plan du champion:
+            - exemple vise:
+              - AP pur sur ADC physique
+          - filtrage gold:
+            - fenetre min/max derivee de `goldAvailable`
+            - exclusion des items trop cheap (reponse triviale)
+            - exclusion des items trop chers
+          - exclusion des items deja possedes dans le snapshot
+          - renforcement du pool candidat:
+            - cible minimale:
+              - `6` candidats credibles
+            - fallback progressif si le filtrage strict devient trop petit
+          - la bonne reponse ML elle-meme est maintenant validee:
+            - si elle est incoherente ou hors fenetre gold, on refuse la generation avec une erreur metier explicite
+        - variation:
+          - chaque generation match-based utilise maintenant un `variationSeed`
+          - le backend evite de reutiliser exactement la meme signature de choix quand des alternatives existent deja pour la meme partie/utilisateur
+          - l'ordre d'affichage des 4 choix est melange et ne laisse plus systematiquement la bonne reponse en premiere position
+        - observabilite:
+          - logs structures enrichis avec:
+            - taille du pool avant/apres filtrage
+            - motifs de filtrage
+            - fenetre gold appliquee
+            - signature de choix
+            - seed de variation
+          - ces metadonnees sont aussi stockees dans `GeneratedPuzzleRequest.parameters.businessRules`
+        - enrichissement scenario:
+          - les puzzles ML remplissent maintenant `objectiveState`, `damageProfile` et `mapState`
+          - `Training` peut donc afficher un objectif simple genere depuis l'etat de partie sans changer le modele
+        - comportement produit:
+          - un output ML techniquement valide mais peu credible peut maintenant etre refuse en `422`
+          - exemple reel bloque:
+            - `charme-feerique` sur un profil ADC physique
+      - orchestration multi-snapshot match-based (2026-03-31):
+        - le flow produit standard `POST /generated-puzzles/match` n'est plus mono-snapshot
+        - nouveau principe:
+          - extraire plusieurs snapshots d'achat depuis la timeline du match importe
+          - scorer ces snapshots
+          - tenter la generation ML + filtres metier sur chacun
+          - retenir le meilleur snapshot publiable si un existe
+        - extraction:
+          - source:
+            - `server/src/services/mlPuzzleGenerationService.ts`
+          - candidats:
+            - evenements `ITEM_PURCHASED`
+            - filtrage snapshots trop precoces / trop tardifs
+            - deduplication des snapshots quasi identiques
+            - limite pratique:
+              - max `8` snapshots candidats
+        - orchestration:
+          - pour chaque snapshot:
+            - appel `POST /predict-next-item`
+            - evaluation `lowConfidence`
+            - application des regles metier backend
+            - resolution des choix
+            - calcul d'un `qualityScore`
+          - selection:
+            - priorite aux tentatives viables non low-confidence
+            - si admin/test et `ML_ALLOW_LOW_CONFIDENCE_DRAFTS` actif:
+              - un draft low-confidence peut encore etre retenu s'il reste credible
+            - si aucune tentative viable:
+              - pas de `422` brut au client standard
+        - nouveau contrat de reponse produit:
+          - succes:
+            - `generationStatus: "completed"`
+            - payload habituel avec `requestId`, `slug`, `slugs`, `sourceType`, `published`, `lowConfidence`, `draft`
+          - aucun snapshot viable:
+            - `generationStatus: "no_viable_snapshot_found"`
+            - `retrySuggested: true`
+            - `message` utilisateur propre
+            - `slug: null`
+            - `slugs: []`
+        - observabilite:
+          - logs structures par tentative:
+            - `requestId`
+            - `importedMatchId`
+            - `snapshotIndex`
+            - `snapshotMinute`
+            - `patch`
+            - `goldAvailable`
+            - `rawCandidatePoolSize`
+            - `filteredCandidatePoolSize`
+            - `goodAnswer`
+            - `rejectionReasons`
+            - `qualityScore`
+          - log final:
+            - `selected-snapshot` ou `no-viable-snapshot`
+          - persistence:
+            - `GeneratedPuzzleRequest.parameters` stocke maintenant:
+              - `generationStatus`
+              - `selectedSnapshot`
+              - `attemptsSummary`
+        - debug consultable:
+          - endpoint owner/admin:
+            - `GET /api/generated-puzzles/requests/:requestId`
+          - endpoint draft detail si puzzle cree:
+            - `GET /api/generated-puzzles/requests/:requestId/draft`
+        - effet produit:
+          - le client ne doit plus afficher une erreur technique brute quand un snapshot individuel echoue
+          - le frontend `PlayerProfile` affiche un message metier si aucun snapshot viable n'est trouve
+      - tests Node associes:
+        - `src/test/mlPuzzle.test.ts`
+        - `src/test/mlPuzzleChoiceResolution.test.ts`
+        - `src/test/mlPuzzleBusinessRules.test.ts`
+        - `src/test/mlPuzzleOrchestration.test.ts`
+        - couvre:
+          - fallback si `ML_API_URL` absent
+          - mapping du payload ML
+          - refus de publication en cas de faible confiance
+          - activation reservee admin du mode draft low-confidence
+          - controle d'acces owner/admin sur les drafts
+          - resolution d'une seed ML valide
+          - distracteur introuvable
+          - bonne reponse introuvable
+          - collisions / doublons
+          - filtrage items incoherents
+          - filtrage gold anti-reponse triviale
+          - pool candidat minimal
+          - variation / ordre des choix
+          - choix du meilleur snapshot
+          - comportement multi-snapshot sans solution viable
+          - compatibilite draft admin/test dans l'orchestrateur
+  - ingestion Riot industrialisee:
+    - client Riot:
+      - `server/src/lib/riot/riotApiClient.ts`
+      - scheduler par scope region/platform
+      - concurrence configurable via:
+        - `RIOT_API_BASE_DELAY_MS`
+        - `RIOT_API_CONCURRENCY`
+      - mode sequentiel par defaut: `RIOT_API_CONCURRENCY=1`
+      - sur `429`:
+        - lecture de `Retry-After`
+        - fallback a `5000ms` si header absent/invalide
+        - pause de la queue avant les requetes suivantes
+      - metriques exposees:
+        - total requests
+        - successful requests
+        - 429 count
+        - retry-after fallback count
+        - total backoff ms
+    - orchestration batch:
+      - helper:
+        - `server/src/lib/riot/riotBatch.ts`
+      - script:
+        - `scripts/importRiotMatchesBatch.ts`
+      - entrees supportees:
+        - liste de Riot IDs `gameName#tagLine`
+        - liste de PUUIDs
+        - fichier texte via `--input`
+      - comportement:
+        - idempotent via `upsert` sur `ImportedMatch.riotMatchId`
+        - reprise-safe: le script continue cible par cible et peut etre relance sans dupliquer les matchs
+        - journalise:
+          - total targets
+          - successful / failed targets
+          - requested / imported matches
+          - timeline ok count
+          - timeline missing reasons
+          - 429 count
+          - average ms per match
+      - resolution identite:
+        - Riot ID via les helpers existants de `riotSyncService`
+        - PUUID via `RiotAccountIndex` puis fallback de resolution plateforme/region
+        - si aucun `PlayerProfile` n'est rattache, fournir `--user-id`
+    - reporting d'ingestion:
+      - script:
+        - `scripts/reportRiotIngestion.ts`
+      - commande:
+        - `npm run riot:ingestion-report -- --days 1`
+      - sortie:
+        - `% matches avec timeline`
+        - distribution patches
+        - top reasons de `timelineMissingReason`
+        - age min/max des games importees
+    - commandes Node dediees:
+      - `npm run riot:import-batch -- --user-id <userId> --count 20 --input .\\targets.txt`
+      - `npm run riot:import-batch -- --user-id <userId> --count 20 --riot-id Faker#KR --puuid <puuid>`
+      - `npm run riot:ingestion-report -- --days 1`
+    - tests Node ingestion:
+      - `src/test/riotRequestScheduler.test.ts`
+      - `src/test/riotBatch.test.ts`
+      - `src/test/riotIngestionSchema.test.ts`
+
+## Lab d'Items
+
+- Nouvelle route front: `/lab`
+- Navigation publique:
+  - entree `Lab` ajoutee dans `src/components/Navbar.tsx`
+- Architecture front:
+  - page: `src/pages/Lab.tsx`
+  - composants:
+    - `src/components/lab/SetupColumn.tsx`
+    - `src/components/lab/StatTable.tsx`
+    - `src/components/lab/ComparisonSummary.tsx`
+  - logique metier isolee:
+    - `src/lib/item-lab/types.ts`
+    - `src/lib/item-lab/calculations.ts`
+    - `src/lib/item-lab/BuildAnalysisService.ts`
+    - `src/lib/item-lab/InventoryValidationService.ts`
+    - `src/lib/item-lab/storage.ts`
+  - enrichissement backend catalogue:
+    - `server/src/lib/itemGroups.ts`
+    - `server/src/services/viewMappers.ts`
+- Donnees:
+  - le Lab consomme le catalogue existant via `useCatalog()`
+  - champions:
+    - base + croissance depuis `ChampionView.stats` (Data Dragon)
+  - items:
+    - bonus depuis `GameItem.stats`
+    - tags reutilises pour les heuristiques produit
+    - source de verite actuelle pour l'elegibilite:
+      - `prisma/schema.prisma` / table `Item`
+      - sync Riot/Data Dragon dans `server/src/services/riotSyncService.ts`
+      - exposition front via `server/src/services/viewMappers.ts`
+      - enrichissement des groupes d'items dans `server/src/lib/itemGroups.ts`
+    - limites de la source patch actuelle:
+      - pas de groupes d'exclusivite explicites
+      - pas de restrictions par role/slot au niveau DB
+      - pas de metadonnee native pour les familles incompatibles
+    - contrat front expose maintenant:
+      - `GameItem.itemGroups: string[]`
+- Regles de calcul MVP:
+  - niveau 1 a 18
+  - jusqu'a 6 items par cote
+  - slots vides autorises
+  - doublons d'items bloques dans une meme colonne
+  - stats finales:
+    - base champion calculee a partir des stats Riot + croissance par niveau
+    - bonus d'items agreges separement
+    - vitesse d'attaque calculee a partir de la base champion puis multipliee par le bonus AS en %
+  - deltas:
+    - chaque colonne garde l'etat precedent du setup
+    - le panneau `Dernier changement` compare les stats precedentes aux stats courantes
+- Validation d'inventaire Lab:
+  - service central:
+    - `src/lib/item-lab/InventoryValidationService.ts`
+  - responsabilites:
+    - calculer les items eligibles par slot
+    - filtrer l'autocompletion du picker d'items
+    - refuser une selection invalide avant ecriture dans l'etat React
+    - valider globalement un build deja rempli et remonter les issues
+  - l'UI ne decide plus seule des restrictions; `SetupColumn.tsx` consomme la sortie du service et `Lab.tsx` garde une verification avant mutation
+  - contrats ajoutes dans `src/lib/item-lab/types.ts`:
+    - `InventoryBlockReason`
+    - `SlotItemValidation`
+    - `SetupInventoryValidation`
+  - strategie retenue:
+    - le backend derive les `itemGroups` depuis le catalogue patche et les descriptions Riot FR
+    - le frontend applique une regle unique:
+      - si un groupe exclusif est deja represente dans le build (hors slot en cours), les autres items de ce groupe sont bloques
+    - l'autocompletion du Lab n'affiche que les `allowedItems`
+    - toute tentative de contournement UI est revalidee dans `Lab.tsx` avant ecriture de l'etat
+- Regles d'itemisation actuellement portees par le service:
+  - doublons d'items complets interdits dans un meme setup
+  - items inactifs / starters / consommables / trinkets exclus du picker du Lab
+  - une seule paire de bottes par build via le groupe `Boots`
+  - bottes de 3e rang reservees au role `MID`
+  - slot 7 des `ADC` reserve strictement aux bottes
+  - un upgrade qui part d'un item deja present dans un autre slot est bloque hors du slot d'origine:
+    - exemple vise:
+      - upgrades de bottes de 3e rang
+      - toute evolution directe dont la base existe deja dans l'inventaire
+  - groupes d'items actuellement pris en charge cote catalogue/backend:
+    - `Boots`
+    - `Hydra`
+    - `Lifeline`
+    - `Manaflow`
+    - `Spellblade`
+    - `Annul`
+    - `Blight`
+    - `Eternity`
+    - `Immolate`
+    - `Quicksilver`
+    - `Stasis`
+    - `LastWhisper`
+    - `Fatality`
+  - exemples concrets de verrou produit:
+    - `Faux spectrale` bloque `Aube et crepuscule` car les deux occupent `Spellblade`
+    - `Rappel mortel` bloque `Salutations de Dominik` et `Rancune de Serylda` via `LastWhisper`
+  - hints UX exposes par le service:
+    - "Le 7e slot ADC est reserve aux bottes."
+    - "Les bottes de 3e rang sont reservees au role MID."
+    - "Certaines evolutions ne sont disponibles qu'en remplacement direct de leur base."
+- Modelisation retenue pour les incompatibilites:
+  - priorite a une couche derivee / documentee cote backend plutot qu'a des `if` disperses dans les composants
+  - `server/src/lib/itemGroups.ts` derive les groupes a partir de:
+    - `riotItemId` stables pour les familles connues
+    - regex sur `fullDescription` Riot FR pour les groupes explicites (`Lame enchantee`, `Lien vital`, `Flux de mana`, `Invalidation`, `Immolation`, etc.)
+    - signaux structurels deja syncs (`isBoots`, `buildsFrom`)
+  - les composants React ne codent plus eux-memes les groupes
+  - objectif futur:
+    - si le backoffice / la DB recoivent plus tard un vrai champ persiste `itemGroups`, `viewMappers.ts` devra prioriser cette metadonnee avant la derivation
+- Architecture heuristique V2:
+  - `calculations.ts` garde:
+    - calcul des stats champion par niveau
+    - aggregation des bonus d'items
+    - formattage des stats
+    - synthese comparative A/B
+  - `BuildAnalysisService.ts` gere:
+    - `getProfileScores()`
+    - `deriveBuildSignals()`
+    - `deriveCompositionArchetypes()`
+    - `buildContextSummary()`
+    - `buildWhyItChanges()`
+- Regles par role / lane:
+  - configuration centrale: `src/lib/item-lab/roleConfig.ts`
+  - `ROLE_CONFIG` actuel:
+    - `TOP`: `maxLevel 20`, `maxItems 6`
+    - `JUNGLE`: `maxLevel 18`, `maxItems 6`
+    - `MID`: `maxLevel 18`, `maxItems 6`
+    - `ADC`: `maxLevel 18`, `maxItems 7`
+    - `SUPPORT`: `maxLevel 18`, `maxItems 6`
+  - le setup Lab stocke maintenant explicitement un `role`
+  - le role est normalise puis applique via `normalizeSetupForRole()`
+  - effets:
+    - clamp automatique du niveau autorise
+    - nombre de slots d'items dynamique
+    - conservation des premiers items quand le role change
+    - migration douce des anciennes sauvegardes sans role
+- Impact UI des roles:
+  - chaque colonne propose un role actif parmi les roles du champion
+  - le controle de niveau ne doit plus reposer uniquement sur un `Input` range generique
+  - utiliser un slider natif + actions explicites (`-`, `+`, `Max`) pour rendre le cap visible et atteignable
+  - le slider affiche dynamiquement son niveau max autorise
+  - le panneau inventaire affiche dynamiquement le nombre max de slots
+  - en mode miroir, le changement de champion/role de A recopie aussi la contrainte sur B
+- Overlay / layering Lab:
+  - les overlays du Lab doivent toujours passer par un portal ou une couche globale quand ils depassent la colonne
+  - `src/components/ui/popover.tsx` utilise un `Portal` avec `z-index` eleve (`z-[80]`) et `collisionPadding`
+  - les containers du Lab sont marques `overflow-visible` / `isolate` pour eviter les coupes visuelles
+  - hierarchie visee:
+    - base UI: `z 1`
+    - panneaux/colonnes: `z 10`
+    - overlays/popovers: `z 80+`
+  - diagnostic UX important:
+    - le probleme visuel principal du Lab n'etait pas seulement le layering
+    - il venait surtout d'un rail lateral interne trop large dans chaque `SetupColumn`, qui cassait la lecture entre la colonne A et la colonne B
+  - correction structurelle retenue:
+    - abandon du rail lateral interne
+    - retour a une colonne verticale unique:
+      - bloc haut `champion + role + niveau + inventaire`
+      - stats principales
+      - profil de force en pleine largeur
+      - pourquoi ca change / contexte conseille
+      - utilitaire
+    - objectif:
+      - aucun panneau ne doit "manger" l'espace central entre A et B
+- Profils de force:
+  - burst
+  - DPS soutenu
+  - anti-frontline
+  - anti-squishy
+  - survivabilite
+  - ces profils restent heuristiques et ne simulent pas le kit Riot exact
+- Signaux derives:
+  - `burstScore`
+  - `sustainedDpsScore`
+  - `survivabilityScore`
+  - `antiFrontlineScore`
+  - `mobilityScore`
+  - `sustainScore`
+  - `pokeStabilityScore`
+- Compo type / archetypes:
+  - le Lab ne genere plus jamais une equipe ennemie concrete
+  - il produit une lecture abstraite par archetypes:
+    - `Frontline lourde`
+    - `Squishy`
+    - `Sustain`
+    - `Poke`
+    - `Engage fort`
+    - `Combat long`
+    - `Burst rapide`
+  - faiblesses possibles:
+    - `Faible contre poke`
+    - `Faible contre burst`
+    - `Faible contre frontline`
+    - `Faible dans les combats longs`
+- Regles principales d'archetypes:
+  - `Frontline lourde`:
+    - si anti-frontline fort
+    - ou DPS soutenu eleve + penetration elevee
+  - `Squishy`:
+    - si burst eleve
+    - ou crit + AD eleves
+    - ou lethalite suffisante
+  - `Combat long`:
+    - si DPS soutenu eleve + survivabilite ou sustain
+  - `Burst rapide`:
+    - si burst tres eleve
+  - `Engage fort`:
+    - si mobilite forte + burst ou survie correcte
+  - `Sustain`:
+    - si lifesteal / regen / tenue longue detectes
+  - `Poke`:
+    - si la combinaison mobilite + cadence / haste permet une pression repetee
+- Regles UX Lab V2:
+  - hierarchie en 3 niveaux:
+    - niveau 1:
+      - champion + niveau
+      - items
+      - stats principales offensif / defensif
+      - profil de force
+      - synthese comparative
+    - niveau 2:
+      - pourquoi ca change
+      - contexte conseille
+    - niveau 3:
+      - utilitaire / mana / regen
+      - lecture de delta
+  - les petits badges de delta flottants sont retires des stats principales
+  - les deltas restent dans `Dernier changement`
+  - `Pourquoi ca change` reste volontairement court:
+    - 2 lignes visibles par defaut
+    - extension manuelle si besoin
+  - `Contexte conseille` est rendu en pills/tags + une phrase courte + max 2 raisons
+  - `Contexte conseille`:
+    - ne se debloque qu'a partir de 2 items
+    - devient `lecture complete` a 6 items
+- Sauvegarde / export:
+  - persistence locale en `localStorage` pour les experiences du Lab
+  - format sauvegarde:
+    - nom
+    - mode
+    - setup A/B (champion, niveau, items)
+    - dates de creation / maj
+  - export MVP:
+    - texte synthese copiable dans le presse-papiers
+    - fallback telechargement `.txt` si clipboard indisponible
+- Ajustements UX Lab suite aux captures:
+  - les colonnes du Lab doivent etre rendues dans une grille `items-start` pour eviter les grands vides verticaux
+  - ne jamais afficher les cles internes de stats (`moveSpeed`, `manaRegen`, etc.) dans l'UI
+  - utiliser `getStatLabel()` / les definitions de stats pour toute etiquette visible
+  - les scores de profil utilisent un soft-cap plus strict pour eviter les `100/100` trop frequents
+  - les experiences sauvegardees sont maintenant affichees en liste horizontale compacte, pas en grande grille verticale
+- Sous-agents Cursor ajoutes pour les prochaines iterations Lab:
+  - `.cursor/agents/item-lab-ux-auditor.md`
+  - `.cursor/agents/item-lab-matchup-analyst.md`
+- Tests:
+  - `src/test/itemLabCalculations.test.ts` couvre les calculs de base et la synthese comparative
+  - `src/test/itemLabInventoryValidation.test.ts` couvre:
+    - slot 7 ADC reserve aux bottes
+    - bottes T3 MID-only
+    - verrou d'upgrade au slot de base
+    - exclusivite de groupe type `LastWhisper`
+    - exclusivite de groupe type `Spellblade`
+    - detection d'un build invalide
+- Limites actuelles du MVP:
+  - pas de runes, passifs champions, buffs contextuels, ratios de sorts, resistances cibles detaillees ou simulation de combat
+  - heuristiques de profils, contextes et archetypes volontairement simples et maintenables
+  - les archetypes restent une lecture produit:
+    - ils ne remplacent pas une vraie simulation de draft ou de teamfight
+  - sauvegarde non synchronisee serveur pour l'instant
+  - les incompatibilites d'items ne sont pas encore hydratees par un vrai champ patch/backoffice dedie:
+    - les groupes sont derives cote backend, pas encore persistes en base
+    - la qualite de certains groupes depend de la stabilite des descriptions Riot FR et d'un mapping par `riotItemId`
+    - `Fatality` reste un groupe expose mais peu utile tant qu'un seul membre canonique est present dans le catalogue courant
 
 ## Commandes utiles
 
@@ -307,3 +1420,1972 @@ Lire ce fichier au debut de chaque nouvelle conversation sur ce repo, puis le me
   - tout changement produit/UX non trivial qui risquerait d'etre oublie au tour suivant
 - Avant tout autocompact / compactage Codex, mettre a jour `codex.md` avec les informations produit ou techniques qui ne doivent pas etre oubliees.
 - Garder le fichier court, pratique, et oriente execution.
+
+## Ingestion pro ML - etat courant (2026-03-31)
+
+- Un pipeline pro recent existe maintenant pour enrichir `ImportedMatch` sans casser le flux joueur standard.
+- Source externe retenue pour la decouverte uniquement:
+  - Leaguepedia / Fandom `CargoExport`
+  - tables jointes: `TournamentPlayers`, `Players`, `Tournaments`
+  - usage limite a la seed list; les matchs et timelines restent 100% Riot API
+- Seed list versionnee:
+  - fichier: `data/pro-seeds/major-pros-recent.json`
+  - script: `npm run riot:prepare-pro-seeds`
+  - champs attendus par seed:
+    - `playerName`
+    - `team`
+    - `league`
+    - `competition`
+    - `role`
+    - `riotId`
+    - `riotIdCandidates`
+    - `puuid`
+    - `platformHint`
+    - `cluster`
+    - `source`
+    - `sourceTournamentDate`
+- Source de verite du stockage match:
+  - `ImportedMatch.sourceKind`
+  - `ImportedMatch.sourceMetadata`
+  - pour l'ingestion pro, `sourceKind = "PRO_SEED"`
+  - `sourceMetadata.seed` stocke la provenance joueur/equipe/league/competition pour audit et export ML
+- Invariant critique:
+  - `ImportedMatch` reste unique par `riotMatchId`
+  - un import pro ne doit jamais ecraser un match deja stocke pour un autre `targetPuuid`
+  - le code skippe maintenant ce cas avec `existing-match-different-target`
+  - le flux pro ne doit pas mettre a jour `PlayerProfile`; il ne faut pas polluer le profil d'un vrai user local avec des seeds pros
+- Scripts principaux:
+  - `npm run riot:prepare-pro-seeds`
+  - `npm run riot:import-pro -- --owner-user-id <userId> --target-matches 600 --count-per-seed 18`
+  - `npm run riot:report-pro -- --days 3650`
+  - `npm run ml:export-raw`
+  - `ml\\.venv\\Scripts\\python.exe ml\\scripts\\tasks.py build-dataset`
+  - `ml\\.venv\\Scripts\\python.exe ml\\scripts\\tasks.py train-baseline`
+- Checkpoint / reprise:
+  - checkpoint runtime: `data/runtime/pro-ingestion/checkpoint.json`
+  - report runtime: `data/runtime/pro-ingestion/report.json`
+  - le checkpoint est cumulatif et permet de reprendre sans rerespoudre tous les seeds ni redemander tous les match ids
+- Scheduling / rate limit:
+  - le client Riot respecte `Retry-After`
+  - le batch pro panache les seeds en round-robin inter-ligues avant dedup globale des match ids
+  - ne pas lancer plusieurs imports pro en parallele
+- Run reel local realise:
+  - cible atteinte: `600` matchs `PRO_SEED`
+  - timelines: `600 / 600`
+  - seeds source: `247`
+  - seeds resolus: `147`
+  - matchs uniques decouverts: `1989`
+  - repartition ligues observee:
+    - `World Championship`: `203`
+    - `First Stand`: `194`
+    - `League of Legends Championship of The Americas`: `87`
+    - `LoL Champions Korea`: `71`
+    - `Mid-Season Invitational`: `45`
+  - patches dominants:
+    - `16.6`: `404`
+    - `16.5`: `43`
+    - `16.1`: `42`
+- Limites connues:
+  - beaucoup de seeds n'ont pas de `SoloqueueIds` exploitables sur Leaguepedia
+  - certaines resolutions retournent `403` Riot selon le compte/route; c'est best effort et trace dans le report
+  - le checkpoint cumule aussi les echecs historiques; ne pas lire `topFailureReasons` comme "uniquement le dernier run"
+  - si on veut un report propre par run, vider ou archiver le checkpoint avant un nouveau batch complet
+- Integration ML verifiee sur le volume pro:
+  - `npm run ml:export-raw` a exporte `604` matchs avec timeline
+  - `build-dataset` produit `14091` snapshots et `523166` lignes ranking
+  - `train-baseline` ranking:
+    - `NDCG@3 ~= 0.4503`
+    - `MAP@3 ~= 0.4162`
+    - `top1 ~= 0.3126`
+    - `top3 ~= 0.5491`
+- Attention execution:
+  - ne pas lancer `ml:export-raw`, `build-dataset` et `train-baseline` en parallele si on veut mesurer le nouveau dataset; `build-dataset` doit demarrer apres la fin de l'export
+
+## Scenarios ML - reconstruction des items d'equipe (2026-03-31)
+
+- Le scenario d'un puzzle `AI_GENERATED` doit maintenant reconstruire les inventaires allies + ennemis au timestamp exact du snapshot retenu.
+- Cause racine du placeholder `Pas de snapshot d'items.`:
+  - `server/src/services/mlPuzzleGenerationService.ts` construisait `allyTeam` / `enemyTeam` avec `items: []`
+  - seule l'inventaire du joueur cible etait reconstruit pour le payload ML
+  - les autres participants n'etaient jamais rejoues sur la timeline
+- Regle de reconstruction:
+  - rejouer les events `ITEM_PURCHASED`, `ITEM_SOLD`, `ITEM_DESTROYED`, `ITEM_UNDO`
+  - s'arreter au timestamp exact du snapshot selectionne
+  - construire l'index `riotItemId -> slug` a partir des events items de tous les participants du match, pas seulement du joueur cible
+  - mapper `riotItemId -> slug` via l'index DB des items
+  - stocker l'inventaire complet cote backend
+  - limiter l'affichage frontend a `6` items max par participant
+- Helper dedie:
+  - `server/src/lib/ml/scenarioInventory.ts`
+  - sortie: `inventories`, `eventsApplied`, `participantsCovered`
+- Observabilite:
+  - log backend sur chaque snapshot reconstruit:
+    - minute du snapshot
+    - nombre de participants couverts
+    - nombre d'events items appliques
+- Test de garde:
+  - `src/test/scenarioInventory.test.ts`
+  - couvre achat / vente / destruction / undo
+
+## Presentation des items - convention stats vs effets (2026-04-01)
+
+- Source de verite des stats de base:
+  - `src/lib/itemPresentation.ts` doit prioriser `item.stats` (Data Dragon / payload sync) pour produire `getItemStatLines()`
+  - comme `item.stats` Riot est incomplet pour certaines familles (ex: acceleration, penetration, tenacite, regen de base, soins/boucliers), le parseur peut completer depuis les lignes de tete de `fullDescription`, mais seulement pour des stats de base explicitement reconnues
+  - `fullDescription` ne doit jamais "inventer" une stat critique ou passive si la ligne correspond a un effet et non a une stat de base
+- Regle de separation:
+  - `getItemStatLines()` = stats de base uniquement
+  - `getItemEffectBlocks()` = passifs / actifs / effets uniquement
+  - si `fullDescription` commence par un bloc de stats, il faut retirer toutes les lignes de tete reconnues comme vraies stats de base
+  - une ligne d'effet numerique restante (ex: `+30% degats de coup critique`) doit rester dans les effets si elle ne fait pas partie des stats de base reconnues
+- Ambiguite critique a eviter:
+  - distinguer explicitement `chances de coup critique` et `degats de coup critique`
+  - ne jamais mapper une ligne de degats critiques vers la stat de chance critique
+  - les effets de `degats de coup critique` doivent porter l'icone `crit` dans le tooltip
+- Tests de garde:
+  - `src/test/itemPresentation.test.ts`
+  - `src/test/itemPresentationCatalog.test.ts`
+  - couvrir au minimum un item crit, un AP, un tank, un support, plus un audit catalogue branche sur la table `Item`
+- Audit catalogue:
+  - commande: `npm run audit:items`
+  - script: `scripts/auditItemPresentation.ts`
+  - helper partage: `src/lib/itemPresentationAudit.ts`
+  - objectif courant verifie localement le `2026-04-01`: `211/211` items sans anomalie de presentation detectee
+- Diagnostic environnement local:
+  - si le front affiche `ERR_CONNECTION_REFUSED` sur `http://localhost:8080/...`, ce n'est pas un bug de recherche joueur Riot mais un probleme de runtime local: Vite (`:8080`) et/ou l'API Express (`:3001`) ne tournent pas
+  - `src/api/client.ts` remonte maintenant un message explicite quand l'application locale n'est pas joignable
+
+## Restrictions d'items versionnees patch/role (2026-04-01)
+
+- Source de verite:
+  - config partagee: `ml/configs/item_restrictions.json`
+  - schema minimal:
+    - `patch`
+    - `globalBlacklist`
+    - `roleRestrictions`
+    - `roleAllowlistOverrides`
+- Resolution:
+  - la cle de patch est normalisee au format `major.minor` (ex: `16.6.1` -> `16.6`)
+  - `globalBlacklist` produit la raison `patch-restricted`
+  - `roleRestrictions[ROLE]` produit la raison `role-restricted`
+  - `roleAllowlistOverrides[ROLE]` peut lever un blocage patch/role pour ce role
+- Backend TS:
+  - loader partage: `server/src/lib/itemRestrictions.ts`
+  - points d'application:
+    - `server/src/lib/ml/puzzleBusinessRules.ts` pour filtrer le candidate pool backend
+    - `server/src/lib/ml/puzzleChoiceResolution.ts` pour empecher la resolution finale d'un item restreint
+    - `server/src/services/mlPuzzleGenerationService.ts` pour rejeter/logguer une bonne reponse ML qui serait interdite
+  - logs explicites:
+    - `scope: "good-answer"` si le top pick ML est interdit
+    - `scope: "candidate-pool"` avec echantillon de slugs rejetes et compteurs `role-restricted` / `patch-restricted`
+- ML Python:
+  - helper partage python: `ml/features/item_restrictions.py`
+  - `ml/features/catalogs.py` applique aussi les restrictions au `build_candidate_pool(...)`
+  - `ml/features/analytics.py` passe maintenant le role snapshot au candidate pool dataset
+  - `ml/inference/service.py` passe maintenant le role au candidate pool reconstruit cote inference
+- Export ML:
+  - `scripts/exportImportedMatchesForMl.ts` reference maintenant `itemRestrictionsPath` dans le manifest exporte
+- Exemple courant:
+  - patch `16.6`
+  - `jarvan-i` est en `globalBlacklist`
+  - plusieurs bottes T3 sont `roleRestrictions.ADC`
+  - `MID` garde un `roleAllowlistOverrides` sur ces bottes T3
+- Tests de garde:
+  - `src/test/itemRestrictions.test.ts`
+  - `src/test/mlPuzzleBusinessRules.test.ts`
+  - `src/test/mlPuzzleChoiceResolution.test.ts`
+  - `ml/tests/test_item_restrictions.py`
+
+## Coherence puzzle ML alignee sur le Lab (2026-04-01)
+
+- Probleme constate:
+  - une simple blacklist de slugs ne suffit pas; un nouveau slug de bottes T3 peut fuiter hors `MID`
+  - le Lab avait deja une logique plus robuste fondee sur la structure des items
+- Decision:
+  - ne pas toucher aux fichiers du Lab
+  - porter la logique utile dans le pipeline puzzle/ML courant via un module dedie
+- Regles structurelles retenues:
+  - detection des bottes T3 via `isBoots` + chaine `buildsFrom`
+  - bottes T3 reservees a `MID` meme si le slug n'est pas encore present dans `item_restrictions.json`
+  - exclusion des conflits de famille via `itemGroups` / groupes derives (`Boots`, `LastWhisper`)
+  - exclusion de ces conflits a la fois contre le build courant et entre les choix finaux proposes
+- Implementation:
+  - helper central: `server/src/lib/ml/itemCandidateRules.ts`
+  - candidate pool backend: `server/src/lib/ml/puzzleBusinessRules.ts`
+  - resolution finale: `server/src/lib/ml/puzzleChoiceResolution.ts`
+  - enrichissement des items backend: `server/src/services/mlPuzzleGenerationService.ts`
+  - export / candidate pool ML: `scripts/exportImportedMatchesForMl.ts`, `ml/features/catalogs.py`, `ml/features/item_restrictions.py`
+- Intention:
+  - la config versionnee garde les exceptions patch/specifiques
+  - les regles structurelles empechent les incoherences de shop quand un nouveau slug apparait
+
+### Correctif complementaire - lignee de bottes et catalogues partiels
+
+- Cas reel rencontre:
+  - `jambieres-de-metal` (`riotItemId=3172`) etait propose a un ADC alors que c'est une upgrade de bottes reservee hors ADC
+  - cause reelle: l'item etait stocke avec `isBoots = false` en base, bien qu'il derive de `jambieres-du-berzerker` (`3006`)
+- Regle corrigee:
+  - une upgrade de bottes doit etre reconnue par sa lignee `buildsFrom`, meme si Riot / Data Dragon ne renseigne pas `Boots` dans les tags
+  - les filtres puzzle/ML ne doivent jamais dependre uniquement du flag brut `isBoots`
+- Donnees:
+  - la sync items derive maintenant `isBoots` par propagation de lignee, pas seulement via `tags.includes("Boots")`
+  - l'export ML derive la meme logique
+- Generation:
+  - `server/src/services/mlPuzzleGenerationService.ts` doit fallback sur le dernier catalogue actif si le catalogue du patch demande est incomplet localement
+  - symptome detecte localement: apres sync latest, il ne restait que 4 items en `16.6`, ce qui n'est pas un vrai catalogue jouable
+- Hygiene de test:
+  - si un puzzle AI deja persiste contient une anomalie corrigee depuis, il faut supprimer ce puzzle (ou la famille concernee) avant de conclure que le fix ne marche pas
+
+## Regle Docker ML obligatoire (2026-04-01)
+
+- Si un fichier de code sous `ml/` est modifie dans:
+  - `ml/features/`
+  - `ml/inference/`
+  - `ml/models/`
+  - `ml/training/`
+  - `ml/scripts/`
+  - `ml/pyproject.toml`
+  - `ml/Dockerfile`
+- Alors il faut considerer que le conteneur `ml-api` Docker n'embarque plus le bon code.
+- Dans ce cas, le rebuild de l'image est obligatoire. Un simple restart du conteneur n'est pas suffisant.
+- Commande de reference:
+  - `docker compose --profile ml up --build -d ml-api`
+- Cas particulier:
+  - si seuls `ml/configs/`, `ml/data/` ou `ml/artifacts/` changent, un rebuild n'est pas necessaire en premiere intention car ces dossiers sont montes comme volumes dans `docker-compose.yml`
+- Reflexe attendu:
+  - apres toute modification de code ML Python, toujours rebuild avant de conclure qu'un correctif "ne marche pas"
+
+## Regle redemarrage backend Node obligatoire (2026-04-01)
+
+- Si un fichier sous `server/` est modifie, il faut considerer que l'API locale sur `:3001` doit tourner avec ce nouveau code.
+- En developpement, `npm run dev` ou `npm run dev:server` via `tsx watch` devrait recharger automatiquement, mais il ne faut jamais le supposer sans verifier un effet observable en base/logs.
+- Si les nouvelles metadonnees attendues n'apparaissent pas en base apres une generation, partir du principe que l'ancien serveur tourne encore.
+- Reflexe attendu apres un correctif backend:
+  - redemarrer `npm run dev` si le doute existe
+  - verifier soit les logs serveur, soit la DB (`GeneratedPuzzleRequest.parameters`) avant de conclure
+
+## Audit statique Data Dragon / DB / UI (2026-04-01)
+
+- Objectif:
+  - verifier la coherence entre les donnees statiques Riot/Data Dragon, la DB locale et le rendu UI
+  - detecter vite les erreurs de mapping, labels dupliques, champs manquants, nulls, anomalies de parsing et incoherences de patch
+- Source de verite:
+  - moteur partage: `src/lib/staticDataAudit.ts`
+  - script runnable localement: `scripts/auditStaticData.ts`
+  - sortie:
+    - JSON: `reports/static-data-audit/latest.json`
+    - markdown: `reports/static-data-audit/latest.md`
+- Perimetre items:
+  - compare `item.stats` reconnus vs `getItemStatLines()`
+  - detecte:
+    - `duplicate-display-stat`
+    - `duplicate-display-label`
+    - `raw-stat-missing-from-display`
+    - `base-stat-leaked-into-effects`
+    - `%` sur mauvais libelle
+    - `missing-crit-damage-icon`
+    - `patch-not-latest`
+- Perimetre champions:
+  - verifie:
+    - champs obligatoires
+    - presence identifiants Riot
+    - shape `stats`
+    - valeurs numeriques
+    - nulls
+    - format / coherence patch
+- Commande standard:
+  - `npm run audit:static-data`
+- Usage attendu:
+  - a lancer avant un retrain ML
+  - a lancer avant une release
+  - si le rapport remonte des anomalies `error`, ne pas considerer le catalogue comme fiable
+  - l'audit cible le catalogue actif (`isActive = true`) pour ne pas polluer le signal avec des reliquats legacy en base
+- Tests de garde:
+  - `src/test/itemPresentation.test.ts`
+  - `src/test/itemPresentationCatalog.test.ts`
+  - `src/test/staticDataAudit.test.ts`
+- Etat local observe le `2026-04-01`:
+  - rapport genere avec `207` items actifs et `172` champions audites
+  - `0` anomalie item
+  - `0` anomalie champion
+
+## Serie multi-snapshots match-based (2026-04-01)
+
+- Probleme:
+  - le flow ML match-based selectionnait historiquement un seul snapshot "meilleur" de facon deterministe
+  - sur plusieurs runs du meme match, cela re-servait tres souvent la meme minute
+- Decision:
+  - conserver un puzzle `primary` pour compatibilite
+  - enrichir le flow pour produire jusqu'a `3` puzzles credibles sur des segments distincts
+- Segments utilises:
+  - `early`: `8 <= minute < 14`
+  - `mid`: `14 <= minute < 23`
+  - `late`: `23 <= minute <= 32`
+- Regle de selection:
+  - on evalue les snapshots credibles existants avec les garde-fous actuels
+  - on retient au maximum un snapshot par segment
+  - on privilegie les snapshots non deja servis a ce `userId` sur ce `importedMatchId`
+  - si un segment n'a plus aucune alternative fraiche, un fallback sur un snapshot deja vu reste autorise pour ne pas casser la generation
+  - tant qu'il existe au moins un snapshot publiable, on n'ajoute pas de snapshot `low-confidence` juste pour faire du volume
+- Traçabilite:
+  - `GeneratedPuzzleRequest.parameters` doit maintenant garder:
+    - `selectedSnapshot` pour le primary
+    - `selectedSnapshots` pour toute la mini-serie
+    - `resultPuzzleIds`
+    - `resultPuzzleSlugs`
+    - `segmentsEvaluated`
+    - `repetitionExcluded`
+- Logs attendus:
+  - `segments-evaluated`
+  - `snapshots-excluded-for-repetition`
+  - `selected-snapshots`
+- Contrat API:
+  - `slug` reste le puzzle primary
+  - `slugs` contient la mini-serie complete, dans un ordre demarrant par le primary
+- Tests de garde:
+  - `src/test/mlPuzzleOrchestration.test.ts`
+
+## Ingestion competitive premium 2026 (2026-04-01)
+
+- Intention produit:
+  - construire un dataset premium recent, competitif et patch-coherent
+  - priorite a la saison `2026`
+  - priorite aux patchs `26.x`
+  - priorite au `pro` recent, puis `elite` ladder Riot, puis `fallback` limite
+- Nouveau manifest versionne:
+  - fichier: `data/seeds/competitive-seeds-2026.json`
+  - schema unifie:
+    - `playerName`
+    - `team`
+    - `league`
+    - `competition`
+    - `role`
+    - `region`
+    - `riotId`
+    - `riotIdCandidates`
+    - `puuid`
+    - `priorityTier`
+    - `priorityScore`
+    - `discoverySource`
+    - `seedSetVersion`
+    - `platformHint`
+    - `cluster`
+    - `season`
+    - `sourceTournamentDate`
+- Sources code:
+  - seed sourcing: `server/src/lib/riot/competitiveSeeds.ts`
+  - source pro opt-in + cache: `server/src/lib/riot/proSeeds.ts`
+  - import batch: `scripts/importCompetitiveMatches.ts`
+  - reporting: `scripts/reportCompetitiveIngestion.ts`
+  - scoring / checkpoint / policy: `server/src/lib/riot/competitiveIngestion.ts`
+  - Riot client enrichi: `server/src/lib/riot/riotApiClient.ts`
+- Scripts npm:
+  - `npm run riot:prepare-competitive-seeds`
+  - `npm run riot:import-competitive`
+  - `npm run riot:report-competitive`
+- Sourcing pro / elite, etape 3:
+  - chemin safe par defaut:
+    - elite ladder Riot seulement
+    - seeds manuels: `data/seeds/pro-curated-2026.json`
+    - Leaguepedia desactive par defaut
+  - Leaguepedia est maintenant derriere un opt-in explicite:
+    - `scripts/prepareCompetitiveSeeds.ts --enable-leaguepedia`
+    - `scripts/prepareProPlayerSeeds.ts --enable-leaguepedia`
+  - cache local Leaguepedia:
+    - `data/runtime/seeds-cache.json`
+    - cle de cache basee sur les sources CargoExport
+  - user-agent Leaguepedia explicite:
+    - `summoner-build-lab/seed-prep (leaguepedia opt-in; local operator)`
+  - manifest manuel pro:
+    - `data/seeds/pro-curated-2026.json`
+    - format identique a `ProPlayerSeed[]` / `players`
+  - par defaut, le manifest competitif fusionne:
+    - curated pro file
+    - elite ladder `KR` + `EUW`
+  - fallback elite renforce:
+    - `DEFAULT_ELITE_SEED_PLATFORMS = ["kr", "euw1"]`
+    - `DEFAULT_ELITE_SEED_OPTIONS.maxEntriesPerTier = 75`
+  - le scoring garde la priorite pro:
+    - `LCK > LPL > LEC > First Stand > MSI > Worlds > autres`
+    - les seeds `elite` restent en dessous des seeds `pro` cote `priorityScore`, mais assurent le volume
+  - validateur de quality au seed prep:
+    - `% resolved seeds` = seeds avec `puuid` ou `riotId`
+    - `% seeds with riotIdCandidates non vides`
+    - distribution par ligue
+    - distribution par region
+    - le rapport quality est ecrit dans `competitive-seeds-2026.json` sous `quality`
+- Politique par defaut:
+  - policy versionnee: `data/config/competitive-ingestion-policy-2026.json`
+  - mode operationnel: `recent_preferred_with_controlled_fallback`
+  - saison courante seulement via `startTime = 2026-01-01`
+  - queues:
+    - preferee: `420`
+    - fallback controle: `440`
+  - patches:
+    - exact target: `26.x`
+    - adjacent recent acceptes par defaut le `2026-04-01`: `16.6`, `16.5`, `16.4`, `16.3`, `16.2`
+  - ordre d'ouverture des tiers:
+    - `tier1`: pro + exact target + queue preferee
+    - `tier2`: pro + adjacent recent + queue preferee/fallback
+    - `tier3`: elite + exact target + queue preferee
+    - `tier4`: elite + adjacent recent + queue preferee/fallback
+    - `tier5`: fallback exact target desactive par defaut
+  - logs attendus:
+    - `fallback-opened: pro_adjacent_patch`
+    - `fallback-opened: elite_exact_patch`
+    - `fallback-opened: elite_adjacent_patch`
+- Provenance / observabilite:
+  - `ImportedMatch.sourceKind` accepte maintenant aussi:
+    - `PRO_SEED`
+    - `ELITE_SEED`
+    - `FALLBACK_SEED`
+  - `ImportedMatch.sourceMetadata` doit garder:
+    - seed:
+      - joueur / team / league / competition / role / region
+      - `riotId`
+      - `puuid`
+      - `priorityTier`
+      - `priorityScore`
+      - `discoverySource`
+      - `seedSetVersion`
+    - ingestion:
+      - `queueId`
+      - `matchPriorityScore`
+      - `acceptedByPolicy`
+      - `acceptedReason`
+      - `rejectionReason`
+      - `fallbackReason`
+      - `policyMode`
+      - `patchBucket`
+      - `queueBucket`
+      - `sourceBucket`
+      - `priorityBand`
+- Checkpoint runtime:
+  - `data/runtime/competitive-ingestion/checkpoint.json`
+  - version `3`
+  - garde:
+    - `policyMode`
+    - `openedFallbackTiers`
+    - `seedResolutionSummary`
+    - `seedDiscoverySummary`
+    - `policyDecisionByMatchId`
+    - `importCountsByTier`
+    - `importCountsByPatchBucket`
+    - `importCountsByQueueBucket`
+    - `matchMetadataById`
+    - `resolvedSeeds`
+    - `discoveredMatches`
+    - `attemptedMatchIds`
+    - `importedMatchIds`
+    - `rejectedMatchIds`
+    - `failedMatches`
+  - `discoveredMatches` garde maintenant aussi l'etat de pagination par seed:
+    - `querySignature`
+    - `appliedFilters`
+    - `scanStateByQueue`
+  - relancabilite:
+    - la decouverte `match-v5` reprend a partir de `start` par queue au lieu de rescanner indefiniment les memes pages
+    - `--reset-checkpoint` force un run fresh sur le meme chemin de checkpoint
+    - `--checkpoint-path` permet d'isoler completement un run fresh dans un autre fichier
+- Rapports runtime:
+  - `data/runtime/competitive-ingestion/report.json`
+  - `data/runtime/competitive-ingestion/report.md`
+  - KPI attendus:
+    - `matchesImportedExactTargetPatch`
+    - `matchesImportedAdjacentRecentPatch`
+    - `matchesImportedPro`
+    - `matchesImportedElite`
+    - `resolvedButNoMatches`
+    - `resolvedButRejectedByPolicy`
+    - `discovered`
+    - `discoveredUniqueMatchesAfterTimeFilter`
+    - `policyAccepted`
+    - `rejectedByPolicy`
+    - `rejectedByReason`
+    - `rejectedReasonFractions`
+    - repartition `tier`
+    - repartition `league`
+    - repartition `region`
+    - repartition `queue`
+    - repartition `patchBucket`
+    - top raisons d'echec
+  - fractions de rejet a suivre explicitement:
+    - `before-season-window`
+    - `patch-not-allowed`
+    - `queue-not-allowed`
+- Import competif, etape 2:
+  - `scripts/importCompetitiveMatches.ts` passe maintenant `startTime` / `endTime` a `match-v5` en secondes UNIX a partir de la policy runtime
+  - la decouverte supporte la pagination `start` par queue pour continuer au-dela du premier lot quand `countPerSeed` est insuffisant
+  - garde-fou de scan:
+    - `countPerSeed` = taille de page
+    - `maxIdsPerSeed` = budget max de match ids scannes par seed, defaut `300`
+  - adaptation automatique:
+    - si la creation stagne surtout a cause de matchs deja presents en base, le script augmente automatiquement la profondeur de scan par seed
+    - la queue de creation exclut les `attemptedMatchIds` / `importedMatchIds` deja connus du checkpoint
+  - nouveau flag CLI:
+    - `--dry-run`
+    - le mode dry run decouvre, classe, checkpoint, genere le report, mais n'importe rien en base
+  - logs attendus:
+    - log global des filtres appliques a `match-v5`: queues, `startTime`, `endTime`, `dryRun`
+    - log par requete de decouverte: `discover-match-ids ... queue=... start=... count=... startTime=... endTime=...`
+- Integration ML:
+  - `scripts/exportImportedMatchesForMl.ts` exporte maintenant aussi:
+    - `sourceTier`
+    - `sourceLeague`
+    - `sourceRegionHint`
+    - `patchCanonical`
+    - `patchFormat`
+  - `ml/features/analytics.py` separe maintenant import policy et training policy
+  - config par defaut:
+    - `ml/configs/base.yaml`
+    - `dataset.train_patch_mode = strict_recent_competitive`
+    - `dataset.strict_train_patch_prefixes = ["26."]`
+    - `dataset.adjacent_train_patch_prefixes = ["26.6", "26.5", "26.4", "26.3"]`
+  - le rapport dataset Python doit exposer:
+    - `rows_before_train_patch_filter`
+    - `rows_after_train_patch_filter`
+    - `snapshots_by_patch_before_filter`
+    - `snapshots_by_patch_format`
+    - `snapshots_by_source_tier`
+    - `snapshots_by_source_league`
+    - `snapshots_exact_target_patch`
+    - `snapshots_adjacent_recent_patch`
+    - `snapshots_trainable_strict`
+    - `snapshots_trainable_preferred_fallback`
+  - politique ML:
+    - les matchs legacy restent en base
+    - par defaut, les vues trainables excluent les patches hors `26.*`
+    - `analytics.py` consomme `patchCanonical` / `patchFormat` de l'export raw quand ils existent, sinon recalcule en fallback
+  - archivage legacy optionnel:
+    - commande: `npm run ml:archive-legacy-raw`
+    - archive les `timelineData.raw` non trainables en `.json.gz` sous `data/archive/legacy-raw/`
+    - remplace en base `timelineData.raw` par:
+      - `archived`
+      - `archivedAt`
+      - `archivePath`
+      - `patchCanonical`
+      - `patchFormat`
+      - `patchBucket`
+      - `summary` (`frameCount`, `eventCount`, bornes timestamp)
+    - objectif: garder les metadata + agregats de debug sans laisser les timelines legacy lourdes dans la DB
+- Premium baseline v1:
+  - etat fige temporairement le `2026-04-01` pour audit avant nouvel entrainement
+  - ne pas relancer `npm run riot:import-competitive` tant que l'evaluation premium v1 n'est pas cloturee
+  - runbook freeze:
+    - `reports/premium-v1-freeze-runbook.md`
+  - audit consolide:
+    - JSON: `reports/premium-v1-dataset-audit.json`
+    - Markdown: `reports/premium-v1-dataset-audit.md`
+    - commande: `npm run audit:premium-v1-dataset`
+  - sequence de reproduction premium v1:
+    - `npm run riot:report-competitive`
+    - `npm run ml:export-raw`
+    - `ml\.venv\Scripts\python.exe ml\scripts\tasks.py build-dataset`
+    - `npm run audit:premium-v1-dataset`
+  - etat observe a figer pour premium v1:
+    - `610` matchs importes
+    - `610` timelines valides
+    - `504` matchs en patchs `26.1` a `26.7`
+    - part recente premium: `82.62%`
+    - `11958` snapshots trainables strict recents
+    - training policy verifiee:
+      - `train_patch_mode = strict_recent_competitive`
+      - `strict_train_patch_prefixes = ["26."]`
+- Commandes canonique premium:
+  - seed prep:
+    - `npm run riot:prepare-competitive-seeds -- --pro-only`
+    - ou `npm run riot:prepare-competitive-seeds` pour inclure le fallback ladder Riot
+  - import:
+    - `npm run riot:import-competitive -- --owner-email <email>`
+  - rapport ingestion:
+    - `npm run riot:report-competitive`
+  - export raw:
+    - `npm run ml:export-raw`
+  - build dataset:
+    - `ml\.venv\Scripts\python.exe ml\scripts\tasks.py build-dataset`
+  - train baseline:
+    - `ml\.venv\Scripts\python.exe ml\scripts\tasks.py train-baseline`
+- Regle de validation:
+  - ne pas considerer l'ingestion premium valide tant que le reporting n'affiche pas clairement la part `26.x` et la provenance `pro/elite/fallback`
+  - etat mesure localement apres assouplissement le `2026-04-01`:
+    - un run reel borne sur `82` seeds pro 2026 avec `targetMatches=5` a produit `105` matchs acceptes par policy sur `166` decouverts
+    - `fallback-opened: pro_adjacent_patch` s'est active
+    - la base est passee de `607` a `610` `ImportedMatch`
+    - la sous-base competitive est passee de `598` a `601`
+    - les nouveaux imports traces sont `adjacent_recent_patch`, `preferred_queue`, `tier2`, `sourceBucket=pro`
+  - avant un retrain ML, lancer dans l'ordre:
+    - `npm run audit:static-data`
+    - `npm run riot:report-competitive`
+    - `npm run ml:export-raw`
+    - `ml\.venv\Scripts\python.exe ml\scripts\tasks.py build-dataset`
+    - `ml\.venv\Scripts\python.exe ml\scripts\tasks.py train-baseline`
+
+## 2026-04-01 Patch Canonique
+
+- Regle:
+  - le patch interne premium doit etre canonicalise au format `year.minor`
+  - si `gameVersion` Riot est en format legacy `10-19.x` et que `gameCreationAt >= 2026-01-01`, alors convertir `major + 10`
+  - exemple: `16.6 -> 26.6`
+- Fichier de reference:
+  - `server/src/lib/riot/patchCanonical.ts`
+- Obligatoire dans tout le pipeline:
+  - ingestion Node
+  - scripts batch/import/report
+  - export raw ML
+  - dataset builder Python
+- Policy 2026:
+  - `preferredPatchPrefixes = ["26."]`
+  - `acceptedAdjacentPatchPrefixes = ["26.6", "26.5", "26.4", "26.3", "26.2"]`
+  - ne plus reintroduire de `16.x` dans la policy premium
+- Maintenance:
+  - backfill DB idempotent: `npm run backfill:canonical-patches`
+  - si un script derive encore `patch` via `gameVersion.split(\".\").slice(0, 2)`, il doit etre migre vers le helper canonique
+- ML:
+  - `ml/configs/base.yaml` doit rester aligne sur les prefixes `26.*`
+  - si des fichiers sous `ml/` sont modifies pour cette logique, rebuild Docker ML obligatoire:
+    - `docker compose --profile ml up --build -d ml-api`
+
+## 2026-04-01 Validation Match-Based
+
+- Objectif:
+  - instrumenter une phase de validation produit post-retrain sur le flow `generated-puzzles/match`
+  - ne pas modifier le coeur ML, seulement mesurer et diagnostiquer
+- Script:
+  - `scripts/evaluateMatchBasedValidation.ts`
+  - commande npm: `npm run audit:match-based-validation -- --sample-size 10`
+- Selection:
+  - prend des `ImportedMatch` avec timeline valide et patch `26.*`
+  - privilegie les matchs avec le moins de generations precedentes pour l'utilisateur d'evaluation
+- Artefacts:
+  - JSON: `reports/match-based-validation-report.json`
+  - Markdown: `reports/match-based-validation-report.md`
+- Journalisation par generation:
+  - `generationStatus`
+  - `selectedSnapshotIndex`
+  - `minute`
+  - `gold`
+  - `candidatePoolSize`
+  - `qualityScore`
+  - `failureReason` si `no_viable_snapshot_found`
+- Resume final:
+  - `completedRate`
+  - `noViableSnapshotFoundRate`
+  - `rejectionReasonCounts`
+  - `distinctSelectedSnapshotCount`
+  - `snapshotSegmentCounts`
+
+## 2026-04-01 Patch-Aware Puzzle Catalog
+
+- Contexte:
+  - le backend puzzle tombait en `patch-catalog-fallback` car `ImportedMatch.patch` est canonicalise en `26.x`, alors que la table `Item` locale ne contient que des versions Data Dragon legacy (`16.7.1` actif, `16.6.1` inactif)
+- Correction:
+  - `server/src/services/mlPuzzleGenerationService.ts` derive maintenant un `effectivePatch` depuis `matchData.raw.info.gameVersion` via `canonicalizePatch(...)`
+  - `getPatchChoiceItems(...)` essaie d'abord les prefixes issus de `buildPatchLookupCandidates(...)`
+  - si le match direct est vide ou trop pauvre, le service choisit le meilleur patch actif de la meme famille de version (`16.x`) au lieu d'un fallback global non borne
+  - logs attendus:
+    - `[ml-puzzle] patch-catalog-resolved`
+    - disparition de `[ml-puzzle] patch-catalog-fallback`
+- Etat mesure apres rerun audit:
+  - `resolvedPatchPrefix` observe: `16.7.1`
+  - `patchItemCount` observe sur `26.*`: `207`
+  - `good-answer-unresolved` a baisse fortement (`72 -> 36`) mais reste legerement la premiere raison de rejet devant `good-answer-too-cheap` (`34`)
+  - acceptance partielle:
+    - `patchItemCount > 100`: oui
+    - fin du fallback global: oui
+    - `good-answer-unresolved` non dominant: pas encore totalement, mais quasi a parite
+
+## 2026-04-01 Gold Before Purchase
+
+- Contexte:
+  - `dataset-report.json` remontait un `gold_incoherent_ratio` eleve (`~0.3983`)
+  - l'audit `match-based-validation` montrait encore beaucoup de rejets `good-answer-too-cheap` et `low-confidence`
+  - la cause etait un `goldAvailable` calcule avec `participantFrame.currentGold`, donc a la fin de frame, potentiellement apres plusieurs achats
+- Correction backend puzzle:
+  - `server/src/services/mlPuzzleGenerationService.ts` calcule maintenant un `goldBeforePurchase` par reverse replay des events de la frame
+  - point de depart: `participantFrame.currentGold`
+  - parcours reverse des events du participant:
+    - `ITEM_PURCHASED`: on re-ajoute `goldTotal`
+    - `ITEM_SOLD`: on retire `goldSell`
+    - `ITEM_UNDO`: traitement neutre pour ne pas empirer la reconstruction
+  - `snapshot.goldAvailable` utilise desormais `goldBeforePurchase` au lieu du gold de fin de frame
+- Alignement ML offline:
+  - `ml/features/analytics.py` applique la meme logique de replay reverse au niveau dataset builder
+  - objectif: reduire l'incoherence gold offline et rapprocher la logique d'evaluation et de generation
+- Tests:
+  - test TS ajoute dans `src/test/mlPuzzleOrchestration.test.ts`
+  - test Python ajoute dans `ml/tests/test_pipeline.py`
+  - cas couvert: 2 achats dans la meme frame avec verification que `goldBefore` varie correctement (`500` puis `200`)
+- Verification executee:
+  - `npx eslint server/src/services/mlPuzzleGenerationService.ts src/test/mlPuzzleOrchestration.test.ts`
+  - `npx tsc -p tsconfig.server.json --noEmit`
+  - `npx vitest run src/test/mlPuzzleOrchestration.test.ts`
+  - `ml\.venv\Scripts\python.exe -m pytest ml/tests/test_pipeline.py -q`
+  - `npm run ml:export-raw`
+  - `ml\.venv\Scripts\python.exe ml\scripts\tasks.py build-dataset`
+  - `ml\.venv\Scripts\python.exe ml\scripts\tasks.py train-baseline`
+  - `npm run audit:match-based-validation -- --sample-size 10`
+- Effet mesure:
+  - `gold_incoherent_ratio`: `0.3983 -> 0.3121`
+  - `candidate_pool_median`: `23 -> 35`
+  - `good-answer-unresolved`: `36 -> 3`
+  - `completedRate` sur `sample-size 10`: `0.1 -> 0.6`
+  - les raisons de rejet dominantes apres correction deviennent:
+    - `good-answer-too-cheap: 51`
+    - `low-confidence: 37`
+    - `good-answer-unresolved: 3`
+- Conclusion:
+  - le probleme de gold de fin de frame etait bien un bloqueur produit majeur
+  - la prochaine passe utile n'est plus la resolution de patch ni le gold replay, mais la logique de viabilite `good-answer-too-cheap` et le scoring de confiance
+
+## 2026-04-01 Gold Before Purchase Rerun
+
+- Rerun demande pour test:
+  - `npm run ml:export-raw`
+  - `cd ml`
+  - `.\.venv\Scripts\python.exe scripts\tasks.py build-dataset`
+  - `.\.venv\Scripts\python.exe scripts\tasks.py train-baseline`
+  - `cd ..`
+  - `npm run audit:match-based-validation -- --sample-size 10`
+- Observations:
+  - `ml:export-raw` OK: `612` matchs exportes, `612` avec timeline, `23` catalogs patch-aware
+  - `build-dataset` a re-ecrit `ml/artifacts/reports/dataset-report.json`, mais le process shell a depasse le timeout de supervision
+  - `train-baseline` OK:
+    - `ndcg_at_k: 0.4376`
+    - `map_at_k: 0.3998`
+    - `top1_accuracy: 0.2894`
+    - `topk_accuracy: 0.5473`
+  - `audit:match-based-validation` OK:
+    - `completedRate: 0.6`
+    - `noViableSnapshotFoundRate: 0.4`
+    - `good-answer-too-cheap: 44`
+    - `low-confidence: 25`
+    - `good-answer-incoherent-with-champion: 5`
+    - `good-answer-unresolved: 3`
+- Dataset report apres rerun:
+  - `rows: 12003`
+  - `gold_incoherent_ratio: 0.31217`
+  - `candidate_pool_median: 35`
+  - `candidate_pool_p95: 162.9`
+- Etat:
+  - le rerun confirme la baisse durable de `gold_incoherent_ratio`
+  - `good-answer-unresolved` reste marginal
+  - le premier axe d'amelioration restant est toujours `good-answer-too-cheap`
+
+## 2026-04-02 Anti-Repetition + Too-Cheap v2
+
+- Objectif:
+  - reduire la repetition du meme snapshot sur une meme partie sans redemarrage serveur
+  - assouplir `good-answer-too-cheap` quand la prediction est un composant legitime et jouable
+  - rejouer `audit:match-based-validation` sur un echantillon fige pour produire un vrai delta
+- Selection snapshot:
+  - `server/src/services/mlPuzzleGenerationService.ts` stocke maintenant pour chaque snapshot:
+    - `snapshotSignature`
+    - `createdAt` dans l'historique de reuse
+  - l'anti-repetition ne regarde plus seulement `snapshotIndex + minute`
+  - une penalite de reuse est appliquee sur:
+    - match exact historique
+    - signature identique
+    - occurrences recentes sur 24h
+  - logs structures ajoutes:
+    - `[ml-puzzle] generation-history`
+    - `reuse` detaille dans `[ml-puzzle] selected-snapshots`
+    - `snapshotSignature` sur chaque `snapshot-attempt`
+  - fallback conserve:
+    - un snapshot deja vu reste selectable si aucune meilleure alternative viable n'existe
+- Regle `good-answer-too-cheap`:
+  - `server/src/lib/ml/puzzleBusinessRules.ts` distingue maintenant:
+    - achat trivial vraiment trop cheap
+    - `legitimate-component` sous le seuil strict mais encore credible
+  - nouveau principe:
+    - fenetre gold stricte inchangée pour les vrais achats triviaux
+    - fenetre assouplie (`relaxedMinGold`) pour les composants non legendaires, non boots, non consommables, coherents avec le profil et encore assez proches du budget
+  - debug expose maintenant:
+    - `goldFilter.relaxedMinGold`
+    - `goodAnswerGoldAssessment`
+- Audit match-based:
+  - `scripts/evaluateMatchBasedValidation.ts` supporte maintenant:
+    - `--baseline-report`
+    - echantillon fige derive du baseline
+    - metriques de diversite par `snapshotSignature`
+    - `delta` integre au JSON final
+- Tests:
+  - `src/test/mlPuzzleBusinessRules.test.ts`
+    - couvre le cas `legitimate-component`
+  - `src/test/mlPuzzleOrchestration.test.ts`
+    - couvre la penalisation d'une signature de snapshot recemment servie
+    - couvre l'interface enrichie `previousSnapshots`
+- Verification executee:
+  - `npx vitest run src/test/mlPuzzleOrchestration.test.ts src/test/mlPuzzleBusinessRules.test.ts`
+  - `npx tsc -p tsconfig.server.json --noEmit`
+  - `npx eslint server/src/lib/ml/puzzleBusinessRules.ts server/src/services/mlPuzzleGenerationService.ts scripts/evaluateMatchBasedValidation.ts src/test/mlPuzzleBusinessRules.test.ts src/test/mlPuzzleOrchestration.test.ts`
+  - `npm run audit:match-based-validation -- --sample-size 10 --baseline-report reports/match-based-validation-report.before-2026-04-02.json`
+- Delta mesure sur le meme set de 10 matchs:
+  - `good-answer-too-cheap`: `44 -> 38` (`-6`)
+  - `good-answer-incoherent-with-champion`: `5 -> 2` (`-3`)
+  - `averageCandidatePoolSize`: `8.8 -> 9.9`
+  - `distinctSelectedSnapshotSignatureCount`: `0 -> 4` (nouvelle metrique)
+  - `reusedSelectedSnapshotSignatureCount`: `0`
+  - contrepartie actuelle:
+    - `completedRate`: `0.6 -> 0.4`
+    - `low-confidence`: `25 -> 36`
+    - `good-answer-unresolved`: `3 -> 4`
+- Verification produit directe sans redemarrage:
+  - sur `cmnf20uyb047j9craomy9wv0t` (`aatrox`, `JUNGLE`), deux generations consecutives ont selectionne:
+    - run 1: snapshot `23` a `26.52`
+    - run 2: snapshot `22` a `26.50`
+  - le log `[ml-puzzle] snapshots-excluded-for-repetition` montre bien l'exclusion du snapshot precedemment servi quand une alternative viable existe
+- Conclusion:
+  - la diversité snapshot progresse bien et le serveur n'a plus besoin d'un redemarrage pour varier certains cas
+  - la baisse de `too-cheap` est reelle mais incomplete
+  - la prochaine passe doit cibler le couple `low-confidence` + certains cas encore rejectes trop tot cote snapshots supports/mages
+
+## 2026-04-02 Match-Based Validation Delta
+
+- Nouvelle commande npm:
+  - `npm run audit:match-based-validation:delta`
+- Script associe:
+  - `scripts/auditMatchBasedValidationDelta.ts`
+- Entrees par defaut:
+  - sample 10 before:
+    - `reports/match-based-validation-report.before-2026-04-02.json`
+  - sample 10 after:
+    - `reports/match-based-validation-report-10.after.json`
+  - sample 20 after:
+    - `reports/match-based-validation-report-20.after.json`
+- Sorties:
+  - JSON:
+    - `reports/match-based-validation-delta-report.json`
+  - Markdown:
+    - `reports/match-based-validation-delta-report.md`
+- Le delta report compare maintenant:
+  - `completedRate` avant/apres
+  - top rejection reasons avant/apres
+  - occurrences `patch-catalog-fallback` avant/apres
+  - distribution des segments `early/mid/late/none`
+- `scripts/evaluateMatchBasedValidation.ts` compte maintenant:
+  - `patchCatalogFallbackOccurrences`
+  - la valeur est stockee dans `summary`
+- Seuil de passage produit:
+  - si `completedRate >= 0.4` sur `sample-size 20`:
+    - OK pour relancer import vers `2000`
+  - sinon:
+    - continuer qualite / integration
+- Reruns executes:
+  - `npm run audit:match-based-validation -- --sample-size 10 --baseline-report reports/match-based-validation-report.before-2026-04-02.json --output-json reports/match-based-validation-report-10.after.json --output-markdown reports/match-based-validation-report-10.after.md`
+  - `npm run audit:match-based-validation -- --sample-size 20 --output-json reports/match-based-validation-report-20.after.json --output-markdown reports/match-based-validation-report-20.after.md`
+  - `npm run audit:match-based-validation:delta`
+- Chiffres pilotes:
+  - sample 10:
+    - `completedRate: 0.6 -> 0.4`
+    - `good-answer-too-cheap: 44 -> 38`
+    - `patchCatalogFallbackOccurrences: n/a -> 0`
+    - segments:
+      - before: `early:0, mid:6, late:0, none:4`
+      - after: `early:1, mid:1, late:2, none:6`
+  - sample 20:
+    - `completedRate: 0.6`
+    - `patchCatalogFallbackOccurrences: 0`
+    - top rejection reasons:
+      - `low-confidence: 96`
+      - `good-answer-too-cheap: 76`
+      - `good-answer-unresolved: 7`
+    - segments:
+      - `early:5, mid:4, late:3, none:8`
+    - gate:
+  - `PASS`
+  - decision:
+    - `OK pour relancer import vers 2000`
+
+## 2026-04-02 Competitive Provenance Backfill + Premium Audit Scope
+
+- Objectif:
+  - rendre `sourceTier`, `sourceLeague` et `sourceRegionHint` fiables pour les imports competitifs
+  - expliquer clairement l'ecart entre:
+    - le report competitif source-filtered
+    - l'audit premium DB-wide issu de l'export ML
+- Changements code:
+  - `scripts/importCompetitiveMatches.ts`
+    - ajoute `seed.sourceUrl` dans `sourceMetadata`
+    - repare explicitement `ImportedMatch.sourceKind`, `sourceRegion`, `sourceMetadata` juste apres chaque import competitif
+    - couvre aussi le cas `existing-match-different-target`
+  - `scripts/backfillCompetitiveImportedMatchProvenance.ts`
+    - nouveau script de backfill provenance
+    - source par defaut:
+      - `data/runtime/competitive-ingestion/checkpoint.json`
+      - fallback automatique vers `data/runtime/competitive-ingestion/real-checkpoint.json`
+    - strategie:
+      - rattachement match -> checkpoint quand possible
+      - sinon fallback explicite par `sourceKind` pour au minimum fixer `priorityTier`
+      - normalisation `sourceRegionHint` via `league` pour eviter les clusters Riot (`asia/europe`) quand un hint competitif deterministe existe
+  - `scripts/lib/competitiveImportedMatchProvenance.ts`
+    - helpers partages de merge/extraction de provenance
+    - fallback `sourceTier` depuis `sourceKind`
+    - inference `sourceRegionHint` depuis `league`
+  - `scripts/auditPremiumV1Dataset.ts`
+    - produit maintenant 2 scopes explicites:
+      - `DB-wide`
+      - `premium-only` = `sourceKind` competitif + `sourceTier` connu
+    - ajoute un bloc `scopeComparison` pour rendre visible:
+      - total DB
+      - total competitif
+      - total premium-only
+      - exclus non competitifs
+      - exclus competitifs encore `unknown`
+    - fallback automatique vers `data/runtime/competitive-ingestion/real-report.json`
+  - `scripts/reportCompetitiveIngestion.ts`
+    - fallback automatique vers `real-checkpoint.json`
+    - alignement du calcul `sourceRegion` / `sourceTier` avec les helpers de provenance
+  - `package.json`
+    - nouvelle commande:
+      - `npm run backfill:competitive-provenance`
+- Verification executee:
+  - `npx tsc -p tsconfig.server.json --noEmit`
+  - `npx eslint scripts/importCompetitiveMatches.ts scripts/auditPremiumV1Dataset.ts scripts/backfillCompetitiveImportedMatchProvenance.ts scripts/lib/competitiveImportedMatchProvenance.ts scripts/reportCompetitiveIngestion.ts`
+  - `npm run backfill:competitive-provenance`
+  - `npm run audit:premium-v1-dataset`
+  - `npm run riot:report-competitive`
+- Chiffres de sortie:
+  - backfill:
+    - `competitiveMatchesScanned: 601`
+    - `updatedCount: 601`
+    - `checkpointBackfilledCount: 104`
+    - `sourceKindOnlyBackfilledCount: 497`
+    - `remainingUnknownTierCount: 0`
+  - audit premium:
+    - ancien signal problematique:
+      - `sourceTier unknown = 602 / 610`
+    - nouveau signal explicite:
+      - `competitiveUnknownTierCount = 0 / 601`
+      - `premiumOnlyMatches = 601`
+      - `excludedNonCompetitiveMatches = 11`
+    - `premium-only sourceTier`:
+      - `pro: 601`
+    - `premium-only sourceLeague`:
+      - `First Stand: 210`
+      - `World Championship: 188`
+      - `League of Legends Championship of The Americas: 86`
+      - `LoL Champions Korea: 72`
+      - `Mid-Season Invitational: 45`
+    - `premium-only sourceRegionHint`:
+      - `International: 443`
+      - `Americas: 86`
+      - `Korea: 72`
+- Conclusion:
+  - la chute de `sourceTier unknown` est nette sur les matchs competitifs: `0 / 601`
+  - le mismatch report vs audit est maintenant explicite:
+    - le report competitif reste un scope source-filtered
+    - l'audit premium expose separement `DB-wide` et `premium-only`
+
+## 2026-04-19 Audit De Reprise
+
+- Contexte:
+  - reprise apres pause developpement
+  - objectif produit maintenu:
+    - experience premium
+    - trajectoire `2000 -> 5000 -> 8000 -> 10000`
+  - principe de pilotage retenu:
+    - ne pas relancer la course au volume tant que la chaine de qualite premium n'est pas re-verifiee en local
+- Etat reel confirme pendant l'audit:
+  - le repo compile encore:
+    - `npm run build` OK le `2026-04-19`
+  - la suite TypeScript est presque saine hors dependances infra:
+    - `npm test`:
+      - `24` fichiers verts
+      - `108` tests passes
+      - `3` tests skips
+      - `1` suite en echec faute de PostgreSQL local sur `127.0.0.1:5433`
+    - suite en echec:
+      - `src/test/itemPresentationCatalog.test.ts`
+  - la suite Python ML reste exploitable:
+    - `ml\.venv\Scripts\python.exe -m pytest ml/tests/test_pipeline.py -q` OK
+  - les scripts de reporting de reprise ne sont pas resilients si l'infra n'est pas levee:
+    - `npm run audit:readiness-10k` echoue si Mongo n'est pas joignable
+    - `npm run riot:report-competitive-throughput` echoue si PostgreSQL n'est pas joignable
+  - implication:
+    - l'observabilite promise pour piloter `2k/5k/8k/10k` n'est pas encore fiable en environnement de reprise incomplet
+- Lecture consolidee des derniers artefacts fiables:
+  - premium-only exploitable observe:
+    - `601` matchs competitifs premium
+    - `601` timelines valides
+    - `496` matchs recents `26.1 -> 26.7`
+    - part recente premium `82.53%`
+  - dataset ML observe:
+    - `12003` snapshots trainables strict recents
+    - `595808` lignes ranking
+    - `candidate_pool_median = 35`
+    - `gold_incoherent_ratio = 0.3122`
+  - baseline ranking observe:
+    - `ndcg@3 = 0.4376`
+    - `map@3 = 0.3998`
+    - `top1 = 0.2894`
+    - `top3 = 0.5473`
+  - validation produit observee sur la derniere fenetre documentee:
+    - `completedRate = 0.4` sur sample `10`
+    - raisons de rejet dominantes:
+      - `good-answer-too-cheap`
+      - `low-confidence`
+      - `good-answer-unresolved` devenu secondaire
+- Diagnostic strategique:
+  - le frein principal n'est plus l'absence de pipeline ML
+  - le frein principal n'est pas non plus Mongo en tant que techno
+  - le vrai goulot reste la publishability produit sur snapshots reels:
+    - trop de cas triviaux ou sous-filtres
+    - trop de snapshots rejetes pour `too-cheap`
+    - trop de generations encore refusees pour `low-confidence`
+  - conclusion:
+    - passer a `2000+` sans remesurer la qualite reviendrait a amplifier un stock de matchs plus vite qu'on n'ameliore la conversion en puzzles premium
+- Changement de cap retenu:
+  - ne pas abandonner la cible `10k`
+  - deplacer temporairement le focus court terme de `volume-first` vers `quality-gated volume`
+  - regle:
+    - chaque palier volume doit etre precede d'une revalidation qualite sur stack complete
+  - gate recommande pour autoriser le palier `2000`:
+    - `completedRate >= 0.4` sur sample `20`
+    - `patch-catalog-fallback = 0`
+    - `good-answer-unresolved` non dominant
+    - scripts de reporting `readiness-10k` et `competitive-throughput` executables sans erreur sur stack levee
+- Priorites de reprise:
+  - P0 environnement:
+    - remettre PostgreSQL et Mongo en ligne localement
+    - rerun:
+      - `npm run audit:readiness-10k`
+      - `npm run riot:report-competitive-throughput`
+      - `npm run riot:report-competitive`
+      - `npm run audit:premium-v1-dataset`
+  - P0 qualite puzzle:
+    - poursuivre la baisse de `good-answer-too-cheap`
+    - poursuivre la baisse de `low-confidence`
+    - re-auditer la logique de publishability sur snapshots candidats avant volume
+  - P1 observabilite:
+    - rendre les scripts de reporting tolerants a l'absence d'un service non critique ou au moins explicites avec diagnostic actionnable
+    - distinguer dans chaque report:
+      - erreur infra
+      - absence de donnees
+      - regression metier
+  - P1 coherence des artefacts:
+    - plusieurs rapports historises restent valides pour comprendre la trajectoire, mais pas pour attester l'etat live courant
+    - toute relance de roadmap doit regenir les rapports de reference avant decision de volume
+  - P2 volume:
+    - relancer `2000` seulement apres gate qualite
+    - ensuite seulement:
+      - `5000`
+      - `8000`
+      - `10000`
+- Sequence de reprise recommandee:
+  - etape 1:
+    - lever la stack locale:
+      - PostgreSQL
+      - MongoDB
+      - API ML si necessaire pour audit produit
+  - etape 2:
+    - re-executer les rapports canoniques et remplacer les artefacts de reference
+  - etape 3:
+    - rerun `audit:match-based-validation` sur `10` puis `20`
+  - etape 4:
+    - si gate qualite atteint:
+      - lancer le palier `2000` en foreground avec checkpoint et report dedies
+  - etape 5:
+    - apres chaque palier:
+      - verifier volume
+      - verifier qualite puzzle
+      - verifier proportion `pro / elite`
+      - verifier taux de snapshots publiables
+- Risques a garder visibles:
+  - dependre de rapports anciens pour prendre une decision de volume live
+  - confondre performance du modele offline et experience premium reelle
+  - reprendre l'ingestion lourde sans observabilite infra stable
+  - croire que Mongo resoudra a lui seul les rejets `too-cheap` ou `low-confidence`
+- Decision memo:
+  - cap produit maintenu:
+    - premium + `10k`
+  - cap execution ajuste:
+    - `quality first, then gated volume`
+
+## 2026-04-19 Objectifs Fusionnes
+
+- Source de fusion:
+  - audit de reprise local
+  - plans premium / ingestion / upgrade precedents
+  - PDF `Contexte et objectifs ML BrainLab`
+- Lecture unifiee retenue:
+  - le produit vise toujours une experience premium de niveau pro
+  - chaque match importe doit tendre vers un puzzle reellement publiable, explique et rejouable
+  - la trajectoire volume reste:
+    - `600 -> 2000 -> 5000 -> 8000 -> 10000`
+  - mais cette trajectoire n'est validee qu'avec gates qualite entre chaque palier
+- Objectif fusionne principal:
+  - atteindre `10000` parties pro ingerees sans diluer la qualite du dataset ni la publishability produit
+- Sous-objectifs fusionnes:
+  - ML offline:
+    - conserver un pipeline export -> dataset -> train -> inference stable et reproductible
+  - generation produit:
+    - faire remonter le taux de generation aboutie
+    - eliminer les causes systemiques de rejet
+  - ingestion:
+    - rendre l'import pilotable par policy et non par filtre rigide
+  - premium UX:
+    - diversite reelle des rerolls
+    - preuve item visible et exploitable apres correction
+  - architecture:
+    - PostgreSQL reste la source applicative canonique
+    - MongoDB reste un sidecar analytique de scale, pas la reponse aux problemes metier actuels
+- Hierarchie d'execution fusionnee:
+  - P0:
+    - qualite puzzle et coherence metier
+  - V0:
+    - revalidation qualite puis relance `2000`
+  - V1:
+    - experience premium et policy d'import enrichie
+  - V2:
+    - montee d'echelle `5000 -> 8000 -> 10000`
+- P0 qualite puzzle:
+  - objectifs:
+    - maintenir la resolution patch sans fallback global
+    - maintenir un calcul de gold before purchase coherent
+    - reduire `good-answer-too-cheap`
+    - reduire `low-confidence`
+    - renforcer encore la diversite des snapshots servis
+  - definition de succes:
+    - `good-answer-unresolved` non dominant
+    - `patch-catalog-fallback` nul ou quasi nul
+    - baisse continue de `too-cheap` et `low-confidence`
+    - `completedRate` defendable sur audits match-based
+- V0 relance `2000`:
+  - prerequis:
+    - stack complete levee
+    - rapports de reference regenes
+    - gate qualite passee
+  - gate retenue:
+    - `completedRate >= 0.4` sur sample `20`
+    - reporting de readiness executable
+    - reporting throughput executable
+  - execution:
+    - run foreground
+    - checkpoint dedie
+    - rapport JSON + Markdown dedies
+- V1 premium experience:
+  - objectif:
+    - transformer le bon moteur analytique en experience premium visible
+  - travaux attendus:
+    - modal de preuve item
+    - comparaison item choisi vs alternatives budgetees
+    - transparence accrue des raisons d'echec ou de fallback
+    - exploitation plus visible des series et snapshots differencies
+- V1 ingestion pilotee:
+  - objectif:
+    - separer clairement policy d'import et policy d'entrainement
+  - invariants:
+    - manifest versionne
+    - fallback explicite et journalise
+    - distinction `pro / elite / fallback`
+    - distinction `exact_target_patch / adjacent_recent_patch / out_of_target_patch`
+- V2 scale:
+  - objectif:
+    - industrialiser sans casser la qualite
+  - conditions:
+    - verification qualite a chaque palier
+    - observabilite fiable
+    - stockage analytique progressif pour les payloads lourds
+- Ce qui change concretement dans la strategie:
+  - ancien reflexe a eviter:
+    - reprendre directement l'ingestion lourde pour compenser les faiblesses produit
+  - strategie retenue:
+    - fiabiliser d'abord la conversion match -> puzzle premium
+    - etendre ensuite seulement le stock de matchs
+- Memo produit:
+  - un reroll ne doit pas simplement changer d'identifiant de snapshot
+  - il doit tendre vers un moment sensiblement different:
+    - minute
+    - gold
+    - inventaire
+  - la preuve item ne doit pas rester un nice-to-have:
+    - elle fait partie de la promesse premium
+
+## 2026-04-19 Reprise Ingestion 2000 Bornee
+
+- Contexte:
+  - les runs longs `phase-2000` progressent reellement
+  - mais ils deviennent difficiles a piloter si on les laisse tourner sans borne
+  - le bon mode operatoire n'est pas un run massif unique
+  - le bon mode operatoire est une reprise par tranches courtes avec audit apres chaque tranche
+- Correctifs appliques:
+  - `server/src/config/env.ts`
+    - ajout du support `RIOT_DEVELOPEMENT_KEY`
+    - ajout du support tolerant `RIOT_DEVELOPMENT_KEY`
+  - `server/src/lib/riot/riotApiClient.ts`
+    - fallback cle 1 -> cle 2 -> cle developpement
+  - `src/test/riotApiClient.test.ts`
+    - ajout du test de fallback sur 3 cles
+  - `scripts/importCompetitiveMatches.ts`
+    - ajout de bornes de reprise:
+      - `--max-attempts-per-run`
+      - `--max-created-per-run`
+      - `--max-auth-failures-per-run`
+    - exposition dans le report:
+      - `stopReason`
+      - `runAttemptCount`
+      - `runCreatedCount`
+      - `runAuthFailureCount`
+- Verification technique:
+  - `npx tsc -p tsconfig.server.json --noEmit`: OK
+  - `npx vitest run src/test/riotApiClient.test.ts`: OK
+- Resultats constates apres reprise:
+  - avant reprise bornee:
+    - `1231` matchs competitifs
+  - tranche 1:
+    - `stopReason = max-created-per-run:10`
+    - `runAttemptCount = 10`
+    - `runCreatedCount = 10`
+    - `runAuthFailureCount = 0`
+    - total competitif apres tranche:
+      - `1241`
+  - tranche 2:
+    - `stopReason = max-created-per-run:5`
+    - `runAttemptCount = 5`
+    - `runCreatedCount = 5`
+    - `runAuthFailureCount = 0`
+    - total competitif apres tranche:
+      - `1246`
+- Lecture actuelle:
+  - la cle de developpement de secours debloque la reprise
+  - l'auth Riot n'est plus le blocage immediat sur les tranches courtes recentes
+  - la campagne `2000` reste ouverte
+  - progression actuelle constatee:
+    - `1231 -> 1246`
+    - `+15`
+- Risque operationnel restant:
+  - corrige:
+    - le process npm/tsx rend maintenant la main apres persistance finale et `prisma.$disconnect()`
+- Mode operatoire retenu:
+  - lancer une tranche bornee
+  - lire `phase-2000-2026-04-19.report.json`
+  - verifier:
+    - `stopReason`
+    - `runCreatedCount`
+    - `runAuthFailureCount`
+  - ne poursuivre que si:
+    - `runCreatedCount > 0`
+    - `runAuthFailureCount = 0`
+  - re-auditer le volume avec `riot:report-competitive`
+- Verification du correctif de sortie:
+  - `scripts/importCompetitiveMatches.ts`
+    - sortie explicite apres cleanup final
+  - micro-tranche de verification:
+    - `--max-attempts-per-run 2`
+    - `--max-created-per-run 1`
+    - `--max-auth-failures-per-run 1`
+  - resultat:
+    - `stopReason = max-created-per-run:1`
+    - `runCreatedCount = 1`
+    - `runAuthFailureCount = 0`
+    - total competitif:
+      - `1247`
+    - le process rend la main correctement
+
+## 2026-04-19 Optimisation Reprise Checkpoint
+
+- Objectif:
+  - supprimer le cout fixe inutile de chaque tranche bornee
+  - reutiliser vraiment le checkpoint existant
+- Correctif applique:
+  - `scripts/importCompetitiveMatches.ts`
+    - verification de compatibilite checkpoint / policy / seed set / saison
+    - reconstruction des `discoveredMatches` classes depuis:
+      - `policyDecisionByMatchId`
+      - `matchMetadataById`
+      - `discoveredMatches` du checkpoint
+    - bypass de:
+      - resolution complete
+      - rediscovery complete
+      - reclassification complete
+      - quand le checkpoint est compatible
+- Verification perf:
+  - micro-tranche de reprise:
+    - `--max-attempts-per-run 1`
+    - `--max-created-per-run 1`
+    - `--max-auth-failures-per-run 1`
+  - resultat:
+    - `runCreatedCount = 1`
+    - `runAuthFailureCount = 0`
+    - `totalCompetitiveMatchesInDb = 1248`
+    - duree observee:
+      - `~3.17s`
+- Tranche productive suivante:
+  - parametrage:
+    - `--max-attempts-per-run 15`
+    - `--max-created-per-run 10`
+    - `--max-auth-failures-per-run 3`
+  - resultat:
+    - `stopReason = max-created-per-run:10`
+    - `runAttemptCount = 10`
+    - `runCreatedCount = 10`
+    - `runAuthFailureCount = 0`
+    - `totalCompetitiveMatchesInDb = 1258`
+    - `matchesImportedExactTargetPatch = 1153`
+- Lecture:
+  - la reprise est maintenant suffisamment rapide pour etre pilotee tranche par tranche sans friction
+  - la campagne `2000` continue a progresser proprement
+  - le mode recommande reste:
+    - petites tranches bornees
+    - audit apres chaque tranche
+
+## 2026-04-19 Progression Volume Intermediaire
+
+- Tranches supplementaires executees apres optimisation:
+  - tranche A:
+    - `stopReason = max-created-per-run:10`
+    - `runAttemptCount = 10`
+    - `runCreatedCount = 10`
+    - `runAuthFailureCount = 0`
+    - total competitif:
+      - `1268`
+  - tranche B:
+    - `stopReason = max-created-per-run:10`
+    - `runAttemptCount = 10`
+    - `runCreatedCount = 10`
+    - `runAuthFailureCount = 0`
+    - total competitif:
+      - `1278`
+- Lecture volume:
+  - progression constatee sur la sequence recente:
+    - `1258 -> 1278`
+    - `+20`
+  - statut courant:
+    - `totalCompetitiveMatchesInDb = 1278`
+    - `matchesImportedExactTargetPatch = 1173`
+    - `matchesImportedPro = 1264`
+    - `matchesImportedElite = 14`
+    - `premiumRecentShare26x ~= 90.53%`
+- Audit intermediaire:
+  - `audit:premium-v1-dataset` rerun:
+    - OK
+    - scope premium-only aligne avec la base competitive
+  - `audit:match-based-validation -- --sample-size 10`:
+    - le script depasse toujours le timeout superviseur
+    - le dernier rapport `reports/match-based-validation-report.current-10.md` reste l'ancien rapport exploitable
+    - dernier resultat lisible conserve:
+      - `completedRate = 0.8`
+      - `noViableSnapshotFoundRate = 0.2`
+- Point technique restant:
+  - corrige:
+    - le script `audit:match-based-validation` rend maintenant la main proprement
+    - il accepte aussi les alias:
+      - `--report-path`
+      - `--markdown-report-path`
+
+## 2026-04-19 Audit Match-Based Repare
+
+- Correctifs appliques:
+  - `scripts/evaluateMatchBasedValidation.ts`
+    - sortie explicite apres `prisma.$disconnect()`
+    - support des alias:
+      - `--report-path`
+      - `--markdown-report-path`
+  - `server/src/services/mlPuzzleGenerationService.ts`
+    - slug des puzzles AI rendus reellement uniques
+    - correction du risque de collision Prisma `Puzzle.slug`
+- Resultats frais:
+  - rapport `10`:
+    - `reports/match-based-validation-report.current-10.json`
+    - `reports/match-based-validation-report.current-10.md`
+    - `completedRate = 0.8`
+    - `noViableSnapshotFoundRate = 0.2`
+    - `distinctSelectedSnapshotSignatureCount = 8`
+    - `reusedSelectedSnapshotSignatureCount = 0`
+    - rejets dominants:
+      - `low-confidence = 21`
+      - `publishability-insufficient-credible-distractors = 3`
+      - `choice-resolution-insufficient-distractors = 1`
+  - rapport `20`:
+    - `reports/match-based-validation-report.current-20.json`
+    - `reports/match-based-validation-report.current-20.md`
+    - `completedRate = 0.8`
+    - `noViableSnapshotFoundRate = 0.2`
+    - `distinctSelectedSnapshotSignatureCount = 16`
+    - `reusedSelectedSnapshotSignatureCount = 0`
+    - rejets dominants:
+      - `low-confidence = 46`
+      - `publishability-insufficient-credible-distractors = 3`
+      - `choice-resolution-insufficient-distractors = 1`
+- Lecture:
+  - la qualite match-based reste defendable apres la montee de volume recente
+  - la diversite des snapshots servis reste bonne
+  - le vrai frein qualite restant n'est pas la repetition
+  - le vrai frein qualite restant est toujours:
+    - `low-confidence`
+    - puis la faiblesse du pool de distracteurs credibles
+
+## 2026-04-19 Low-Confidence Override Et Distracteurs
+
+- Correctif applique:
+  - `server/src/services/mlPuzzleGenerationService.ts`
+    - ajout d'un override borne du `low-confidence` quand les signaux produit sont deja forts
+    - l'override n'est autorise que si:
+      - score de publishability eleve
+      - pool candidat suffisant
+      - seuils ML minimum encore respectes
+    - ajout d'une lecture plus souple des distracteurs credibles:
+      - conservation du critere principal par ecart de cout
+      - acceptation secondaire si proximite produit forte:
+        - meme famille d'upgrade
+        - categorie proche
+        - tags communs
+        - tier legendaire coherent
+    - le rejet `low-confidence` est maintenant decide apres l'evaluation de publishability, pas avant
+- Audit comparable:
+  - rapport de comparaison meme sample:
+    - `reports/match-based-validation-report.after-confidence-same-sample-10.json`
+    - `reports/match-based-validation-report.after-confidence-same-sample-10.md`
+  - baseline comparee:
+    - `reports/match-based-validation-report.current-10.json`
+  - resultat sur le meme echantillon de `10`:
+    - avant:
+      - `completedRate = 0.8`
+      - `noViableSnapshotFoundRate = 0.2`
+    - apres:
+      - `completedRate = 1`
+      - `noViableSnapshotFoundRate = 0`
+      - `distinctSelectedSnapshotSignatureCount = 10`
+      - `reusedSelectedSnapshotSignatureCount = 0`
+  - rejets encore visibles dans les tentatives:
+    - `low-confidence = 9`
+    - `publishability-insufficient-credible-distractors = 5`
+    - `choice-resolution-insufficient-distractors = 1`
+- Lecture:
+  - le correctif ne supprime pas toute la fragilite ML interne
+  - en revanche il reduit nettement l'impact bloquant du `low-confidence` sur la completion finale
+  - le frein principal restant devient la credibilite des distracteurs plutot que le gating de confiance brut
+
+## 2026-04-23 Tranche Import Competitive
+
+- Ajustement de debit:
+  - `scripts/importCompetitiveMatches.ts`
+    - ajout du preset `--tranche-size`
+    - le preset configure automatiquement:
+      - `maxCreatedPerRun`
+      - `maxAttemptsPerRun`
+      - `maxAuthFailuresPerRun`
+    - but:
+      - permettre des tranches plus larges sans recoder les seuils a chaque execution
+      - garder les garde-fous auth et progression
+- Validation technique:
+  - `npx tsc -p tsconfig.server.json --noEmit`
+    - OK
+- Etat de reprise:
+  - tentative de tranche large:
+    - echec en amont sur la connexion Prisma a PostgreSQL local
+  - diagnostic infra:
+    - Docker absent dans cette session
+    - `localhost:5433` injoignable
+    - aucun process `postgres` / `docker` actif
+- Lecture:
+  - l'acceleration d'import est techniquement possible
+  - le script peut maintenant passer de `10` a `25` ou plus de facon plus lisible
+  - le prochain vrai obstacle est l'infra locale, pas la logique d'ingestion
+
+## 2026-04-23 Tranche 50 Puis Limite Riot
+
+- Infra recuperee:
+  - Postgres:
+    - up et sain
+  - Mongo:
+    - up
+- Tranche `50` reussie:
+  - `createdMatches = 50`
+  - `runAttemptCount = 50`
+  - `runCreatedCount = 50`
+  - `runAuthFailureCount = 0`
+  - `totalCompetitiveMatchesInDb = 1328`
+  - `matchesImportedExactTargetPatch = 1223`
+  - `matchesImportedPro = 1314`
+  - `matchesImportedElite = 14`
+- Audit apres tranche:
+  - `audit:premium-v1-dataset`
+    - OK
+    - `premiumOnlyMatches = 1328`
+    - `premiumRecentShare26x = 90.89`
+    - le gap avec le scope db-wide reste explique par les imports non competitifs
+  - `audit:match-based-validation -- --sample-size 10`
+    - `completedRate = 1`
+    - `noViableSnapshotFoundRate = 0`
+    - `rejectionReasonCounts`
+      - `low-confidence = 15`
+    - la qualite de generation reste stable apres la hausse de volume
+- Tranche `100`:
+  - stop:
+    - `max-auth-failures-per-run:3`
+  - `runAttemptCount = 3`
+  - `runCreatedCount = 0`
+  - `runAuthFailureCount = 3`
+  - lecture:
+    - la hausse de tranche est faisable cote code
+    - la limite actuelle est l'auth Riot, pas le pipeline d'import
+    - l'automatisation de renouvellement de la development key n'est pas exposee par Riot
+- Lecture strategique:
+  - on peut accelerer la montee vers `2000` avec des tranches plus larges que `10`
+  - `50` tient bien
+  - `100` requiert une cle Riot valide au moment du run
+  - pour viser durablement `10k`, il faudra soit une cle plus stable, soit une operation de rotation manuelle planifiee
+
+## 2026-04-23 Reprise Apres Renouvellement Cle
+
+- Nouvelle tranche `50`:
+  - `createdMatches = 50`
+  - `runAttemptCount = 50`
+  - `runCreatedCount = 50`
+  - `runAuthFailureCount = 0`
+  - `totalCompetitiveMatchesInDb = 1378`
+  - `matchesImportedExactTargetPatch = 1273`
+  - `matchesImportedPro = 1364`
+  - `matchesImportedElite = 14`
+- Audits apres tranche:
+  - `riot:report-competitive`
+    - OK
+    - `timelineCoveragePercent = 99.93`
+  - `riot:report-competitive-throughput`
+    - OK
+    - `importsLastHour = 100`
+  - `audit:premium-v1-dataset`
+    - OK
+    - `premiumOnlyMatches = 1378`
+    - `premiumRecentShare26x = 91.22`
+  - `audit:match-based-validation -- --sample-size 10`
+    - `completedRate = 0.9`
+    - `noViableSnapshotFoundRate = 0.1`
+    - `rejectionReasonCounts`
+      - `low-confidence = 26`
+      - `publishability-insufficient-credible-distractors = 2`
+- Lecture:
+  - la montee de volume continue sans casser le pipeline
+  - la qualite reste majoritairement bonne, mais on observe une petite baisse sur le sample `10`
+  - le prochain test utile est de confirmer si cette baisse est du bruit d'echantillon ou un vrai signal de degrade
+
+## 2026-04-23 Classification Budget Fix
+
+- Correctif applique:
+  - `scripts/importCompetitiveMatches.ts`
+    - ajout d'un budget de classification explicite dans le checkpoint
+    - la reutilisation du checkpoint est maintenant invalidee quand le budget de classification change
+    - le budget de classification passe de `300` a `600` sur la tranche `50`
+- Effet observé:
+  - la meme tranche `50` qui ne produisait plus rien a pu repartir apres reconstruction de la discovery
+  - progression observee:
+    - `1378 -> 1428`
+    - `+50`
+  - resultat courant:
+    - `createdMatches = 50`
+    - `runAttemptCount = 50`
+    - `runCreatedCount = 50`
+    - `runAuthFailureCount = 0`
+    - `discoveredUniqueMatches = 600`
+    - `policyAcceptedMatches = 594`
+    - `rejectedMatches = 6`
+    - cause des rejets:
+      - `patch-not-allowed = 6`
+    - `totalCompetitiveMatchesInDb = 1428`
+    - `matchesImportedPro = 1397`
+    - `matchesImportedElite = 31`
+- Lecture:
+  - le vrai goulot etait bien le plafond de classification trop bas + la reutilisation de checkpoint trop aggressive
+  - la route `50` est maintenant reellement exploitable
+
+## 2026-04-23 Tranche 100 Stable
+
+- Nouvelle tranche `100` apres fix:
+  - `createdMatches = 40`
+  - `runAttemptCount = 40`
+  - `runCreatedCount = 40`
+  - `runAuthFailureCount = 0`
+  - `totalCompetitiveMatchesInDb = 1468`
+  - `matchesImportedPro = 1422`
+  - `matchesImportedElite = 46`
+- Audits:
+  - `riot:report-competitive`
+    - OK
+    - `timelineCoveragePercent = 99.93`
+    - `matchesImportedExactTargetPatch = 1363`
+  - `riot:report-competitive-throughput`
+    - OK
+    - `importsLastHour = 190`
+    - `importedByTier`
+      - `pro = 240`
+      - `elite = 53`
+      - `unknown = 22`
+  - `audit:premium-v1-dataset`
+    - OK
+    - `premiumOnlyMatches = 1468`
+    - `premiumRecentShare26x = 91.76`
+  - `audit:match-based-validation -- --sample-size 20`
+    - `completedRate = 1`
+    - `noViableSnapshotFoundRate = 0`
+    - `distinctSelectedSnapshotSignatureCount = 20`
+    - `rejectionReasonCounts`
+      - `low-confidence = 11`
+      - `choice-resolution-insufficient-distractors = 3`
+      - `publishability-insufficient-credible-distractors = 3`
+- Lecture:
+  - le plafond `100` est maintenant viable
+  - le pipeline garde la qualite tout en augmentant sensiblement le debit
+  - le prochain levier d'amelioration n'est plus le volume brut, mais la reduction des rejets `choice-resolution` et `publishability`
+
+## 2026-04-23 Tranche 100 Reprise
+
+- Nouvelle tranche `100` apres renouvellement manuel de la cle:
+  - `createdMatches = 3`
+  - `runAttemptCount = 3`
+  - `runCreatedCount = 3`
+  - `runAuthFailureCount = 0`
+  - `totalCompetitiveMatchesInDb = 1521`
+  - `matchesImportedPro = 1475`
+  - `matchesImportedElite = 46`
+  - `matchesImportedExactTargetPatch = 1416`
+- Lecture ingestion:
+  - la tranche `100` ne casse pas le pipeline
+  - le run s'arrete surtout parce que la nouvelle exploration ne trouve plus de candidats queueables utiles dans la configuration actuelle
+  - les echecs dominants restent `target-participant-missing` et `Riot API authentication failed.` sur les tentatives historiques
+- Audits apres reprise:
+  - `riot:report-competitive-throughput`
+    - `importsLastHour = 243`
+    - `importedByTier`
+      - `pro = 271`
+      - `elite = 38`
+      - `unknown = 59`
+  - `audit:premium-v1-dataset`
+    - `premiumOnlyMatches = 1521`
+    - `premiumRecentShare26x = 92.05`
+    - `totalSnapshotsGenerated = 12019`
+    - `goldIncoherentRatio = 0.3123387969049006`
+  - `audit:match-based-validation -- --sample-size 20`
+    - `completedRate = 0.85`
+    - `noViableSnapshotFoundRate = 0.15`
+    - `rejectionReasonCounts`
+      - `low-confidence = 33`
+      - `choice-resolution-insufficient-distractors = 1`
+      - `publishability-insufficient-credible-distractors = 1`
+- Lecture ML:
+  - la qualite reste globalement bonne mais un peu moins stable que les derniers runs parfaits sur `20`
+  - le goulot principal redevient `low-confidence`
+  - le second goulot devient la couverture de distracteurs credibles
+
+## 2026-04-23 Stop Fail Fast Riot
+
+- Correctif applique sur la generation de seeds competitifs:
+  - `server/src/lib/riot/competitiveSeeds.ts`
+  - les erreurs Riot d'authentification/forbidden sur les seeds elite ne sont plus absorbees silencieusement
+  - le job remonte maintenant l'erreur et s'arrete au lieu de continuer longtemps sur des echecs repetes
+- Objectif:
+  - eviter de relancer des jobs longs quand la cle ou le route Riot est invalide
+  - garder le comportement borne qui existe deja sur l'import competitif
+- Validation:
+  - `npx tsc -p tsconfig.server.json --noEmit`
+    - OK
+- Regle de conduite:
+  - avant tout job long Riot, faire un preflight court
+  - si un auth failure apparait, stopper et corriger la cle avant de relancer
+
+## 2026-04-23 Audit Fiabilite Orchestrateur
+
+- Diagnostic principal:
+  - le probleme actuel n'est plus uniquement le debit d'import
+  - le vrai manque est un orchestrateur de campagne unique qui pilote:
+    - preflight infra
+    - refresh du seed set
+    - import borne par tranche
+    - audit automatique
+    - decision de passage au palier suivant
+- Points critiques observes:
+  - `scripts/prepareCompetitiveSeeds.ts`
+    - un refresh Leaguepedia/elite peut encore prendre longtemps sans checkpoint intermediaire
+    - quand le job est lance trop large, il faut l'interrompre manuellement
+  - `scripts/importCompetitiveMatches.ts`
+    - l'import borne fonctionne mieux, mais il reste attache a des chemins et parametres de campagne manuels
+    - sans preflight, un probleme Docker/Postgres peut faire perdre du temps avant meme le debut du run
+  - `server/src/lib/riot/competitiveSeeds.ts`
+    - le stop-fail-fast est bon pour les erreurs Riot auth, mais il ne resout pas le probleme de pilotage global
+- Fait important:
+  - le nouveau seed set `data/seeds/competitive-seeds-2026-v3.json` est plus large cote pro (`307` seeds), mais il est `pro-only`
+  - il ne faut pas le prendre comme nouveau canon sans verifier l'impact sur la couverture elite
+- Recommandation:
+  - garder un seed set canonique merge `pro + elite`
+  - traiter l'expansion pro comme un sidecar de refresh, pas comme remplacement direct
+  - ajouter un runner de campagne unique avec:
+    - preflight DB + Riot
+    - budget de tranche
+    - stop sur auth failure
+    - stop sur plateau de rendement
+    - audit automatique apres chaque palier
+  - c'est la seule maniere fiable de tenir les paliers `2k -> 5k -> 8k -> 10k` sans repartir dans des boucles manuelles
+
+## 2026-04-23 Runner Campagne
+
+- Nouveau point d'entree:
+  - `scripts/runCompetitiveCampaign.ts`
+  - script npm: `campaign:competitive`
+- Capacites:
+  - preflight base de donnees + Riot avant tout job long
+  - execution d'une tranche bornee d'import competitif
+  - audit automatique apres chaque tranche
+  - arret automatique si:
+    - preflight en echec
+    - auth failure
+    - plateau d'import
+    - quality gate ML en echec
+  - mode `--max-stages 0` pour tester uniquement le preflight sans lancer de campagne
+- Validation:
+  - `npm run campaign:competitive -- --max-stages 0`
+    - OK
+- Usage cible:
+  - utiliser ce runner pour piloter les paliers `2k`, puis `5k`, puis `8k`, puis `10k`
+  - ne plus lancer les jobs longs a la main sans ce garde-fou
+
+## 2026-04-23 Campagne Controlee 50
+
+- Execution:
+  - `npm run campaign:competitive -- --max-stages 1 --stage-size 50 --count-per-seed 40 --max-ids-per-seed 400 --audit-sample-size 20`
+- Resultat preflight:
+  - base de donnees: OK
+  - Riot: OK
+- Resultat campagne:
+  - `stoppedReason = plateau`
+  - `qualityGatePassed = true`
+  - la tranche a bien execute les audits, mais n'a pas produit de progression nette sur les creations competives
+- Audits:
+  - `audit:match-based-validation -- --sample-size 20`
+    - `completedRate = 0.9`
+    - `noViableSnapshotFoundRate = 0.1`
+    - rejet dominant:
+      - `low-confidence`
+    - secondaires:
+      - `publishability-insufficient-credible-distractors`
+      - `choice-resolution-insufficient-distractors`
+- Lecture:
+  - le runner de campagne fonctionne
+  - la liaison preflight -> import -> audit -> arret est maintenant en place
+  - le probleme restant est de fond:
+    - le vivier actuel a atteint un plateau utile sur cette configuration
+    - il faut maintenant soit augmenter le vivier exploitable, soit corriger les raisons de rejet ML qui bloquent la publication
+
+## 2026-04-23 Gate Qualite Recalibree
+
+- Correctifs appliques:
+  - `server/src/lib/ml/puzzleBusinessRules.ts`
+    - correction du bug de scoring distracteur qui utilisait des variables hors scope
+    - la selection des distracteurs redevient deterministe et compare bien les bons items
+  - `server/src/services/mlPuzzleGenerationService.ts`
+    - correction de la gate publishability qui demandait 4 distracteurs credibles alors que la generation n'en produit que 3
+    - recalibrage leger de `canOverrideLowConfidence` pour conserver une porte de sortie sur les snapshots vraiment publiables
+- Validation technique:
+  - `npx tsc -p tsconfig.server.json --noEmit`
+    - OK
+- Audit frais:
+  - `npm run audit:match-based-validation -- --sample-size 20`
+    - `completedRate = 1`
+    - `noViableSnapshotFoundRate = 0`
+    - `rejectionReasonCounts`
+      - `low-confidence = 41`
+      - `choice-resolution-insufficient-distractors = 1`
+- Campagne controlee ensuite:
+  - `npm run campaign:competitive -- --max-stages 1 --stage-size 50 --count-per-seed 40 --max-ids-per-seed 400 --audit-sample-size 20`
+    - `qualityGatePassed = true`
+    - `stoppedReason = plateau`
+- Lecture:
+  - la gate qualitative est redevenue saine
+  - le blocage actuel n'est plus la qualite ML, mais le plateau du vivier importable avec le seed set courant
+  - le prochain travail logique est la canonisation du seed set elargi, mais sans casser la couverture elite
+
+## 2026-04-23 Seed Fusion Audit
+
+- Audit local des candidats existants:
+  - `competitive-seeds-2026.json`
+    - `324` seeds
+    - `pro = 94`
+    - `elite = 230`
+    - `resolved = 280 / 324 = 86.42%`
+  - `competitive-seeds-2026-v3.json`
+    - `307` seeds
+    - `pro = 307`
+    - `elite = 0`
+    - `resolved = 146 / 307 = 47.56%`
+  - `competitive-seeds-2026-v4.json`
+    - fusion locale `v1 + v3`
+    - `537` seeds
+    - `pro = 307`
+    - `elite = 230`
+    - `resolved = 376 / 537 = 70.02%`
+    - recouvrement retire: `94` doublons
+- Lecture:
+  - `v3` apporte du volume pro net, mais degrade fortement la qualite de resolution si on le prend seul
+  - `v1` reste le meilleur canon qualite pure
+  - `v4` est le bon candidat de volume: il conserve l'elite de `v1` et ajoute le pro net de `v3`
+- Validation rapide:
+  - `npm run campaign:competitive -- --max-stages 0 --seed-path data/seeds/competitive-seeds-2026-v4.json`
+    - preflight OK
+  - `npm run campaign:competitive -- --max-stages 1 --stage-size 50 --count-per-seed 40 --max-ids-per-seed 400 --audit-sample-size 20 --seed-path data/seeds/competitive-seeds-2026-v4.json`
+    - `qualityGatePassed = true`
+    - `stoppedReason = plateau`
+    - `resolvedSeedCount = 366`
+    - `unresolvedSeedCount = 171`
+    - `completedRate = 0.9`
+    - `noViableSnapshotFoundRate = 0.1`
+- Correctifs anti-boucle:
+  - `server/src/lib/riot/competitiveSeeds.ts`
+    - le seed prep elite stoppe maintenant au premier echec Riot au lieu de continuer plateforme par plateforme
+  - `scripts/importCompetitiveMatches.ts`
+    - ajout de `--max-seed-discovery-failures`
+    - la discovery competititve s'arrete apres quelques echecs consecutifs au lieu de logguer une longue cascade de `Riot API request failed`
+- Decision provisoire:
+  - `v4` est le meilleur candidat de saut de volume actuel
+  - il ne doit pas encore remplacer le canon sans un run de campagne cible controlee de plus grande ampleur
+
+## 2026-04-23 Canon V1 Et Policy De Croissance Controlee
+
+- Decision prise:
+  - conserver `competitive-seeds-2026.json` comme canon
+  - tester la croissance de volume via une policy dediee `v1-growth` avant toute promotion de `v4`
+- Nouvel artefact:
+  - `data/config/competitive-ingestion-policy-2026-v1-growth.json`
+    - garde la fenetre 26.x en priorite
+    - ouvre aussi 25.x et 24.x comme couloir de croissance controle
+    - conserve des caps conservateurs sur la part adjacente et la part non-pro
+- Runner de campagne:
+  - `scripts/runCompetitiveCampaign.ts`
+    - accepte maintenant `--max-seed-discovery-failures`
+    - propage ce seuil vers l'import competitif pour stopper plus vite les cascades d'erreurs Riot
+- Script npm:
+  - `campaign:competitive:v1-growth`
+    - force le canon v1
+    - utilise la policy de croissance dediee
+    - fixe `--max-seed-discovery-failures 2`
+- Lecture:
+  - le canon reste stable
+  - la croissance est maintenant isolee dans un artefact explicite
+  - on evite de rebasculer vers `v4` avant qu'un run controle montre un gain reel
+
+## 2026-04-23 Reprise V1 Growth Controlee
+
+- Validation technique:
+  - `npx tsc -p tsconfig.server.json --noEmit`
+    - OK
+- Validation campagne:
+  - `npm run campaign:competitive:v1-growth -- --max-stages 1 --stage-size 25 --count-per-seed 40 --max-ids-per-seed 400 --audit-sample-size 20`
+    - `preflight.database = ok`
+    - `preflight.riot = ok`
+    - `createdMatches = 25`
+    - `runCreatedCount = 25`
+    - `runAuthFailureCount = 0`
+    - `qualityGatePassed = true`
+    - `stoppedReason = max-created-per-run:25`
+- Lecture:
+  - la policy `v1-growth` casse bien le plateau sans changer le canon
+  - la discovery s'arrete maintenant proprement sur budget d'erreur sans bloquer le stage
+  - le prochain palier peut etre teste sur la meme base v1 avant toute promotion de `v4`
+
+## 2026-04-23 Tranche 50 Sur V1 Growth
+
+- Validation campagne:
+  - `npm run campaign:competitive:v1-growth -- --max-stages 1 --stage-size 50 --count-per-seed 40 --max-ids-per-seed 400 --audit-sample-size 20`
+    - `createdMatches = 25`
+    - `runCreatedCount = 25`
+    - `runAuthFailureCount = 0`
+    - `qualityGatePassed = true`
+    - `stoppedReason = max-created-per-run:25`
+    - le stage reste stable mais le rendement ne monte pas encore a 50
+- Validation qualite immediate:
+  - `npm run audit:match-based-validation -- --sample-size 20`
+    - `completedRate = 0.9`
+    - `noViableSnapshotFoundRate = 0.1`
+    - `rejectionReasonCounts`
+      - `low-confidence = 33`
+      - `publishability-insufficient-credible-distractors = 1`
+- Lecture:
+  - la croissance v1 reste saine
+  - le volume n'est pas encore lineaire a 50 sur ce vivier
+  - la qualite reste acceptable, sans degradation nouvelle evidente
+
+## 2026-04-23 Rendement D'Ingestion 50 Sur V1 Growth
+
+- Correctifs appliques:
+  - `scripts/importCompetitiveMatches.ts`
+    - separation de la reutilisation du checkpoint de resolution et de la reutilisation de la discovery
+    - ajout du mode `--refresh-discovery` pour refaire la discovery sans repayer la resolution
+    - ajout d'un plafond global de discovery pour ne pas scanner tout le seed set avant d'importer
+    - tri des candidats de classification par score pour traiter les meilleurs en premier
+    - prefiltre `target-participant-missing` avant la phase d'import pour eviter des tentatives inutiles
+    - classification en concurrence limitee au lieu d'un traitement strictement sequentiel
+  - `scripts/runCompetitiveCampaign.ts`
+    - propagation de `--refresh-discovery`
+  - `server/src/lib/riot/competitiveIngestion.ts`
+    - stockage optionnel de `targetParticipantPresent` dans le cache de metadonnees
+- Validation campagne:
+  - `npm run campaign:competitive:v1-growth -- --max-stages 1 --stage-size 50 --count-per-seed 40 --max-ids-per-seed 400 --audit-sample-size 20 --refresh-discovery`
+    - `createdMatches = 50`
+    - `runCreatedCount = 50`
+    - `runAuthFailureCount = 0`
+    - `stopReason = max-created-per-run:50`
+    - `attemptedMatches = 790`
+    - `failedMatchesCount = 307`
+    - `totalCompetitiveMatchesInDb = 1686`
+    - `importCountsByTier.tier1 = 50`
+- Qualite immediatement apres:
+  - `completedRate = 1`
+  - `noViableSnapshotFoundRate = 0`
+  - `rejectionReasonCounts`
+    - `low-confidence = 13`
+    - `choice-resolution-insufficient-distractors = 7`
+- Lecture:
+  - le vrai goulot etait le sur-scanning et la reutilisation trop rigide du checkpoint, pas la qualite pure
+  - le palier `50` est maintenant atteignable sans casser la qualite
+  - le prochain levier utile reste de reduire `target-participant-missing` et d'optimiser encore le rendement avant de viser `100`
+
+## 2026-04-23 Test 100 V1 Growth Et Nouveau Plafond
+
+- Validation campagne:
+  - `npm run campaign:competitive:v1-growth -- --max-stages 1 --stage-size 100 --count-per-seed 40 --max-ids-per-seed 400 --audit-sample-size 20 --refresh-discovery`
+    - `createdMatches = 24`
+    - `runCreatedCount = 24`
+    - `runAuthFailureCount = 0`
+    - `stopReason = discovery-failure-budget:2`
+    - `discoveredUniqueMatches = 114`
+    - `policyAcceptedMatches = 47`
+    - `rejectedByReason.target-participant-missing = 67`
+    - `failedMatchesCount = 322`
+    - `topFailureReasons`
+      - `target-participant-missing = 212`
+      - `Riot API authentication failed. = 110`
+- Lecture:
+  - le palier `100` n'est pas bloque par la qualite ML
+  - le rendement chute parce que la discovery retombe sur des seeds / regions qui enchainent des erreurs auth Riot
+  - le vrai prochain correctif utile n'est pas d'augmenter encore la tranche, mais d'ajouter une quarantaine persistante des seeds / regions qui repetent les erreurs pour ne pas rebruler du temps au prochain run
+
+## 2026-04-23 Quarantaine Persistante Et Test 100 Rejoue
+
+- Correctifs appliques:
+  - `scripts/importCompetitiveMatches.ts`
+    - chargement / sauvegarde d'une quarantaine persistante par region et par seed
+    - chargement tolerant au BOM
+    - coupure de la reuse de discovery quand une quarantaine active existe
+    - skip des seeds quarantines pendant la discovery
+    - quarantine automatique des seeds / regions quand la discovery s'arrete sur un budget d'erreur
+    - quarantine automatique des seeds / regions sur auth failure
+    - garde sur candidate vide pendant l'import
+  - `scripts/runCompetitiveCampaign.ts`
+    - propagation du chemin de quarantaine
+- Quarantaine active:
+  - `asia`
+  - `europe`
+  - `BR1`
+  - `americas`
+- Test rejoue:
+  - `npm run campaign:competitive:v1-growth -- --max-stages 1 --stage-size 100 --count-per-seed 40 --max-ids-per-seed 400 --audit-sample-size 20 --refresh-discovery`
+    - `createdMatches = 49`
+    - `runCreatedCount = 49`
+    - `runAuthFailureCount = 0`
+    - `stopReason = discovery-failure-budget:2`
+    - `failedMatchesCount = 402`
+    - `topFailureReasons`
+      - `target-participant-missing = 292`
+      - `Riot API authentication failed. = 110`
+- Lecture:
+  - la quarantaine fonctionne: les zones toxiques sont effectivement sautees
+  - le palier `100` reste toutefois au-dessus du vivier utile actuel
+  - le prochain levier n'est plus le filtrage des zones toxiques, mais l'augmentation du vivier exploitable hors quarantaine ou un changement de politique d'ingestion plus large avant nouvelle tentative `100`
