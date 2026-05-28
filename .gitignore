@@ -16,6 +16,23 @@ dist-ssr
 dist-server
 coverage
 prisma/dev.db
+ml/.venv/
+ml/.mypy_cache/
+ml/.pytest_cache/
+ml/.ruff_cache/
+ml/**/*.pyc
+ml/**/__pycache__/
+ml/*.egg-info/
+ml/artifacts/**
+!ml/artifacts/.gitkeep
+ml/data/raw/**
+!ml/data/raw/.gitkeep
+ml/data/interim/**
+!ml/data/interim/.gitkeep
+ml/data/processed/**
+!ml/data/processed/.gitkeep
+data/runtime/**
+!data/runtime/.gitkeep
 
 # Editor directories and files
 .vscode/*
@@ -27,3 +44,5 @@ prisma/dev.db
 *.njsproj
 *.sln
 *.sw?
+.vercel
+.env*.local

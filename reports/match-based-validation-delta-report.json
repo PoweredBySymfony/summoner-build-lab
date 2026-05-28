@@ -1,0 +1,70 @@
+{
+  "generatedAt": "2026-04-02T07:34:01.296Z",
+  "comparisons": [
+    {
+      "label": "sample-10",
+      "beforeReportPath": null,
+      "afterReportPath": null,
+      "completedRate": {
+        "before": 0.6,
+        "after": 0.4,
+        "delta": -0.2
+      },
+      "topRejectionReasons": {
+        "before": [
+          "good-answer-too-cheap:44",
+          "low-confidence:25",
+          "good-answer-incoherent-with-champion:5"
+        ],
+        "after": [
+          "good-answer-too-cheap:38",
+          "low-confidence:36",
+          "good-answer-unresolved:4"
+        ]
+      },
+      "patchCatalogFallbackOccurrences": {
+        "before": null,
+        "after": 0,
+        "delta": null
+      },
+      "segmentDistribution": {
+        "before": "early:0, mid:6, late:0, none:4",
+        "after": "early:1, mid:1, late:2, none:6"
+      },
+      "gate": null
+    },
+    {
+      "label": "sample-20",
+      "beforeReportPath": null,
+      "afterReportPath": null,
+      "completedRate": {
+        "before": null,
+        "after": 0.6,
+        "delta": null
+      },
+      "topRejectionReasons": {
+        "before": [],
+        "after": [
+          "low-confidence:96",
+          "good-answer-too-cheap:76",
+          "good-answer-unresolved:7"
+        ]
+      },
+      "patchCatalogFallbackOccurrences": {
+        "before": null,
+        "after": 0,
+        "delta": null
+      },
+      "segmentDistribution": {
+        "before": "n/a",
+        "after": "early:5, mid:4, late:3, none:8"
+      },
+      "gate": {
+        "threshold": 0.4,
+        "completedRate": 0.6,
+        "passed": true,
+        "nextStep": "OK pour relancer import vers 2000"
+      }
+    }
+  ]
+}

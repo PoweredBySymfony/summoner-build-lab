@@ -2,6 +2,7 @@ import { GeneratedPuzzleRequestStatus, GeneratedPuzzleRequestType, Prisma, Puzzl
 import { resolveItemSlug } from "../lib/itemSlugAliases.js";
 import { prisma } from "../lib/prisma.js";
 import { slugify } from "../lib/slug.js";
+import { mlPuzzleGenerationService } from "./mlPuzzleGenerationService.js";
 import { HttpError } from "../utils/http.js";
 
 type ChampionArchetype = "marksman" | "mage" | "fighter" | "tank" | "support";
@@ -878,19 +879,32 @@ export const puzzleGenerationService = {
     return buildChampionSeries(championId, userId, undefined, 5);
   },
 
-  async generateMatchBasedPuzzle(importedMatchId: string, userId: string) {
+  async generateMatchBasedPuzzle(
+    importedMatchId: string,
+    userId: string,
+    options?: {
+      forceDraftOnLowConfidence?: boolean;
+      actorIsAdmin?: boolean;
+    },
+  ) {
+    if (mlPuzzleGenerationService.isConfigured()) {
+      return mlPuzzleGenerationService.generateFromImportedMatch(importedMatchId, userId, options);
+    }
+
     const match = await prisma.importedMatch.findUnique({ where: { id: importedMatchId } });
     if (!match) {
       throw new HttpError(404, "Partie importée introuvable.");
     }
 
     const matchData = match.matchData as Prisma.JsonObject;
-    const championSlug = String(matchData.playerChampionSlug ?? "");
+    const metadata = matchData.metadata as Prisma.JsonObject | undefined;
+    const championSlug = String(match.targetChampionSlug ?? metadata?.targetChampionSlug ?? matchData.playerChampionSlug ?? "");
     const champion = await prisma.champion.findUnique({ where: { slug: championSlug } });
     if (!champion) {
       throw new HttpError(400, "La partie importée ne référence pas un champion connu.");
     }
 
+    console.info(`[puzzle-generation] ML disabled or unconfigured, fallback to template series for importedMatchId=${importedMatchId}`);
     return buildChampionSeries(champion.id, userId, importedMatchId, 5);
   },
 };

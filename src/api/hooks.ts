@@ -11,6 +11,7 @@ import type {
   DailyChallengePayload,
   DashboardPayload,
   GameItem,
+  GeneratedMatchPuzzleResponse,
   GeneratedPuzzleSeriesPayload,
   PlayerAutocompleteSuggestion,
   PlayerSearchPayload,
@@ -153,7 +154,7 @@ export const useImportRecentMatches = () =>
 export const useGenerateMatchPuzzleSeries = () => {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (payload: { importedMatchId: string }) => apiFetch<GeneratedPuzzleSeriesPayload>("/generated-puzzles/match", {
+    mutationFn: (payload: { importedMatchId: string }) => apiFetch<GeneratedMatchPuzzleResponse>("/generated-puzzles/match", {
       method: "POST",
       body: JSON.stringify(payload),
     }),
@@ -164,10 +165,10 @@ export const useGenerateMatchPuzzleSeries = () => {
   });
 };
 
-export const usePlayerSearch = (riotId: string | undefined) =>
+export const usePlayerSearch = (riotId: string | undefined, count = 5) =>
   useQuery({
-    queryKey: ["players", riotId],
-    queryFn: () => apiFetch<PlayerSearchPayload>(`/players/search?riotId=${encodeURIComponent(riotId ?? "")}`),
+    queryKey: ["players", riotId, count],
+    queryFn: () => apiFetch<PlayerSearchPayload>(`/players/search?riotId=${encodeURIComponent(riotId ?? "")}&count=${count}`),
     enabled: Boolean(riotId),
     retry: false,
   });
@@ -205,6 +206,13 @@ export const useAdminPuzzles = (enabled = true) =>
   useQuery({
     queryKey: ["admin", "puzzles"],
     queryFn: () => apiFetch<PuzzleListItem[]>("/admin/puzzles"),
+    enabled,
+  });
+
+export const useAdminAiGeneratedPuzzles = (enabled = true) =>
+  useQuery({
+    queryKey: ["admin", "puzzles", "ai-generated"],
+    queryFn: () => apiFetch<PuzzleListItem[]>("/admin/puzzles/ai-generated"),
     enabled,
   });
 
@@ -264,7 +272,23 @@ export const useAdminUpdatePuzzle = () => {
       }),
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: ["admin", "puzzles"] });
+      queryClient.invalidateQueries({ queryKey: ["admin", "puzzles", "ai-generated"] });
       queryClient.invalidateQueries({ queryKey: ["admin", "puzzle", variables.id] });
+      queryClient.invalidateQueries({ queryKey: ["puzzles"] });
+      queryClient.invalidateQueries({ queryKey: ["daily-challenge"] });
+      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+    },
+  });
+};
+
+export const useAdminPublishPuzzle = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => apiFetch<PuzzleDetail>(`/admin/puzzles/${id}/publish`, { method: "POST" }),
+    onSuccess: (_data, id) => {
+      queryClient.invalidateQueries({ queryKey: ["admin", "puzzles"] });
+      queryClient.invalidateQueries({ queryKey: ["admin", "puzzles", "ai-generated"] });
+      queryClient.invalidateQueries({ queryKey: ["admin", "puzzle", id] });
       queryClient.invalidateQueries({ queryKey: ["puzzles"] });
       queryClient.invalidateQueries({ queryKey: ["daily-challenge"] });
       queryClient.invalidateQueries({ queryKey: ["dashboard"] });
@@ -319,6 +343,7 @@ export const useAdminDeletePuzzle = () => {
     mutationFn: (id: string) => apiFetch<{ deleted: boolean }>(`/admin/puzzles/${id}`, { method: "DELETE" }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["admin", "puzzles"] });
+      queryClient.invalidateQueries({ queryKey: ["admin", "puzzles", "ai-generated"] });
       queryClient.invalidateQueries({ queryKey: ["puzzles"] });
       queryClient.invalidateQueries({ queryKey: ["daily-challenge"] });
       queryClient.invalidateQueries({ queryKey: ["dashboard"] });

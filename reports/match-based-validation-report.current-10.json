@@ -1,0 +1,395 @@
+{
+  "generatedAt": "2026-04-19T15:13:09.389Z",
+  "baseline": {
+    "state": "premium-v1-frozen",
+    "note": "Validation match-based apres retrain baseline sans modifier le coeur ML."
+  },
+  "evaluationUser": {
+    "id": "cmn4plsrz0000s0raoam4eco5",
+    "email": "xtrouche@gmail.com",
+    "isAdmin": true
+  },
+  "selectionPolicy": {
+    "strictPatchPrefix": "26.",
+    "sampleSize": 10,
+    "ordering": "fewest-previous-requests-first, then newest imported matches"
+  },
+  "summary": {
+    "completedCount": 8,
+    "noViableSnapshotFoundCount": 2,
+    "totalGenerations": 10,
+    "completedRate": 0.8,
+    "noViableSnapshotFoundRate": 0.2,
+    "rejectionReasonCounts": [
+      {
+        "reason": "low-confidence",
+        "count": 21
+      },
+      {
+        "reason": "publishability-insufficient-credible-distractors",
+        "count": 3
+      },
+      {
+        "reason": "choice-resolution-insufficient-distractors",
+        "count": 1
+      }
+    ],
+    "distinctSelectedSnapshotCount": 8,
+    "distinctSelectedSnapshotSignatureCount": 8,
+    "reusedSelectedSnapshotSignatureCount": 0,
+    "patchCatalogFallbackOccurrences": 0,
+    "distinctChampionCount": 8,
+    "snapshotSegmentCounts": [
+      {
+        "segment": "early",
+        "count": 4
+      },
+      {
+        "segment": "mid",
+        "count": 4
+      },
+      {
+        "segment": "none",
+        "count": 2
+      }
+    ],
+    "averageCandidatePoolSize": 11
+  },
+  "delta": null,
+  "generations": [
+    {
+      "index": 1,
+      "importedMatchId": "cmo5w75u8000afcras10806ip",
+      "requestId": "cmo5wnxst0000ysrayrvzri4l",
+      "patch": "26.4",
+      "sourceKind": "PRO_SEED",
+      "sourceTier": "pro",
+      "championSlug": "jayce",
+      "role": "TOP",
+      "generationStatus": "no_viable_snapshot_found",
+      "selectedSnapshotIndex": null,
+      "minute": 11.81,
+      "gold": 3390,
+      "candidatePoolSize": 11,
+      "qualityScore": 0,
+      "failureReason": "low-confidence",
+      "rejectionReasons": [
+        "low-confidence"
+      ],
+      "observedRejectionReasons": [
+        "low-confidence"
+      ],
+      "attemptsEvaluated": 2,
+      "successfulSnapshots": 0,
+      "selectedSnapshotHistoryKey": null,
+      "selectedSnapshotSignature": null,
+      "selectedSnapshotSegment": null,
+      "lowConfidence": false,
+      "draft": false,
+      "resultSlug": null
+    },
+    {
+      "index": 2,
+      "importedMatchId": "cmo5vq7mh000au8ra5vnc8ejp",
+      "requestId": "cmo5wny9a0001ysravurtzwth",
+      "patch": "26.4",
+      "sourceKind": "PRO_SEED",
+      "sourceTier": "pro",
+      "championSlug": "aurora",
+      "role": "TOP",
+      "generationStatus": "completed",
+      "selectedSnapshotIndex": 5,
+      "minute": 8.28,
+      "gold": 1646,
+      "candidatePoolSize": 11,
+      "qualityScore": 97.25,
+      "failureReason": null,
+      "rejectionReasons": [
+        "low-confidence"
+      ],
+      "observedRejectionReasons": [
+        "low-confidence",
+        "low-confidence"
+      ],
+      "attemptsEvaluated": 5,
+      "successfulSnapshots": 3,
+      "selectedSnapshotHistoryKey": "5:8.28",
+      "selectedSnapshotSignature": "TOP::8.28::1646::alternateur-hextech|anneau-de-doran",
+      "selectedSnapshotSegment": "early",
+      "lowConfidence": false,
+      "draft": false,
+      "resultSlug": "aurora-ai-generated-1776611582978-1237134033829200-5-1-cmo5vq7mh000au8ra5vnc8ejp-cmn4plsrz0000s0raoam4eco5-5-1776611582516"
+    },
+    {
+      "index": 3,
+      "importedMatchId": "cmo5uvvzt001iv4ra8omzlnsi",
+      "requestId": "cmo5wnyv7000eysrasbohk4xj",
+      "patch": "26.4",
+      "sourceKind": "PRO_SEED",
+      "sourceTier": "pro",
+      "championSlug": "zaahen",
+      "role": "TOP",
+      "generationStatus": "completed",
+      "selectedSnapshotIndex": 16,
+      "minute": 19.58,
+      "gold": 1614,
+      "candidatePoolSize": 11,
+      "qualityScore": 105.81,
+      "failureReason": null,
+      "rejectionReasons": [
+        "publishability-insufficient-credible-distractors"
+      ],
+      "observedRejectionReasons": [
+        "publishability-insufficient-credible-distractors",
+        "low-confidence",
+        "low-confidence",
+        "low-confidence",
+        "low-confidence"
+      ],
+      "attemptsEvaluated": 8,
+      "successfulSnapshots": 3,
+      "selectedSnapshotHistoryKey": "16:19.58",
+      "selectedSnapshotSignature": "TOP::19.58::1614::bouclier-de-doran|epee-longue|force-de-la-trinite|phage|potion-rechargeable",
+      "selectedSnapshotSegment": "mid",
+      "lowConfidence": false,
+      "draft": false,
+      "resultSlug": "zaahen-ai-generated-1776611584120-1237135175013800-16-1-cmo5uvvzt001iv4ra8omzlnsi-cmn4plsrz0000s0raoam4eco5-16-1776611583813"
+    },
+    {
+      "index": 4,
+      "importedMatchId": "cmo5uvusp0017v4ra39fgp6hk",
+      "requestId": "cmo5wnzqq000xysrac4gb4nuw",
+      "patch": "26.4",
+      "sourceKind": "PRO_SEED",
+      "sourceTier": "pro",
+      "championSlug": "lulu",
+      "role": "SUPPORT",
+      "generationStatus": "completed",
+      "selectedSnapshotIndex": 10,
+      "minute": 10.61,
+      "gold": 2312,
+      "candidatePoolSize": 11,
+      "qualityScore": 93.63,
+      "failureReason": null,
+      "rejectionReasons": [
+        "low-confidence"
+      ],
+      "observedRejectionReasons": [
+        "low-confidence",
+        "publishability-insufficient-credible-distractors"
+      ],
+      "attemptsEvaluated": 4,
+      "successfulSnapshots": 2,
+      "selectedSnapshotHistoryKey": "10:10.61",
+      "selectedSnapshotSignature": "SUPPORT::10.61::2312::balise-de-controle|potion-rechargeable",
+      "selectedSnapshotSegment": "early",
+      "lowConfidence": false,
+      "draft": false,
+      "resultSlug": "lulu-ai-generated-1776611584728-1237135783520000-10-1-cmo5uvusp0017v4ra39fgp6hk-cmn4plsrz0000s0raoam4eco5-10-1776611584476"
+    },
+    {
+      "index": 5,
+      "importedMatchId": "cmo5uvtw1000wv4rawimqz0dr",
+      "requestId": "cmo5wo0750014ysravv65g3qc",
+      "patch": "26.4",
+      "sourceKind": "PRO_SEED",
+      "sourceTier": "pro",
+      "championSlug": "rumble",
+      "role": "TOP",
+      "generationStatus": "completed",
+      "selectedSnapshotIndex": 12,
+      "minute": 11.42,
+      "gold": 3190,
+      "candidatePoolSize": 11,
+      "qualityScore": 91.93,
+      "failureReason": null,
+      "rejectionReasons": [
+        "low-confidence"
+      ],
+      "observedRejectionReasons": [
+        "low-confidence",
+        "low-confidence"
+      ],
+      "attemptsEvaluated": 3,
+      "successfulSnapshots": 1,
+      "selectedSnapshotHistoryKey": "12:11.42",
+      "selectedSnapshotSignature": "TOP::11.42::3190::anneau-de-doran|bottes|potion-rechargeable",
+      "selectedSnapshotSegment": "early",
+      "lowConfidence": false,
+      "draft": false,
+      "resultSlug": "rumble-ai-generated-1776611585218-1237136273611800-12-1-cmo5uvtw1000wv4rawimqz0dr-cmn4plsrz0000s0raoam4eco5-12-1776611585060"
+    },
+    {
+      "index": 6,
+      "importedMatchId": "cmo5uvsxw000lv4ra2imta7io",
+      "requestId": "cmo5wo0ko001bysrax1e7ktoc",
+      "patch": "26.4",
+      "sourceKind": "PRO_SEED",
+      "sourceTier": "pro",
+      "championSlug": "ambessa",
+      "role": "TOP",
+      "generationStatus": "completed",
+      "selectedSnapshotIndex": 12,
+      "minute": 18.05,
+      "gold": 3270,
+      "candidatePoolSize": 11,
+      "qualityScore": 88.59,
+      "failureReason": null,
+      "rejectionReasons": [
+        "low-confidence"
+      ],
+      "observedRejectionReasons": [
+        "low-confidence",
+        "low-confidence"
+      ],
+      "attemptsEvaluated": 5,
+      "successfulSnapshots": 3,
+      "selectedSnapshotHistoryKey": "12:18.05",
+      "selectedSnapshotSignature": "TOP::18.05::3270::bouclier-de-doran|eclipse|potion-rechargeable",
+      "selectedSnapshotSegment": "mid",
+      "lowConfidence": false,
+      "draft": false,
+      "resultSlug": "ambessa-ai-generated-1776611586015-1237137070383200-12-1-cmo5uvsxw000lv4ra2imta7io-cmn4plsrz0000s0raoam4eco5-12-1776611585719"
+    },
+    {
+      "index": 7,
+      "importedMatchId": "cmo5uvrsq000av4rak7oqzvjj",
+      "requestId": "cmo5wo16x001oysrar487ywpe",
+      "patch": "26.4",
+      "sourceKind": "PRO_SEED",
+      "sourceTier": "pro",
+      "championSlug": "jayce",
+      "role": "TOP",
+      "generationStatus": "no_viable_snapshot_found",
+      "selectedSnapshotIndex": null,
+      "minute": 8.11,
+      "gold": 1772,
+      "candidatePoolSize": 11,
+      "qualityScore": 0,
+      "failureReason": "low-confidence",
+      "rejectionReasons": [
+        "low-confidence"
+      ],
+      "observedRejectionReasons": [
+        "low-confidence",
+        "low-confidence",
+        "low-confidence",
+        "low-confidence",
+        "low-confidence",
+        "low-confidence",
+        "low-confidence"
+      ],
+      "attemptsEvaluated": 10,
+      "successfulSnapshots": 0,
+      "selectedSnapshotHistoryKey": null,
+      "selectedSnapshotSignature": null,
+      "selectedSnapshotSegment": null,
+      "lowConfidence": false,
+      "draft": false,
+      "resultSlug": null
+    },
+    {
+      "index": 8,
+      "importedMatchId": "cmo5ul6pe003124ra04ec77o7",
+      "requestId": "cmo5wo1zn001pysrala9fobe5",
+      "patch": "26.4",
+      "sourceKind": "PRO_SEED",
+      "sourceTier": "pro",
+      "championSlug": "renekton",
+      "role": "MID",
+      "generationStatus": "completed",
+      "selectedSnapshotIndex": 12,
+      "minute": 17.18,
+      "gold": 1532,
+      "candidatePoolSize": 11,
+      "qualityScore": 104,
+      "failureReason": null,
+      "rejectionReasons": [
+        "choice-resolution-insufficient-distractors"
+      ],
+      "observedRejectionReasons": [
+        "choice-resolution-insufficient-distractors"
+      ],
+      "attemptsEvaluated": 7,
+      "successfulSnapshots": 6,
+      "selectedSnapshotHistoryKey": "12:17.18",
+      "selectedSnapshotSignature": "MID::17.18::1532::estropieur|lame-de-doran",
+      "selectedSnapshotSegment": "mid",
+      "lowConfidence": false,
+      "draft": false,
+      "resultSlug": "renekton-ai-generated-1776611588009-1237139063903800-12-1-cmo5ul6pe003124ra04ec77o7-cmn4plsrz0000s0raoam4eco5-12-1776611587683"
+    },
+    {
+      "index": 9,
+      "importedMatchId": "cmo5ul5iy002q24rat0vfqaad",
+      "requestId": "cmo5wo2qt0028ysrazle0ahvs",
+      "patch": "26.4",
+      "sourceKind": "PRO_SEED",
+      "sourceTier": "pro",
+      "championSlug": "gwen",
+      "role": "TOP",
+      "generationStatus": "completed",
+      "selectedSnapshotIndex": 10,
+      "minute": 11.7,
+      "gold": 1129,
+      "candidatePoolSize": 11,
+      "qualityScore": 107.58,
+      "failureReason": null,
+      "rejectionReasons": [
+        "low-confidence"
+      ],
+      "observedRejectionReasons": [
+        "low-confidence",
+        "publishability-insufficient-credible-distractors"
+      ],
+      "attemptsEvaluated": 3,
+      "successfulSnapshots": 1,
+      "selectedSnapshotHistoryKey": "10:11.70",
+      "selectedSnapshotSignature": "TOP::11.70::1129::anneau-de-doran|createur-de-failles",
+      "selectedSnapshotSegment": "early",
+      "lowConfidence": false,
+      "draft": false,
+      "resultSlug": "gwen-ai-generated-1776611588752-1237139806867700-10-1-cmo5ul5iy002q24rat0vfqaad-cmn4plsrz0000s0raoam4eco5-10-1776611588603"
+    },
+    {
+      "index": 10,
+      "importedMatchId": "cmo5ul4ii002f24ra14ztumrv",
+      "requestId": "cmo5wo3al002fysra4tubcyo3",
+      "patch": "26.4",
+      "sourceKind": "PRO_SEED",
+      "sourceTier": "pro",
+      "championSlug": "gwen",
+      "role": "TOP",
+      "generationStatus": "completed",
+      "selectedSnapshotIndex": 14,
+      "minute": 15.82,
+      "gold": 979,
+      "candidatePoolSize": 11,
+      "qualityScore": 91.19,
+      "failureReason": null,
+      "rejectionReasons": [
+        "low-confidence"
+      ],
+      "observedRejectionReasons": [
+        "low-confidence"
+      ],
+      "attemptsEvaluated": 3,
+      "successfulSnapshots": 2,
+      "selectedSnapshotHistoryKey": "14:15.82",
+      "selectedSnapshotSignature": "TOP::15.82::979::anneau-de-doran|createur-de-failles|potion-rechargeable",
+      "selectedSnapshotSegment": "mid",
+      "lowConfidence": false,
+      "draft": false,
+      "resultSlug": "gwen-ai-generated-1776611589343-1237140398245900-14-1-cmo5ul4ii002f24ra14ztumrv-cmn4plsrz0000s0raoam4eco5-14-1776611589284"
+    }
+  ],
+  "reproduction": {
+    "commands": [
+      "npm run ml:export-raw",
+      "cd ml",
+      ".\\.venv\\Scripts\\python.exe scripts\\tasks.py build-dataset",
+      ".\\.venv\\Scripts\\python.exe scripts\\tasks.py train-baseline",
+      "npm run audit:match-based-validation -- --sample-size 10"
+    ]
+  }
+}

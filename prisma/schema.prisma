@@ -371,17 +371,44 @@ model RiotAccountIndex {
 }
 
 model ImportedMatch {
-  id           String    @id @default(cuid())
-  userId       String
-  riotMatchId  String    @unique
-  patch        String?
-  matchData    Json
-  createdAt    DateTime  @default(now())
-  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  requests     GeneratedPuzzleRequest[]
+  id                  String    @id @default(cuid())
+  userId              String
+  riotMatchId         String    @unique
+  patch               String?
+  sourceRegion        String?
+  sourceKind          String?
+  sourceMetadata      Json?
+  targetPuuid         String?
+  targetGameName      String?
+  targetTagLine       String?
+  targetChampionId    Int?
+  targetChampionSlug  String?
+  targetRole          Role?
+  gameCreationAt      DateTime?
+  gameDurationSeconds Int?
+  timelineFetchedAt   DateTime?
+  timelineMissingReason String?
+  mongoMatchImportRef String?
+  mongoTimelineRef    String?
+  mongoSnapshotRef    String?
+  mongoBackfilledAt   DateTime?
+  matchData           Json
+  timelineData        Json?
+  createdAt           DateTime  @default(now())
+  user                User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  requests            GeneratedPuzzleRequest[]
 
   @@index([userId])
   @@index([riotMatchId])
+  @@index([patch])
+  @@index([sourceRegion])
+  @@index([sourceKind])
+  @@index([targetPuuid])
+  @@index([targetChampionSlug])
+  @@index([targetRole])
+  @@index([gameCreationAt])
+  @@index([mongoMatchImportRef])
+  @@index([mongoTimelineRef])
 }
 
 model GeneratedPuzzleRequest {

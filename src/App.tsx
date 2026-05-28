@@ -19,6 +19,7 @@ const Daily = lazy(() => import("./pages/Daily"));
 const Champion = lazy(() => import("./pages/Champion"));
 const PlayerProfile = lazy(() => import("./pages/PlayerProfile"));
 const Admin = lazy(() => import("./pages/Admin"));
+const Lab = lazy(() => import("./pages/Lab"));
 
 const queryClient = new QueryClient();
 
@@ -33,6 +34,7 @@ const routeTitles: Array<{ pattern: RegExp; title: string }> = [
   { pattern: /^\/players\//, title: "Profil joueur" },
   { pattern: /^\/profile/, title: "Mon profil" },
   { pattern: /^\/admin/, title: "Backoffice" },
+  { pattern: /^\/lab/, title: "Lab d'Items" },
 ];
 
 const RouteTitleSync = () => {
@@ -84,6 +86,7 @@ const AppFrame = () => {
           <Route path="/results" element={<Results />} />
           <Route path="/profile" element={<Profile />} />
           <Route path="/admin" element={<Admin />} />
+          <Route path="/lab" element={<Lab />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
       </Suspense>

@@ -29,6 +29,7 @@ export interface GameItem {
   sellPrice?: number | null;
   category?: string | null;
   tags: string[];
+  itemGroups: string[];
   stats: Record<string, unknown>;
   shortDescription?: string | null;
   fullDescription?: string | null;
@@ -133,6 +134,127 @@ export interface PuzzleDetail extends PuzzleListItem {
 export interface GeneratedPuzzleSeriesPayload {
   slug: string;
   slugs: string[];
+}
+
+export type GeneratedMatchPuzzleResponse =
+  | {
+      generationStatus: "completed";
+      requestId: string;
+      slug: string;
+      slugs: string[];
+      sourceType: string;
+      published: boolean;
+      lowConfidence: boolean;
+      draft: boolean;
+      message?: string;
+    }
+  | {
+      generationStatus: "no_viable_snapshot_found" | "no_publishable_snapshot_found";
+      failureCode: "no_viable_snapshot_found" | "no_publishable_snapshot_found";
+      requestId: string;
+      slug: null;
+      slugs: [];
+      sourceType: string;
+      published: boolean;
+      lowConfidence: boolean;
+      draft: boolean;
+      retrySuggested: boolean;
+      snapshotsEvaluated: number;
+      viableSnapshots: number;
+      publishableSnapshots: number;
+      nonPublishableButViableSnapshots: number;
+      dominantRejectionReasons: string[];
+      message: string;
+    };
+
+export interface GeneratedPuzzleItemExplanation {
+  recommendedItem: {
+    slug: string;
+    name: string;
+    goldTotal: number;
+  };
+  comparedItem: {
+    slug: string;
+    name: string;
+    goldTotal: number;
+  };
+  availableAlternatives: Array<{
+    slug: string;
+    name: string;
+    goldTotal: number;
+  }>;
+  budgetEligibleAlternatives: Array<{
+    slug: string;
+    name: string;
+    goldTotal: number;
+    blockedReasons?: Array<{
+      code: string;
+      message: string;
+    }>;
+  }>;
+  blockedReasons: Array<{
+    code: string;
+    message: string;
+  }>;
+  statRows: Array<{
+    key: string;
+    label: string;
+    recommendedValue: number;
+    comparedValue: number;
+    delta: number;
+  }>;
+  profileDeltaRows: Array<{
+    key: string;
+    label: string;
+    recommendedValue: number;
+    comparedValue: number;
+    delta: number;
+  }>;
+  damageRows: Array<{
+    key: string;
+    label: string;
+    recommendedValue: number;
+    comparedValue: number;
+    delta: number;
+    unit: string;
+    interpretation: string;
+  }>;
+  efficiencyRows: Array<{
+    key: string;
+    label: string;
+    recommendedValue: number;
+    comparedValue: number;
+    delta: number;
+    unit: string;
+  }>;
+  strategicVerdict: {
+    winner: "recommended" | "compared" | "tie";
+    confidence: "low" | "medium" | "high";
+    summary: string;
+    reasons: string[];
+  };
+  exportPayload: {
+    filename: string;
+    rows: Array<{
+      type: string;
+      label: string;
+      recommended: number;
+      compared: number;
+      delta: number;
+      unit?: string;
+      note?: string;
+    }>;
+  };
+  cacheHit: boolean;
+  puzzleContext: {
+    slug: string;
+    sourceType: string;
+    role: string | null;
+    patch: string;
+    level?: number | null;
+    goldAvailable: number;
+    currentBuildSlugs: string[];
+  };
 }
 
 export interface CurrentUser {

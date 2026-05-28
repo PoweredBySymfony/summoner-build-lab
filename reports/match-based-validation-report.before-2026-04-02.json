@@ -1,0 +1,433 @@
+{
+  "generatedAt": "2026-04-01T20:03:47.098Z",
+  "baseline": {
+    "state": "premium-v1-frozen",
+    "note": "Validation match-based apres retrain baseline sans modifier le coeur ML."
+  },
+  "evaluationUser": {
+    "id": "cmn4plsrz0000s0raoam4eco5",
+    "email": "xtrouche@gmail.com",
+    "isAdmin": true
+  },
+  "selectionPolicy": {
+    "strictPatchPrefix": "26.",
+    "sampleSize": 10,
+    "ordering": "fewest-previous-requests-first, then newest imported matches"
+  },
+  "summary": {
+    "completedCount": 6,
+    "noViableSnapshotFoundCount": 4,
+    "totalGenerations": 10,
+    "completedRate": 0.6,
+    "noViableSnapshotFoundRate": 0.4,
+    "rejectionReasonCounts": [
+      {
+        "reason": "good-answer-too-cheap",
+        "count": 44
+      },
+      {
+        "reason": "low-confidence",
+        "count": 25
+      },
+      {
+        "reason": "good-answer-incoherent-with-champion",
+        "count": 5
+      },
+      {
+        "reason": "good-answer-unresolved",
+        "count": 3
+      }
+    ],
+    "distinctSelectedSnapshotCount": 6,
+    "distinctChampionCount": 10,
+    "snapshotSegmentCounts": [
+      {
+        "segment": "mid",
+        "count": 6
+      },
+      {
+        "segment": "none",
+        "count": 4
+      }
+    ],
+    "averageCandidatePoolSize": 8.8
+  },
+  "generations": [
+    {
+      "index": 1,
+      "importedMatchId": "cmnf2133604ar9crag4ukrc6c",
+      "requestId": "cmngh4def0000q8raumw1q23k",
+      "patch": "26.6",
+      "sourceKind": "PRO_SEED",
+      "sourceTier": "unknown",
+      "championSlug": "mel",
+      "role": "MID",
+      "generationStatus": "completed",
+      "selectedSnapshotIndex": 19,
+      "minute": 21.15,
+      "gold": 1654,
+      "candidatePoolSize": 11,
+      "qualityScore": 100,
+      "failureReason": null,
+      "rejectionReasons": [
+        "good-answer-too-cheap"
+      ],
+      "observedRejectionReasons": [
+        "good-answer-too-cheap",
+        "good-answer-too-cheap",
+        "low-confidence",
+        "good-answer-too-cheap",
+        "good-answer-too-cheap",
+        "good-answer-too-cheap",
+        "good-answer-too-cheap",
+        "low-confidence"
+      ],
+      "attemptsEvaluated": 8,
+      "successfulSnapshots": 1,
+      "selectedSnapshotHistoryKey": "19:21.15",
+      "selectedSnapshotSegment": "mid",
+      "lowConfidence": false,
+      "draft": false,
+      "resultSlug": "mel-ai-generated-1775073820663-19-1"
+    },
+    {
+      "index": 2,
+      "importedMatchId": "cmnf2123704ag9cra3zu95jrf",
+      "requestId": "cmngh4dv30007q8ras5f73nag",
+      "patch": "26.6",
+      "sourceKind": "PRO_SEED",
+      "sourceTier": "unknown",
+      "championSlug": "bard",
+      "role": "SUPPORT",
+      "generationStatus": "no_viable_snapshot_found",
+      "selectedSnapshotIndex": null,
+      "minute": 12.13,
+      "gold": 2775,
+      "candidatePoolSize": 11,
+      "qualityScore": 0,
+      "failureReason": "good-answer-too-cheap",
+      "rejectionReasons": [
+        "good-answer-too-cheap"
+      ],
+      "observedRejectionReasons": [
+        "low-confidence",
+        "good-answer-incoherent-with-champion",
+        "good-answer-too-cheap",
+        "good-answer-too-cheap",
+        "good-answer-too-cheap",
+        "good-answer-too-cheap",
+        "low-confidence",
+        "good-answer-too-cheap",
+        "good-answer-too-cheap",
+        "low-confidence",
+        "good-answer-too-cheap",
+        "low-confidence",
+        "good-answer-too-cheap"
+      ],
+      "attemptsEvaluated": 8,
+      "successfulSnapshots": 0,
+      "selectedSnapshotHistoryKey": null,
+      "selectedSnapshotSegment": null,
+      "lowConfidence": false,
+      "draft": false,
+      "resultSlug": null
+    },
+    {
+      "index": 3,
+      "importedMatchId": "cmnf2110l04a59cra9v07y64k",
+      "requestId": "cmngh4ehv0008q8ra8snsd53m",
+      "patch": "26.6",
+      "sourceKind": "PRO_SEED",
+      "sourceTier": "unknown",
+      "championSlug": "jayce",
+      "role": "JUNGLE",
+      "generationStatus": "completed",
+      "selectedSnapshotIndex": 17,
+      "minute": 16.28,
+      "gold": 1344,
+      "candidatePoolSize": 11,
+      "qualityScore": 112,
+      "failureReason": null,
+      "rejectionReasons": [
+        "good-answer-too-cheap"
+      ],
+      "observedRejectionReasons": [
+        "good-answer-too-cheap",
+        "low-confidence",
+        "good-answer-too-cheap",
+        "low-confidence",
+        "good-answer-too-cheap"
+      ],
+      "attemptsEvaluated": 8,
+      "successfulSnapshots": 5,
+      "selectedSnapshotHistoryKey": "17:16.28",
+      "selectedSnapshotSegment": "mid",
+      "lowConfidence": false,
+      "draft": false,
+      "resultSlug": "jayce-ai-generated-1775073822267-17-1"
+    },
+    {
+      "index": 4,
+      "importedMatchId": "cmnf2101t049u9craju95zfco",
+      "requestId": "cmngh4f4s000rq8ra2sjh8bge",
+      "patch": "26.6",
+      "sourceKind": "PRO_SEED",
+      "sourceTier": "unknown",
+      "championSlug": "jhin",
+      "role": "ADC",
+      "generationStatus": "no_viable_snapshot_found",
+      "selectedSnapshotIndex": null,
+      "minute": 0.19,
+      "gold": 50,
+      "candidatePoolSize": 0,
+      "qualityScore": 0,
+      "failureReason": "good-answer-unresolved",
+      "rejectionReasons": [
+        "good-answer-unresolved"
+      ],
+      "observedRejectionReasons": [
+        "good-answer-unresolved"
+      ],
+      "attemptsEvaluated": 1,
+      "successfulSnapshots": 0,
+      "selectedSnapshotHistoryKey": null,
+      "selectedSnapshotSegment": null,
+      "lowConfidence": false,
+      "draft": false,
+      "resultSlug": null
+    },
+    {
+      "index": 5,
+      "importedMatchId": "cmnf20zi9049j9cradp4wu6ul",
+      "requestId": "cmngh4f7f000sq8raszdgjb1o",
+      "patch": "26.6",
+      "sourceKind": "PRO_SEED",
+      "sourceTier": "unknown",
+      "championSlug": "sivir",
+      "role": "ADC",
+      "generationStatus": "no_viable_snapshot_found",
+      "selectedSnapshotIndex": null,
+      "minute": 8.3,
+      "gold": 1098,
+      "candidatePoolSize": 11,
+      "qualityScore": 0,
+      "failureReason": "good-answer-too-cheap",
+      "rejectionReasons": [
+        "good-answer-too-cheap"
+      ],
+      "observedRejectionReasons": [
+        "good-answer-too-cheap"
+      ],
+      "attemptsEvaluated": 1,
+      "successfulSnapshots": 0,
+      "selectedSnapshotHistoryKey": null,
+      "selectedSnapshotSegment": null,
+      "lowConfidence": false,
+      "draft": false,
+      "resultSlug": null
+    },
+    {
+      "index": 6,
+      "importedMatchId": "cmnf20yw004989crar5t7izt3",
+      "requestId": "cmngh4fc0000tq8ra40htbits",
+      "patch": "26.6",
+      "sourceKind": "PRO_SEED",
+      "sourceTier": "unknown",
+      "championSlug": "naafiri",
+      "role": "JUNGLE",
+      "generationStatus": "completed",
+      "selectedSnapshotIndex": 23,
+      "minute": 21.46,
+      "gold": 1280,
+      "candidatePoolSize": 11,
+      "qualityScore": 104,
+      "failureReason": null,
+      "rejectionReasons": [
+        "good-answer-too-cheap"
+      ],
+      "observedRejectionReasons": [
+        "good-answer-too-cheap",
+        "good-answer-unresolved",
+        "low-confidence",
+        "low-confidence",
+        "good-answer-too-cheap",
+        "low-confidence",
+        "good-answer-too-cheap"
+      ],
+      "attemptsEvaluated": 8,
+      "successfulSnapshots": 3,
+      "selectedSnapshotHistoryKey": "23:21.46",
+      "selectedSnapshotSegment": "mid",
+      "lowConfidence": false,
+      "draft": false,
+      "resultSlug": "naafiri-ai-generated-1775073823552-23-1"
+    },
+    {
+      "index": 7,
+      "importedMatchId": "cmnf20x71048g9crafttft9rr",
+      "requestId": "cmngh4g4g0016q8ra2a086m8x",
+      "patch": "26.6",
+      "sourceKind": "PRO_SEED",
+      "sourceTier": "unknown",
+      "championSlug": "corki",
+      "role": "ADC",
+      "generationStatus": "completed",
+      "selectedSnapshotIndex": 15,
+      "minute": 15.16,
+      "gold": 3629,
+      "candidatePoolSize": 11,
+      "qualityScore": 85.83,
+      "failureReason": null,
+      "rejectionReasons": [
+        "good-answer-too-cheap"
+      ],
+      "observedRejectionReasons": [
+        "low-confidence",
+        "good-answer-too-cheap",
+        "good-answer-too-cheap",
+        "good-answer-too-cheap",
+        "low-confidence",
+        "good-answer-incoherent-with-champion",
+        "good-answer-too-cheap",
+        "low-confidence",
+        "good-answer-too-cheap",
+        "good-answer-too-cheap"
+      ],
+      "attemptsEvaluated": 8,
+      "successfulSnapshots": 1,
+      "selectedSnapshotHistoryKey": "15:15.16",
+      "selectedSnapshotSegment": "mid",
+      "lowConfidence": false,
+      "draft": false,
+      "resultSlug": "corki-ai-generated-1775073824673-15-1"
+    },
+    {
+      "index": 8,
+      "importedMatchId": "cmnf20wf104859crad1g0g09v",
+      "requestId": "cmngh4gxx001dq8rayidy0jve",
+      "patch": "26.6",
+      "sourceKind": "PRO_SEED",
+      "sourceTier": "unknown",
+      "championSlug": "seraphine",
+      "role": "SUPPORT",
+      "generationStatus": "no_viable_snapshot_found",
+      "selectedSnapshotIndex": null,
+      "minute": 8.46,
+      "gold": 182,
+      "candidatePoolSize": 0,
+      "qualityScore": 0,
+      "failureReason": "good-answer-unresolved",
+      "rejectionReasons": [
+        "good-answer-unresolved"
+      ],
+      "observedRejectionReasons": [
+        "low-confidence",
+        "good-answer-too-cheap",
+        "low-confidence",
+        "good-answer-too-cheap",
+        "good-answer-unresolved",
+        "low-confidence",
+        "good-answer-too-cheap",
+        "low-confidence",
+        "good-answer-too-cheap",
+        "good-answer-too-cheap"
+      ],
+      "attemptsEvaluated": 6,
+      "successfulSnapshots": 0,
+      "selectedSnapshotHistoryKey": null,
+      "selectedSnapshotSegment": null,
+      "lowConfidence": false,
+      "draft": false,
+      "resultSlug": null
+    },
+    {
+      "index": 9,
+      "importedMatchId": "cmnf20w0z047u9crad1ulpt0z",
+      "requestId": "cmngh4hjb001eq8ratl6e2jex",
+      "patch": "26.6",
+      "sourceKind": "PRO_SEED",
+      "sourceTier": "unknown",
+      "championSlug": "ryze",
+      "role": "MID",
+      "generationStatus": "completed",
+      "selectedSnapshotIndex": 16,
+      "minute": 21.96,
+      "gold": 1946,
+      "candidatePoolSize": 11,
+      "qualityScore": 106,
+      "failureReason": null,
+      "rejectionReasons": [
+        "good-answer-too-cheap"
+      ],
+      "observedRejectionReasons": [
+        "low-confidence",
+        "good-answer-too-cheap",
+        "good-answer-too-cheap",
+        "low-confidence",
+        "good-answer-incoherent-with-champion",
+        "good-answer-too-cheap",
+        "low-confidence",
+        "good-answer-incoherent-with-champion",
+        "good-answer-too-cheap",
+        "good-answer-too-cheap",
+        "low-confidence",
+        "good-answer-incoherent-with-champion",
+        "good-answer-too-cheap"
+      ],
+      "attemptsEvaluated": 8,
+      "successfulSnapshots": 1,
+      "selectedSnapshotHistoryKey": "16:21.96",
+      "selectedSnapshotSegment": "mid",
+      "lowConfidence": false,
+      "draft": false,
+      "resultSlug": "ryze-ai-generated-1775073826031-16-1"
+    },
+    {
+      "index": 10,
+      "importedMatchId": "cmnf20uyb047j9craomy9wv0t",
+      "requestId": "cmngh4hzm001lq8rapzx51f5a",
+      "patch": "26.6",
+      "sourceKind": "PRO_SEED",
+      "sourceTier": "unknown",
+      "championSlug": "aatrox",
+      "role": "JUNGLE",
+      "generationStatus": "completed",
+      "selectedSnapshotIndex": 15,
+      "minute": 16.43,
+      "gold": 1412,
+      "candidatePoolSize": 11,
+      "qualityScore": 108,
+      "failureReason": null,
+      "rejectionReasons": [
+        "good-answer-too-cheap"
+      ],
+      "observedRejectionReasons": [
+        "low-confidence",
+        "good-answer-too-cheap",
+        "good-answer-too-cheap",
+        "good-answer-too-cheap",
+        "low-confidence",
+        "good-answer-too-cheap",
+        "low-confidence",
+        "good-answer-too-cheap",
+        "good-answer-too-cheap"
+      ],
+      "attemptsEvaluated": 8,
+      "successfulSnapshots": 1,
+      "selectedSnapshotHistoryKey": "15:16.43",
+      "selectedSnapshotSegment": "mid",
+      "lowConfidence": false,
+      "draft": false,
+      "resultSlug": "aatrox-ai-generated-1775073827042-15-1"
+    }
+  ],
+  "reproduction": {
+    "commands": [
+      "npm run ml:export-raw",
+      "cd ml",
+      ".\\.venv\\Scripts\\python.exe scripts\\tasks.py build-dataset",
+      ".\\.venv\\Scripts\\python.exe scripts\\tasks.py train-baseline",
+      "npm run audit:match-based-validation -- --sample-size 10"
+    ]
+  }
+}
