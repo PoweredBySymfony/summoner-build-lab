@@ -24,9 +24,14 @@ Applied in second follow-up commit:
 - Moved the i18n hook into `src/i18n/useLanguage.ts` and kept `src/i18n/context.tsx` focused on the provider component.
 - Cleared the previous React Fast Refresh lint warnings.
 
+Applied in third follow-up commit:
+
+- Started the `Admin.tsx` split by extracting shared admin UI primitives, admin option constants, JSON parsing, and `ChampionEditDialog` into focused modules under `src/pages/admin`.
+- Kept `Admin.tsx` as the page orchestrator while reducing local presentation/helper responsibilities.
+
 Still remaining:
 
-- Large-module extractions for `mlPuzzleGenerationService.ts`, `importCompetitiveMatches.ts`, `riotSyncService.ts`, and `Admin.tsx`.
+- Further large-module extractions for `mlPuzzleGenerationService.ts`, `importCompetitiveMatches.ts`, `riotSyncService.ts`, and the remaining `Admin.tsx` dialogs/sections.
 - Dependency freshness warnings for Browserslist/Prisma/punycode.
 
 ## Audit Health Score
