@@ -1,0 +1,43 @@
+import type { ItemStatIconKey } from "@/lib/itemPresentation";
+
+export const itemStatIconTintClass: Record<ItemStatIconKey, string> = {
+  attackDamage: "text-[#ffb14a]",
+  abilityPower: "text-[#7ec8ff]",
+  health: "text-[#7ef08a]",
+  mana: "text-[#59a8ff]",
+  armor: "text-[#ffd27a]",
+  magicResist: "text-[#c9a0ff]",
+  attackSpeed: "text-[#ffe66d]",
+  abilityHaste: "text-[#7ee7ff]",
+  crit: "text-[#ff9f43]",
+  moveSpeed: "text-[#f8f1c1]",
+  omnivamp: "text-[#9cff8c]",
+  lifesteal: "text-[#ff7f7f]",
+  lethality: "text-[#ff8a65]",
+  magicPen: "text-[#78c2ff]",
+  healthRegen: "text-[#8cf5ad]",
+  manaRegen: "text-[#8fc6ff]",
+  tenacity: "text-[#f4c86a]",
+  default: "text-[#d9d7cf]",
+};
+
+export const itemStatBadgeTintClass: Record<ItemStatIconKey, string> = {
+  attackDamage: "from-[#4c2e12] to-[#23160a] border-[#a45b1c]/60",
+  abilityPower: "from-[#183954] to-[#0b1826] border-[#4ca7df]/60",
+  health: "from-[#19452b] to-[#0d1f15] border-[#4fc96f]/60",
+  mana: "from-[#17375b] to-[#0b1727] border-[#4f8fe0]/60",
+  armor: "from-[#4a3a17] to-[#21190b] border-[#b8993c]/60",
+  magicResist: "from-[#352451] to-[#171024] border-[#9f74ff]/60",
+  attackSpeed: "from-[#4e4314] to-[#231d0a] border-[#cab13e]/60",
+  abilityHaste: "from-[#17414f] to-[#0a1d23] border-[#55b9d1]/60",
+  crit: "from-[#542b12] to-[#261209] border-[#df8f35]/60",
+  moveSpeed: "from-[#4d4425] to-[#231d11] border-[#c5b88a]/60",
+  omnivamp: "from-[#214523] to-[#0c1f10] border-[#59cc61]/60",
+  lifesteal: "from-[#4e1e1e] to-[#240d0d] border-[#d86868]/60",
+  lethality: "from-[#4a2118] to-[#220e0a] border-[#d97757]/60",
+  magicPen: "from-[#173858] to-[#0b1724] border-[#61aee8]/60",
+  healthRegen: "from-[#1d492a] to-[#0d2113] border-[#67db8b]/60",
+  manaRegen: "from-[#1b3a57] to-[#0c1824] border-[#5f9ce1]/60",
+  tenacity: "from-[#52401d] to-[#24190c] border-[#d7ae58]/60",
+  default: "from-[#343126] to-[#171610] border-white/10",
+};

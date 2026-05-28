@@ -13,6 +13,13 @@ Plateforme Vite/React + API Express/Prisma pour apprendre l'itemisation League o
   - Data Dragon pour tous les champions, tous les items et les assets
   - Riot API pour les profils/matchs utilisateurs
 
+## Workflow Git et Vercel
+
+- `main` est la branche de production. Un push sur `main` déclenche un déploiement Vercel avec `target: production`.
+- `dev` est la branche d'intégration. Un push sur `dev` déclenche une preview Vercel non-prod.
+- `feature/*` et `optimization/*` sont des branches de travail. Un push sur ces branches peut déclencher une preview Vercel, mais ne doit pas être interprété comme une mise en production.
+- Avant de merger vers `main`, vérifier que `npm run build`, `npm run lint` et `npm run test` passent sur la branche candidate.
+
 ## Fonctionnalités déjà branchées
 
 - Synchronisation relançable de tous les champions et tous les items du patch Data Dragon courant

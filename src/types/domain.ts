@@ -51,6 +51,65 @@ export interface GameItem {
   patch: string;
 }
 
+export type RoleKey = "TOP" | "JUNGLE" | "MID" | "ADC" | "SUPPORT" | "FLEX";
+export type PuzzleModeKey = "GENERAL" | "CHAMPION_SPECIFIC" | "PERSONALIZED" | "DAILY";
+export type PuzzleDifficultyKey = "BEGINNER" | "INTERMEDIATE" | "ADVANCED";
+
+export interface AdminChampionUpdatePayload {
+  name: string;
+  title: string | null;
+  rolePrimary: RoleKey | null;
+  roleSecondary: RoleKey | null;
+  patch: string;
+  isActive: boolean;
+  image: string;
+  iconImage: string | null;
+  splashImage: string | null;
+  tags: string[];
+  stats: Record<string, unknown>;
+}
+
+export interface AdminItemUpdatePayload {
+  name: string;
+  shortDescription: string | null;
+  fullDescription: string | null;
+  image: string;
+  patch: string;
+  category: string | null;
+  goldTotal: number;
+  goldBase: number | null;
+  goldSell: number | null;
+  isBoots: boolean;
+  isLegendary: boolean;
+  isConsumable: boolean;
+  isTrinket: boolean;
+  isStarter: boolean;
+  isActive: boolean;
+  activeEffect: string | null;
+  passiveEffect: string | null;
+  tags: string[];
+  stats: Record<string, unknown>;
+  buildsFrom: string[];
+  buildsInto: string[];
+}
+
+export interface AdminPuzzleUpdatePayload {
+  title: string;
+  slug: string;
+  mode: PuzzleModeKey;
+  difficulty: PuzzleDifficultyKey;
+  role: RoleKey | null;
+  championId: string | null;
+  patch: string;
+  description: string;
+  shortPrompt: string;
+  situation: string;
+  question: string;
+  explanation: string;
+  isPublished: boolean;
+  isDailyEligible: boolean;
+}
+
 export interface PuzzleChoiceView {
   id: string;
   label: string;

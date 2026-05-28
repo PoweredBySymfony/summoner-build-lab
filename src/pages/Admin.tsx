@@ -32,7 +32,14 @@ import {
   useAdminUpdatePuzzle,
   useCurrentUser,
 } from "@/api/hooks";
-import type { ChampionView, GameItem, PuzzleDetail } from "@/types/domain";
+import type {
+  AdminChampionUpdatePayload,
+  AdminItemUpdatePayload,
+  AdminPuzzleUpdatePayload,
+  ChampionView,
+  GameItem,
+  PuzzleDetail,
+} from "@/types/domain";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -696,7 +703,7 @@ function ChampionEditDialog({
   champion: ChampionView | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onSave: (payload: Record<string, unknown>) => Promise<void>;
+  onSave: (payload: AdminChampionUpdatePayload) => Promise<void>;
 }) {
   const [form, setForm] = useState({
     name: "",
@@ -775,8 +782,8 @@ function ChampionEditDialog({
                 void onSave({
                   name: form.name,
                   title: form.title || null,
-                  rolePrimary: form.rolePrimary || null,
-                  roleSecondary: form.roleSecondary || null,
+                  rolePrimary: (form.rolePrimary || null) as AdminChampionUpdatePayload["rolePrimary"],
+                  roleSecondary: (form.roleSecondary || null) as AdminChampionUpdatePayload["roleSecondary"],
                   patch: form.patch,
                   isActive: form.isActive,
                   image: form.image,
@@ -807,7 +814,7 @@ function ItemEditDialog({
   item: GameItem | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onSave: (payload: Record<string, unknown>) => Promise<void>;
+  onSave: (payload: AdminItemUpdatePayload) => Promise<void>;
 }) {
   const [form, setForm] = useState({
     name: "",
@@ -965,7 +972,7 @@ function PuzzleEditDialog({
   loading: boolean;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onSave: (payload: Record<string, unknown>) => Promise<void>;
+  onSave: (payload: AdminPuzzleUpdatePayload) => Promise<void>;
 }) {
   const [form, setForm] = useState({
     title: "",
@@ -1097,9 +1104,9 @@ function PuzzleEditDialog({
               void onSave({
                 title: form.title,
                 slug: form.slug,
-                mode: puzzleModes.includes(form.mode as (typeof puzzleModes)[number]) ? form.mode : "GENERAL",
-                difficulty: puzzleDifficulties.includes(form.difficulty as (typeof puzzleDifficulties)[number]) ? form.difficulty : "BEGINNER",
-                role: roleOptions.includes(form.role as (typeof roleOptions)[number]) ? form.role : null,
+                mode: (puzzleModes.includes(form.mode as (typeof puzzleModes)[number]) ? form.mode : "GENERAL") as AdminPuzzleUpdatePayload["mode"],
+                difficulty: (puzzleDifficulties.includes(form.difficulty as (typeof puzzleDifficulties)[number]) ? form.difficulty : "BEGINNER") as AdminPuzzleUpdatePayload["difficulty"],
+                role: (roleOptions.includes(form.role as (typeof roleOptions)[number]) ? form.role : null) as AdminPuzzleUpdatePayload["role"],
                 championId: form.championId || null,
                 patch: form.patch,
                 description: form.description,

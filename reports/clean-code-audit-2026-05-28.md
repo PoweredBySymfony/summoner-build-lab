@@ -4,6 +4,24 @@ Branch: `optimization/coder-proprement-audit`
 
 This audit applies the new global `$coder-proprement` skill, plus the technical `$audit` rubric. The frontend-design context is incomplete because `.impeccable.md` is absent and no `$teach-impeccable` skill is installed, so UI findings are limited to verifiable implementation issues.
 
+## Remediation status
+
+Applied in follow-up commit:
+
+- Fixed `ItemIcon` keyboard accessibility by using a native `button` for interactive item icons.
+- Extracted item stat visual token maps from `ItemIcon` into `src/lib/itemStatVisuals.ts`.
+- Added typed Admin update payloads on the client and explicit Admin payload types on the server.
+- Replaced Admin route `z.any()` with `z.unknown()` and removed route casts to service `Parameters<...>`.
+- Added `asyncRoute` and migrated `adminRoutes` to remove repeated route-level `try/catch` boilerplate.
+- Removed the stale Prisma eslint-disable warning.
+- Documented `main = production`, `dev = integration preview`, and `feature/*` / `optimization/* = preview` in `README.md`.
+
+Still remaining:
+
+- Large-module extractions for `mlPuzzleGenerationService.ts`, `importCompetitiveMatches.ts`, `riotSyncService.ts`, and `Admin.tsx`.
+- Fast Refresh warnings in shadcn-style UI primitives.
+- Dependency freshness warnings for Browserslist/Prisma/punycode.
+
 ## Audit Health Score
 
 | # | Dimension | Score | Key finding |

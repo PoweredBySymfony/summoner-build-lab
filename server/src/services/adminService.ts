@@ -33,6 +33,61 @@ const coerceNullableString = (value: string | null | undefined) => {
   return trimmed ? trimmed : null;
 };
 
+export type AdminChampionUpdatePayload = {
+  name: string;
+  title?: string | null;
+  rolePrimary?: Role | null;
+  roleSecondary?: Role | null;
+  patch: string;
+  isActive: boolean;
+  image: string;
+  iconImage?: string | null;
+  splashImage?: string | null;
+  tags?: unknown;
+  stats?: unknown;
+};
+
+export type AdminItemUpdatePayload = {
+  name: string;
+  shortDescription?: string | null;
+  fullDescription?: string | null;
+  image: string;
+  patch: string;
+  category?: string | null;
+  goldTotal: number;
+  goldBase?: number | null;
+  goldSell?: number | null;
+  isBoots: boolean;
+  isLegendary: boolean;
+  isConsumable: boolean;
+  isTrinket: boolean;
+  isStarter: boolean;
+  isActive: boolean;
+  activeEffect?: string | null;
+  passiveEffect?: string | null;
+  tags?: unknown;
+  stats?: unknown;
+  buildsFrom?: unknown;
+  buildsInto?: unknown;
+};
+
+export type AdminPuzzleUpdatePayload = {
+  title: string;
+  slug: string;
+  mode: PuzzleMode;
+  difficulty: PuzzleDifficulty;
+  role?: Role | null;
+  championId?: string | null;
+  patch: string;
+  description: string;
+  shortPrompt: string;
+  situation: string;
+  question: string;
+  explanation: string;
+  isPublished: boolean;
+  isDailyEligible: boolean;
+};
+
 export const adminService = {
   async getOverview() {
     const [championCount, itemCount, puzzleCount, publishedPuzzleCount, latestRemotePatch, championPatches, itemPatches] = await Promise.all([
@@ -107,19 +162,7 @@ export const adminService = {
 
   async updateChampion(
     id: string,
-    payload: {
-      name: string;
-      title?: string | null;
-      rolePrimary?: Role | null;
-      roleSecondary?: Role | null;
-      patch: string;
-      isActive: boolean;
-      image: string;
-      iconImage?: string | null;
-      splashImage?: string | null;
-      tags?: unknown;
-      stats?: unknown;
-    },
+    payload: AdminChampionUpdatePayload,
   ) {
     const champion = await catalogRepository.findChampionById(id);
     if (!champion) {
@@ -167,29 +210,7 @@ export const adminService = {
 
   async updateItem(
     id: string,
-    payload: {
-      name: string;
-      shortDescription?: string | null;
-      fullDescription?: string | null;
-      image: string;
-      patch: string;
-      category?: string | null;
-      goldTotal: number;
-      goldBase?: number | null;
-      goldSell?: number | null;
-      isBoots: boolean;
-      isLegendary: boolean;
-      isConsumable: boolean;
-      isTrinket: boolean;
-      isStarter: boolean;
-      isActive: boolean;
-      activeEffect?: string | null;
-      passiveEffect?: string | null;
-      tags?: unknown;
-      stats?: unknown;
-      buildsFrom?: unknown;
-      buildsInto?: unknown;
-    },
+    payload: AdminItemUpdatePayload,
   ) {
     const item = await catalogRepository.findItemById(id);
     if (!item) {
@@ -240,22 +261,7 @@ export const adminService = {
 
   async updatePuzzle(
     id: string,
-    payload: {
-      title: string;
-      slug: string;
-      mode: PuzzleMode;
-      difficulty: PuzzleDifficulty;
-      role?: Role | null;
-      championId?: string | null;
-      patch: string;
-      description: string;
-      shortPrompt: string;
-      situation: string;
-      question: string;
-      explanation: string;
-      isPublished: boolean;
-      isDailyEligible: boolean;
-    },
+    payload: AdminPuzzleUpdatePayload,
   ) {
     const puzzle = await puzzleRepository.findById(id);
     if (!puzzle) {

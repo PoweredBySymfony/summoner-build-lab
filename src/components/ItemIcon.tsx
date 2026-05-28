@@ -1,7 +1,8 @@
 import type { GameItem } from "@/types/domain";
 import { getItemEffectBlocks, getItemStatLines, type ItemStatIconKey } from "@/lib/itemPresentation";
+import { itemStatBadgeTintClass, itemStatIconTintClass } from "@/lib/itemStatVisuals";
 import { AnimatePresence, motion } from "framer-motion";
-import type { CSSProperties, ReactNode } from "react";
+import type { CSSProperties, MouseEvent, ReactNode } from "react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
@@ -21,48 +22,6 @@ const sizeMap = {
   sm: "h-10 w-10",
   md: "h-12 w-12",
   lg: "h-16 w-16",
-};
-
-const iconTintMap: Record<ItemStatIconKey, string> = {
-  attackDamage: "text-[#ffb14a]",
-  abilityPower: "text-[#7ec8ff]",
-  health: "text-[#7ef08a]",
-  mana: "text-[#59a8ff]",
-  armor: "text-[#ffd27a]",
-  magicResist: "text-[#c9a0ff]",
-  attackSpeed: "text-[#ffe66d]",
-  abilityHaste: "text-[#7ee7ff]",
-  crit: "text-[#ff9f43]",
-  moveSpeed: "text-[#f8f1c1]",
-  omnivamp: "text-[#9cff8c]",
-  lifesteal: "text-[#ff7f7f]",
-  lethality: "text-[#ff8a65]",
-  magicPen: "text-[#78c2ff]",
-  healthRegen: "text-[#8cf5ad]",
-  manaRegen: "text-[#8fc6ff]",
-  tenacity: "text-[#f4c86a]",
-  default: "text-[#d9d7cf]",
-};
-
-const badgeTintMap: Record<ItemStatIconKey, string> = {
-  attackDamage: "from-[#4c2e12] to-[#23160a] border-[#a45b1c]/60",
-  abilityPower: "from-[#183954] to-[#0b1826] border-[#4ca7df]/60",
-  health: "from-[#19452b] to-[#0d1f15] border-[#4fc96f]/60",
-  mana: "from-[#17375b] to-[#0b1727] border-[#4f8fe0]/60",
-  armor: "from-[#4a3a17] to-[#21190b] border-[#b8993c]/60",
-  magicResist: "from-[#352451] to-[#171024] border-[#9f74ff]/60",
-  attackSpeed: "from-[#4e4314] to-[#231d0a] border-[#cab13e]/60",
-  abilityHaste: "from-[#17414f] to-[#0a1d23] border-[#55b9d1]/60",
-  crit: "from-[#542b12] to-[#261209] border-[#df8f35]/60",
-  moveSpeed: "from-[#4d4425] to-[#231d11] border-[#c5b88a]/60",
-  omnivamp: "from-[#214523] to-[#0c1f10] border-[#59cc61]/60",
-  lifesteal: "from-[#4e1e1e] to-[#240d0d] border-[#d86868]/60",
-  lethality: "from-[#4a2118] to-[#220e0a] border-[#d97757]/60",
-  magicPen: "from-[#173858] to-[#0b1724] border-[#61aee8]/60",
-  healthRegen: "from-[#1d492a] to-[#0d2113] border-[#67db8b]/60",
-  manaRegen: "from-[#1b3a57] to-[#0c1824] border-[#5f9ce1]/60",
-  tenacity: "from-[#52401d] to-[#24190c] border-[#d7ae58]/60",
-  default: "from-[#343126] to-[#171610] border-white/10",
 };
 
 const renderGlyph = (icon: ItemStatIconKey) => {
@@ -168,8 +127,8 @@ const renderGlyph = (icon: ItemStatIconKey) => {
 };
 
 const StatBadge = ({ icon }: { icon: ItemStatIconKey }) => (
-  <div className={`flex h-6 w-6 items-center justify-center rounded-md border bg-gradient-to-br ${badgeTintMap[icon]}`}>
-    <svg viewBox="0 0 24 24" className={`h-4 w-4 ${iconTintMap[icon]}`} aria-hidden="true">
+  <div className={`flex h-6 w-6 items-center justify-center rounded-md border bg-gradient-to-br ${itemStatBadgeTintClass[icon]}`}>
+    <svg viewBox="0 0 24 24" className={`h-4 w-4 ${itemStatIconTintClass[icon]}`} aria-hidden="true">
       {renderGlyph(icon)}
     </svg>
   </div>
@@ -320,7 +279,7 @@ export const ItemIcon = ({
   const [hovered, setHovered] = useState(false);
   const [active, setActive] = useState(false);
   const [failed, setFailed] = useState(false);
-  const triggerRef = useRef<HTMLDivElement | null>(null);
+  const triggerRef = useRef<HTMLButtonElement | HTMLDivElement | null>(null);
   const openTimeoutRef = useRef<number | null>(null);
   const closeTimeoutRef = useRef<number | null>(null);
   const canPreview = showTooltip || Boolean(onInspect) || Boolean(onOpenDetail);
@@ -398,31 +357,30 @@ export const ItemIcon = ({
     }, 90);
   };
 
-  return (
-    <div
-      ref={triggerRef}
-      className="relative"
-      data-item-icon={item.slug}
-      tabIndex={canInteract ? 0 : -1}
-      role={canInteract ? "button" : "img"}
-      aria-label={item.name}
-      aria-haspopup={showTooltip ? "tooltip" : onOpenDetail ? "dialog" : undefined}
-      aria-expanded={showTooltip ? hovered : undefined}
-      aria-controls={inspectControls}
-      aria-pressed={canInteract ? highlighted : undefined}
-      onMouseEnter={scheduleOpen}
-      onMouseLeave={closeTooltip}
-      onFocus={scheduleOpen}
-      onBlur={closeTooltip}
-      onClick={(event) => {
-        if (!canInteract) {
-          return;
-        }
-        event.stopPropagation();
-        onInspect?.(item);
-        onOpenDetail?.(item);
-      }}
-    >
+  const triggerProps = {
+    ref: triggerRef,
+    className: "relative inline-block rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+    "data-item-icon": item.slug,
+    "aria-label": item.name,
+    "aria-haspopup": showTooltip ? "tooltip" as const : onOpenDetail ? "dialog" as const : undefined,
+    "aria-expanded": showTooltip ? hovered : undefined,
+    "aria-controls": inspectControls,
+    onMouseEnter: scheduleOpen,
+    onMouseLeave: closeTooltip,
+    onFocus: scheduleOpen,
+    onBlur: closeTooltip,
+    onClick: (event: MouseEvent<HTMLElement>) => {
+      if (!canInteract) {
+        return;
+      }
+      event.stopPropagation();
+      onInspect?.(item);
+      onOpenDetail?.(item);
+    },
+  };
+
+  const triggerContent = (
+    <>
       <div
         className={`${sizeMap[size]} overflow-hidden rounded-md border border-border/60 bg-muted/50 ${canInteract ? "cursor-pointer" : ""} transition-all duration-200 hover:border-primary/50 hover:shadow-lg hover:shadow-primary/10 ${active || highlighted ? "border-primary/50 shadow-lg shadow-primary/10" : ""} ${className}`}
         style={{ boxShadow: "inset 0 2px 4px hsl(222 47% 4% / 0.5)" }}
@@ -454,6 +412,23 @@ export const ItemIcon = ({
           ) : null}
         </AnimatePresence>
       ) : null}
+    </>
+  );
+
+  return canInteract ? (
+    <button
+      {...triggerProps}
+      type="button"
+      aria-pressed={highlighted}
+    >
+      {triggerContent}
+    </button>
+  ) : (
+    <div
+      {...triggerProps}
+      role="img"
+    >
+      {triggerContent}
     </div>
   );
 };
