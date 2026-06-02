@@ -2,11 +2,7 @@ import {
   GeneratedPuzzleRequestStatus,
   GeneratedPuzzleRequestType,
   Prisma,
-  PuzzleChoiceType,
-  PuzzleDifficulty,
-  PuzzleMode,
   PuzzleSourceType,
-  Role,
 } from "@prisma/client";
 import { env } from "../config/env.js";
 import { getItemGroups } from "../lib/itemGroups.js";
@@ -27,9 +23,6 @@ import {
   type SnapshotChampionProfile,
 } from "../lib/ml/snapshotCandidateBuilder.js";
 import { buildPatchLookupCandidates, canonicalizePatch, type PatchFormat } from "../lib/riot/patchCanonical.js";
-import {
-  shuffleResolvedChoices,
-} from "../lib/ml/puzzleBusinessRules.js";
 import {
   assessSnapshotPublishability,
   getPublishabilityFloorGold,
@@ -60,11 +53,17 @@ import {
 import {
   type MlChoiceItem,
 } from "../lib/ml/puzzleChoiceResolution.js";
-import { resolveItemSlug } from "../lib/itemSlugAliases.js";
 import { prisma } from "../lib/prisma.js";
 import { importedMatchArchiveRepository } from "../repositories/importedMatchArchiveRepository.js";
-import { slugify } from "../lib/slug.js";
 import { HttpError } from "../utils/http.js";
+import {
+  buildMlRequestMetadata,
+  summarizeNoViableDiagnostics,
+} from "../lib/ml/generationDiagnostics.js";
+import {
+  persistAiGeneratedPuzzle,
+  updateGeneratedRequest,
+} from "../lib/ml/puzzlePersistence.js";
 
 type ImportedMatchForMl = Awaited<ReturnType<typeof prisma.importedMatch.findUnique>>;
 
@@ -128,102 +127,6 @@ function isMlConfigured() {
   });
 }
 
-function buildMlRequestMetadata(input: {
-  generationStatus: MatchGenerationResponse["generationStatus"];
-  failureCode?: MatchGenerationNoViableResponse["failureCode"];
-  selectedAttempts?: PreparedSnapshotAttempt[];
-  attemptSummaries: AttemptDebugSummary[];
-  payload?: Record<string, unknown>;
-  resultPuzzles?: Array<{ id: string; slug: string }>;
-  segmentSummaries?: SegmentEvaluationSummary[];
-  repetitionExcluded?: Array<{
-    segment: SnapshotSegment;
-    snapshotIndex: number;
-    snapshotMinute: number;
-    qualityScore: number;
-    rerollDistanceScore?: number;
-  }>;
-  dominantRejectionReasons?: string[];
-  snapshotsEvaluated?: number;
-  viableSnapshots?: number;
-  publishableSnapshots?: number;
-  nonPublishableButViableSnapshots?: number;
-  prevalidationRejectedBySnapshot?: Record<number, string[]>;
-  draft?: boolean;
-}) {
-  const primaryAttempt = input.selectedAttempts?.[0];
-  return {
-    generationStatus: input.generationStatus,
-    failureCode: input.failureCode ?? null,
-    selectedSnapshot:
-      primaryAttempt
-        ? {
-            snapshotIndex: primaryAttempt.snapshotIndex,
-            rawPurchaseIndex: primaryAttempt.rawPurchaseIndex,
-            snapshotMinute: primaryAttempt.snapshot.timestampMinutes,
-            qualityScore: primaryAttempt.qualityScore,
-            rerollDistanceScore: primaryAttempt.debugSummary.rerollDistanceScore ?? null,
-            variationSeed: primaryAttempt.variationSeed,
-            choiceSignature: primaryAttempt.choiceSignature,
-            snapshotSignature: buildSnapshotSignature({
-              snapshotMinute: primaryAttempt.snapshot.timestampMinutes,
-              goldAvailable: primaryAttempt.snapshot.goldAvailable,
-              role: primaryAttempt.snapshot.role,
-              currentItems: primaryAttempt.snapshot.currentItems,
-            }),
-          }
-        : null,
-    selectedSnapshots:
-      input.selectedAttempts?.map((attempt) => ({
-        snapshotIndex: attempt.snapshotIndex,
-        rawPurchaseIndex: attempt.rawPurchaseIndex,
-        snapshotMinute: attempt.snapshot.timestampMinutes,
-        qualityScore: attempt.qualityScore,
-        rerollDistanceScore: attempt.debugSummary.rerollDistanceScore ?? null,
-        variationSeed: attempt.variationSeed,
-        choiceSignature: attempt.choiceSignature,
-        segment: getSnapshotSegment(attempt.snapshot.timestampMinutes),
-        historyKey: buildSnapshotHistoryKey({
-          snapshotIndex: attempt.snapshotIndex,
-          snapshotMinute: attempt.snapshot.timestampMinutes,
-        }),
-        snapshotSignature: buildSnapshotSignature({
-          snapshotMinute: attempt.snapshot.timestampMinutes,
-          goldAvailable: attempt.snapshot.goldAvailable,
-          role: attempt.snapshot.role,
-          currentItems: attempt.snapshot.currentItems,
-        }),
-      })) ?? [],
-    attemptsSummary: {
-      snapshotsEvaluated: input.snapshotsEvaluated ?? input.attemptSummaries.length,
-      successfulSnapshots: input.attemptSummaries.filter((entry) => entry.publishable).length,
-      attempts: input.attemptSummaries,
-    },
-    dominantRejectionReasons: input.dominantRejectionReasons ?? [],
-    viableSnapshots: input.viableSnapshots ?? input.attemptSummaries.filter((entry) => entry.technicalViable).length,
-    publishableSnapshots: input.publishableSnapshots ?? input.attemptSummaries.filter((entry) => entry.publishable).length,
-    nonPublishableButViableSnapshots:
-      input.nonPublishableButViableSnapshots
-      ?? input.attemptSummaries.filter((entry) => entry.technicalViable && !entry.publishable).length,
-    prevalidationRejectedBySnapshot: input.prevalidationRejectedBySnapshot ?? {},
-    draft: input.draft ?? false,
-    segmentsEvaluated: input.segmentSummaries ?? [],
-    repetitionExcluded: input.repetitionExcluded ?? [],
-    resultPuzzleIds: input.resultPuzzles?.map((entry) => entry.id) ?? [],
-    resultPuzzleSlugs: input.resultPuzzles?.map((entry) => entry.slug) ?? [],
-    payload: input.payload as Prisma.InputJsonValue | undefined,
-    prediction: primaryAttempt?.prediction as Prisma.InputJsonValue | undefined,
-    seed: primaryAttempt?.seed as Prisma.InputJsonValue | undefined,
-    businessRules: primaryAttempt
-      ? ({
-          ...primaryAttempt.businessRules.debug,
-          choiceSignature: primaryAttempt.choiceSignature,
-          variationSeed: primaryAttempt.variationSeed,
-        } as Prisma.InputJsonValue)
-      : undefined,
-  } as Prisma.InputJsonValue;
-}
-
 async function postPrediction(payload: object): Promise<MlPredictNextItemResponse> {
   if (!env.ML_API_URL) {
     throw new HttpError(503, "ML_API_URL is not configured.");
@@ -265,16 +168,6 @@ async function postPrediction(payload: object): Promise<MlPredictNextItemRespons
     throw new HttpError(504, "ML API request timed out.");
   }
   throw new HttpError(502, "Unable to reach ML API.");
-}
-
-async function getItemsBySlugs(slugs: string[]) {
-  const requested = [...new Set(slugs.map((slug) => resolveItemSlug(slug)))];
-  const items = await prisma.item.findMany({
-    where: {
-      slug: { in: requested },
-    },
-  });
-  return new Map(items.map((item) => [item.slug, item]));
 }
 
 function asRecord(value: unknown) {
@@ -589,50 +482,6 @@ async function getPreviousServedSnapshots(input: {
   return entries;
 }
 
-function countReasons(reasons: string[]) {
-  return reasons.reduce<Record<string, number>>((accumulator, reason) => {
-    accumulator[reason] = (accumulator[reason] ?? 0) + 1;
-    return accumulator;
-  }, {});
-}
-
-function sortReasonEntries(entries: Record<string, number>) {
-  return Object.entries(entries)
-    .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
-    .map(([reason]) => reason);
-}
-
-function summarizeNoViableDiagnostics(input: {
-  snapshotCandidates: SnapshotCandidate[];
-  attempts: SnapshotAttempt[];
-  prevalidationRejections?: Record<number, string[]>;
-}) {
-  const reasonCounts: Record<string, number> = {};
-
-  for (const reasons of Object.values(input.prevalidationRejections ?? {})) {
-    for (const [reason, count] of Object.entries(countReasons(reasons))) {
-      reasonCounts[reason] = (reasonCounts[reason] ?? 0) + count;
-    }
-  }
-
-  for (const attempt of input.attempts) {
-    if (attempt.status !== "rejected") {
-      continue;
-    }
-    for (const [reason, count] of Object.entries(countReasons(attempt.rejectionReasons))) {
-      reasonCounts[reason] = (reasonCounts[reason] ?? 0) + count;
-    }
-  }
-
-  return {
-    snapshotsEvaluated: input.snapshotCandidates.length,
-    viableSnapshots: input.attempts.filter((attempt) => attempt.status === "accepted" || attempt.technicalViable).length,
-    publishableSnapshots: input.attempts.filter((attempt) => attempt.status === "accepted").length,
-    nonPublishableButViableSnapshots: input.attempts.filter((attempt) => attempt.status === "rejected" && attempt.technicalViable).length,
-    dominantRejectionReasons: sortReasonEntries(reasonCounts).slice(0, 5),
-  };
-}
-
 async function buildSnapshotCandidatesFromImportedMatch(
   importedMatch: NonNullable<ImportedMatchForMl>,
 ): Promise<SnapshotCandidate[]> {
@@ -757,145 +606,6 @@ async function buildSnapshotCandidatesFromImportedMatch(
     return [rawCandidates[rawCandidates.length - 1]];
   }
   throw new HttpError(400, "No purchase snapshot could be reconstructed from the imported match.");
-}
-
-async function persistAiGeneratedPuzzle(input: {
-  championId: string;
-  championName: string;
-  championSlug: string;
-  attempt: PreparedSnapshotAttempt;
-  draft: boolean;
-  seriesIndex: number;
-  primary: boolean;
-}) {
-  const choiceSlugs = [
-    input.attempt.resolvedChoices.goodAnswer.slug,
-    ...input.attempt.resolvedChoices.distractors.map((item) => item.slug),
-  ];
-  const itemIndex = await getItemsBySlugs(choiceSlugs);
-  const orderedChoices = shuffleResolvedChoices(
-    input.attempt.resolvedChoices.goodAnswer,
-    input.attempt.resolvedChoices.distractors,
-    input.attempt.variationSeed,
-  );
-  const metadataSummary = [
-    `lowConfidence=${input.attempt.seed.lowConfidence}`,
-    `confidence=${input.attempt.seed.confidenceScore.toFixed(4)}`,
-    `gap=${input.attempt.seed.confidenceGap.toFixed(4)}`,
-    `candidatePoolSize=${input.attempt.seed.candidatePoolSize}`,
-    `snapshotMinute=${input.attempt.snapshot.timestampMinutes.toFixed(2)}`,
-    `snapshotIndex=${input.attempt.snapshotIndex}`,
-    `qualityScore=${input.attempt.qualityScore.toFixed(2)}`,
-    `variationSeed=${input.attempt.variationSeed}`,
-    `choiceSignature=${input.attempt.choiceSignature}`,
-  ].join(" | ");
-  const uniqueSlugSeed = [
-    input.championSlug,
-    "ai-generated",
-    Date.now(),
-    process.hrtime.bigint().toString(),
-    input.attempt.snapshotIndex,
-    input.seriesIndex + 1,
-    input.attempt.variationSeed,
-  ].join("-");
-
-  return prisma.puzzle.create({
-    data: {
-      title: `${input.championName} AI item puzzle`,
-      slug: slugify(uniqueSlugSeed),
-      mode: PuzzleMode.PERSONALIZED,
-      sourceType: PuzzleSourceType.AI_GENERATED,
-      difficulty:
-        input.attempt.seed.difficulty === "easy"
-          ? PuzzleDifficulty.BEGINNER
-          : input.attempt.seed.difficulty === "medium"
-            ? PuzzleDifficulty.INTERMEDIATE
-            : PuzzleDifficulty.ADVANCED,
-      patch: input.attempt.snapshot.patch,
-      description: input.draft
-        ? `Brouillon genere par le service ML pour ${input.championName}, a revoir avant toute publication.`
-        : `Puzzle genere par le service ML pour ${input.championName}.`,
-      shortPrompt: input.draft
-        ? `Brouillon ML faible confiance pour ${input.championName}.`
-        : `Le modele propose le prochain item le plus coherent pour ${input.championName}.`,
-      situation: `Tu joues ${input.championName} vers ${input.attempt.snapshot.timestampMinutes.toFixed(1)} minutes avec ${input.attempt.snapshot.goldAvailable} gold disponible.`,
-      question: "Quel est le meilleur prochain achat dans cette situation ?",
-      explanation: `La prediction ML privilegie ${itemIndex.get(resolveItemSlug(input.attempt.resolvedChoices.goodAnswer.slug))?.name ?? input.attempt.resolvedChoices.goodAnswer.slug}.`,
-      role: input.attempt.snapshot.role,
-      championId: input.championId,
-      isPublished: false,
-      isDailyEligible: false,
-      choices: {
-        create: orderedChoices.map(({ item: resolvedItem, isCorrect }, index) => {
-          const item = itemIndex.get(resolveItemSlug(resolvedItem.slug))!;
-          return {
-            label: item.name,
-            choiceType: item.isBoots ? PuzzleChoiceType.BOOTS : PuzzleChoiceType.ITEM,
-            itemId: item.id,
-            explanation: isCorrect
-              ? "Choix principal du modele ranking."
-              : "Distracteur plausible propose pour revue manuelle.",
-            isCorrect,
-            displayOrder: index + 1,
-          };
-        }),
-      },
-      scenario: {
-        create: {
-          playerChampionId: input.championId,
-          playerRole: input.attempt.snapshot.role ?? Role.FLEX,
-          gameMinute: Math.max(1, Math.round(input.attempt.snapshot.timestampMinutes)),
-          playerGold: input.attempt.snapshot.goldAvailable,
-          playerLevel: input.attempt.snapshot.level,
-          kills: input.attempt.snapshot.kills,
-          deaths: input.attempt.snapshot.deaths,
-          assists: input.attempt.snapshot.assists,
-          cs: input.attempt.snapshot.cs,
-          currentBuild: input.attempt.scenario.currentBuild as Prisma.InputJsonValue,
-          allyTeam: input.attempt.scenario.allyTeam as Prisma.InputJsonValue,
-          enemyTeam: input.attempt.scenario.enemyTeam as Prisma.InputJsonValue,
-          objectiveState: input.attempt.businessRules.objectiveState as Prisma.InputJsonValue,
-          damageProfile: input.attempt.businessRules.damageProfile as Prisma.InputJsonValue,
-          mapState: input.attempt.businessRules.mapState as Prisma.InputJsonValue,
-          notes: `${input.attempt.businessRules.notes} ${metadataSummary}`,
-        },
-      },
-      tags: {
-        create: [
-          "ai-generated",
-          "ml",
-          "next-item",
-          "ml-draft",
-          "ml-series",
-          ...(input.primary ? ["ml-series-primary"] : []),
-          ...(input.draft ? ["low-confidence"] : []),
-        ].map((tag) => ({
-          tag: {
-            connectOrCreate: {
-              where: { slug: slugify(tag) },
-              create: { slug: slugify(tag), name: tag },
-            },
-          },
-        })),
-      },
-    },
-  });
-}
-
-async function updateGeneratedRequest(input: {
-  requestId: string;
-  status: GeneratedPuzzleRequestStatus;
-  parameters: Prisma.InputJsonValue;
-  resultPuzzleId?: string;
-}) {
-  await prisma.generatedPuzzleRequest.update({
-    where: { id: input.requestId },
-    data: {
-      status: input.status,
-      parameters: input.parameters,
-      resultPuzzleId: input.resultPuzzleId,
-    },
-  });
 }
 
 export const mlPuzzleGenerationService = {
