@@ -79,9 +79,23 @@ Applied in thirteenth follow-up commit:
 - Continued the `mlPuzzleGenerationService.ts` split by extracting snapshot attempt evaluation into `server/src/lib/ml/snapshotAttemptEvaluator.ts`.
 - Moved attempt accepted/rejected types, attempt logging, actual-purchase prevalidation, ML prediction interpretation, choice resolution, publishability checks, and low-confidence handling out of the service.
 
+Applied in fourteenth follow-up commit:
+
+- Completed the `mlPuzzleGenerationService.ts` split by extracting generation diagnostics (`countReasons`, `sortReasonEntries`, `summarizeNoViableDiagnostics`, `buildMlRequestMetadata`) into `server/src/lib/ml/generationDiagnostics.ts` (156 lines) and puzzle persistence helpers (`getItemsBySlugs`, `persistAiGeneratedPuzzle`, `updateGeneratedRequest`) into `server/src/lib/ml/puzzlePersistence.ts` (163 lines).
+- `mlPuzzleGenerationService.ts` is now 924 lines (down from 1214), focused on ML orchestration.
+
+Applied in fifteenth follow-up commit:
+
+- Completed the `importCompetitiveMatches.ts` split by extracting seed resolution and match discovery into `scripts/lib/competitiveSeedRunner.ts` (439 lines, includes `buildDiscoveryQuerySignature`, `mergeResolvedSeed`, `resolveSeed`, `resolveSeeds`, `discoverMatchIdsForSeed`, `discoverSeeds`) and match classification into `scripts/lib/competitiveClassificationRunner.ts` (273 lines, includes `normalizePatch`, `normalizeQueueId`, `normalizeGameCreationAt`, `classifyDiscoveredMatches`, `buildRejectedMatches`, `buildSourceMetadata`).
+- `importCompetitiveMatches.ts` is now 1180 lines (down from 1860), keeping only the `main()` loop, progress persistence, and orchestration logic.
+
+Applied in sixteenth follow-up commit:
+
+- Completed the `riotSyncService.ts` split by extracting the full match import pipeline into `server/src/lib/riot/matchImportRunner.ts` (508 lines, includes `RiotImportSourceContext`, `RiotImportedMatchDetail`, `normalizeSourceKind`, `buildImportedMatchMetadata`, `fetchMatchBundleWithRetry`, `importMatchForIdentityInternal`, `importRecentMatchesInternal`, and all participant/champion helpers).
+- `riotSyncService.ts` is now 436 lines (down from 929), delegating to the new runner module while keeping catalog sync, public profile, autocomplete, and identity facade methods.
+
 Still remaining:
 
-- Further large-module extractions for `mlPuzzleGenerationService.ts`, `importCompetitiveMatches.ts`, `riotSyncService.ts`, and remaining admin section/table components if needed. The highest-value next extractions are ML request persistence/diagnostics, competitive discovery/import runners, Riot match import persistence, and catalog sync orchestration.
 - Dependency freshness warnings for Browserslist/Prisma/punycode.
 
 ## Audit Health Score
@@ -245,3 +259,4 @@ Re-run `$audit` after fixes to see your score improve.
 - Seventh to ninth follow-up: `npm run test -- src/test/mlPuzzleOrchestration.test.ts`, `npx tsc --noEmit --target ES2022 --module NodeNext --moduleResolution NodeNext --types node --skipLibCheck --strict false --noImplicitAny false scripts/importCompetitiveMatches.ts scripts/lib/competitiveImportCli.ts scripts/lib/competitiveDiscoveryQuarantine.ts scripts/lib/competitiveImportReport.ts`, targeted Riot identity TypeScript check, `npm run lint`, and `npm run build` passed.
 - Tenth/eleventh follow-up: `npm run test -- src/test/mlPuzzleOrchestration.test.ts`, targeted TypeScript checks for ML series selection, competitive discovery checkpoint, and Riot public profile projection, plus `npm run lint` passed.
 - Twelfth/thirteenth follow-up: targeted TypeScript checks for ML candidate builder and attempt evaluator, `npm run test -- src/test/mlPuzzleOrchestration.test.ts`, and `npm run lint` passed.
+- Fourteenth to sixteenth follow-up (2026-06-02): `npm run build` passed (0 TypeScript errors), `npm run lint` passed (0 errors, 9 pre-existing warnings), `npm run test` passed (25 test files, 112 tests) after extracting ML generation diagnostics, ML puzzle persistence, competitive seed runner, competitive classification runner, and Riot match import runner.
