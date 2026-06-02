@@ -29,9 +29,14 @@ Applied in third follow-up commit:
 - Started the `Admin.tsx` split by extracting shared admin UI primitives, admin option constants, JSON parsing, and `ChampionEditDialog` into focused modules under `src/pages/admin`.
 - Kept `Admin.tsx` as the page orchestrator while reducing local presentation/helper responsibilities.
 
+Applied in fourth follow-up commit:
+
+- Completed the admin dialog split by extracting `ItemEditDialog`, `PuzzleEditDialog`, and `PatchDialog` into focused modules under `src/pages/admin`.
+- Reduced `src/pages/Admin.tsx` to the page orchestration, filtering, tables, mutation wiring, and delete confirmation flow.
+
 Still remaining:
 
-- Further large-module extractions for `mlPuzzleGenerationService.ts`, `importCompetitiveMatches.ts`, `riotSyncService.ts`, and the remaining `Admin.tsx` dialogs/sections.
+- Further large-module extractions for `mlPuzzleGenerationService.ts`, `importCompetitiveMatches.ts`, `riotSyncService.ts`, and remaining admin section/table components if needed.
 - Dependency freshness warnings for Browserslist/Prisma/punycode.
 
 ## Audit Health Score
@@ -93,6 +98,7 @@ The product does not look like a pure AI-generated shell: it has domain-specific
 ### [P1] Admin page is a 1172-line component containing page orchestration, tables, filters, dialogs, form state, and mutation wiring
 - Location: `src/pages/Admin.tsx:194`, `src/pages/Admin.tsx:700`, `src/pages/Admin.tsx:980`, `src/pages/Admin.tsx:1130`
 - Category: Clean Code / Frontend Architecture / Responsive
+- Status: partially resolved; admin dialogs and shared helper modules have been extracted, and `src/pages/Admin.tsx` is now focused on page orchestration.
 - Principle: small components with focused responsibilities
 - Impact: admin changes require editing one large file with several nested workflows. Form state, validation, mutation payload mapping, and UI layout are tightly coupled.
 - Recommendation: extract feature modules for champion, item, puzzle, and patch-sync sections. Move form state/payload mapping into hooks or small adapter functions per entity.
@@ -153,7 +159,7 @@ The product does not look like a pure AI-generated shell: it has domain-specific
 
 ## Patterns and Systemic Issues
 
-- Large files are the strongest maintainability signal: 8 source files exceed 800 lines, led by `mlPuzzleGenerationService.ts`, `importCompetitiveMatches.ts`, `riotSyncService.ts`, and `Admin.tsx`.
+- Large files are the strongest maintainability signal: led by `mlPuzzleGenerationService.ts`, `importCompetitiveMatches.ts`, and `riotSyncService.ts`. `Admin.tsx` has been reduced below the original large-file threshold through dialog extraction.
 - Types are strong in domain tests and Prisma models, but admin write boundaries fall back to broad casts and `Record<string, unknown>`.
 - UI code uses a solid component library foundation, but product-specific components frequently bypass tokens with inline hex palettes and one-off layout values.
 - Tests are broad and fast, but several large orchestration modules need tests mapped to extracted responsibilities before refactoring.
@@ -185,4 +191,6 @@ Re-run `$audit` after fixes to see your score improve.
 - `python C:\Users\XavierTrouche\.codex\skills\.system\skill-creator\scripts\quick_validate.py C:\Users\XavierTrouche\.codex\skills\coder-proprement` - passed.
 - `npm run build` - passed.
 - `npm run lint` - passed with 0 warnings after second follow-up.
-- `npm run test` - passed: 25 test files, 112 tests.
+- `npm run test` - passed previously: 25 test files, 112 tests.
+- Fourth follow-up: `npm run lint` passed, `npm run build` passed, and `npx vitest run --exclude src/test/itemPresentationCatalog.test.ts` passed: 24 test files, 109 tests.
+- Fourth follow-up: full `npm run test` was blocked by `src/test/itemPresentationCatalog.test.ts` requiring PostgreSQL on `localhost:5433`; `npm run db:up` could not start it because Docker Desktop was not running.
