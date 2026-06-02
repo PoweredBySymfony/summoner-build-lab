@@ -198,5 +198,4 @@ Re-run `$audit` after fixes to see your score improve.
 - `npm run build` - passed.
 - `npm run lint` - passed with 0 warnings after second follow-up.
 - `npm run test` - passed previously: 25 test files, 112 tests.
-- Fourth follow-up: `npm run lint` passed, `npm run build` passed, and `npx vitest run --exclude src/test/itemPresentationCatalog.test.ts` passed: 24 test files, 109 tests.
-- Fourth follow-up: full `npm run test` was blocked by `src/test/itemPresentationCatalog.test.ts` requiring PostgreSQL on `localhost:5433`; `npm run db:up` could not start it because Docker Desktop was not running.
+- Fourth/fifth follow-up: `npm run lint` passed, `npm run build` passed, and `npm run test` passed after Docker/PostgreSQL was started: 25 test files, 112 tests.
