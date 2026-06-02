@@ -69,9 +69,19 @@ Applied in eleventh follow-up commit:
 - Continued the `importCompetitiveMatches.ts` split by extracting checkpoint reuse and discovered-match reconstruction helpers into `scripts/lib/competitiveDiscoveryCheckpoint.ts`.
 - Continued the `riotSyncService.ts` split by extracting public player profile projection into `server/src/lib/riot/publicPlayerProfile.ts`.
 
+Applied in twelfth follow-up commit:
+
+- Continued the `mlPuzzleGenerationService.ts` split by extracting snapshot candidate reconstruction, candidate dedupe/ranking, and gold-before-purchase reconstruction into `server/src/lib/ml/snapshotCandidateBuilder.ts`.
+- Kept archive loading and snapshot candidate persistence in `mlPuzzleGenerationService.ts`, so the service remains responsible for IO while the builder owns timeline-to-candidate logic.
+
+Applied in thirteenth follow-up commit:
+
+- Continued the `mlPuzzleGenerationService.ts` split by extracting snapshot attempt evaluation into `server/src/lib/ml/snapshotAttemptEvaluator.ts`.
+- Moved attempt accepted/rejected types, attempt logging, actual-purchase prevalidation, ML prediction interpretation, choice resolution, publishability checks, and low-confidence handling out of the service.
+
 Still remaining:
 
-- Further large-module extractions for `mlPuzzleGenerationService.ts`, `importCompetitiveMatches.ts`, `riotSyncService.ts`, and remaining admin section/table components if needed. The highest-value next extractions are ML snapshot building / attempt evaluation, competitive discovery/import runners, Riot match import persistence, and catalog sync orchestration.
+- Further large-module extractions for `mlPuzzleGenerationService.ts`, `importCompetitiveMatches.ts`, `riotSyncService.ts`, and remaining admin section/table components if needed. The highest-value next extractions are ML request persistence/diagnostics, competitive discovery/import runners, Riot match import persistence, and catalog sync orchestration.
 - Dependency freshness warnings for Browserslist/Prisma/punycode.
 
 ## Audit Health Score
@@ -101,7 +111,7 @@ The product does not look like a pure AI-generated shell: it has domain-specific
 ### [P1] ML puzzle generation service has too many responsibilities
 - Location: `server/src/services/mlPuzzleGenerationService.ts:1`, `server/src/services/mlPuzzleGenerationService.ts:1192`, `server/src/services/mlPuzzleGenerationService.ts:1680`, `server/src/services/mlPuzzleGenerationService.ts:2460`
 - Category: Clean Code / Architecture / Performance
-- Status: partially resolved; snapshot quality/publishability rules moved to `server/src/lib/ml/snapshotQuality.ts`, and snapshot series selection/history rules moved to `server/src/lib/ml/snapshotSeriesSelection.ts`.
+- Status: partially resolved; snapshot quality/publishability rules moved to `server/src/lib/ml/snapshotQuality.ts`, snapshot series selection/history rules moved to `server/src/lib/ml/snapshotSeriesSelection.ts`, snapshot candidate reconstruction moved to `server/src/lib/ml/snapshotCandidateBuilder.ts`, and attempt evaluation moved to `server/src/lib/ml/snapshotAttemptEvaluator.ts`.
 - Principle: one responsibility per module, one abstraction level per function
 - Impact: this 2402-line service mixes type definitions, archive loading, timeline parsing, snapshot scoring, candidate filtering, ML calls, publication selection, persistence, diagnostics, and response formatting. Each change to ML behavior risks touching unrelated persistence or diagnostics logic.
 - Recommendation: split by ownership: `snapshotCandidateBuilder`, `attemptEvaluator`, `seriesSelector`, `requestPersistence`, and `diagnostics`. Keep the exported service as an orchestrator with minimal branching.
@@ -234,3 +244,4 @@ Re-run `$audit` after fixes to see your score improve.
 - Sixth follow-up: `npx tsc --noEmit --target ES2022 --module NodeNext --moduleResolution NodeNext --types node --skipLibCheck --strict false --noImplicitAny false scripts/importCompetitiveMatches.ts scripts/lib/competitiveImportCli.ts` passed.
 - Seventh to ninth follow-up: `npm run test -- src/test/mlPuzzleOrchestration.test.ts`, `npx tsc --noEmit --target ES2022 --module NodeNext --moduleResolution NodeNext --types node --skipLibCheck --strict false --noImplicitAny false scripts/importCompetitiveMatches.ts scripts/lib/competitiveImportCli.ts scripts/lib/competitiveDiscoveryQuarantine.ts scripts/lib/competitiveImportReport.ts`, targeted Riot identity TypeScript check, `npm run lint`, and `npm run build` passed.
 - Tenth/eleventh follow-up: `npm run test -- src/test/mlPuzzleOrchestration.test.ts`, targeted TypeScript checks for ML series selection, competitive discovery checkpoint, and Riot public profile projection, plus `npm run lint` passed.
+- Twelfth/thirteenth follow-up: targeted TypeScript checks for ML candidate builder and attempt evaluator, `npm run test -- src/test/mlPuzzleOrchestration.test.ts`, and `npm run lint` passed.
