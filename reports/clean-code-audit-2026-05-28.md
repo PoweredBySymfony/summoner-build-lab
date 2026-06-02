@@ -39,6 +39,11 @@ Applied in fifth follow-up commit:
 - Extracted pure Riot item catalog selection rules from `riotSyncService.ts` into `server/src/lib/riot/catalogItemRules.ts`.
 - Kept network calls and persistence in `riotSyncService.ts`; the new module owns only purchasability filtering, canonical item candidate comparison, and boot item derivation.
 
+Applied in sixth follow-up commit:
+
+- Started the `importCompetitiveMatches.ts` split by extracting CLI option parsing and tranche preset logic into `scripts/lib/competitiveImportCli.ts`.
+- Added an explicit TypeScript check for the competitive import script and fixed a discovered contract mismatch: `CompetitiveSeedMatchDiscovery.priorityScore` was being read as `matchPriorityScore`.
+
 Still remaining:
 
 - Further large-module extractions for `mlPuzzleGenerationService.ts`, `importCompetitiveMatches.ts`, `riotSyncService.ts`, and remaining admin section/table components if needed.
@@ -79,6 +84,7 @@ The product does not look like a pure AI-generated shell: it has domain-specific
 ### [P1] Competitive import script combines CLI parsing, discovery, checkpointing, classification, persistence, reporting, and quarantine
 - Location: `scripts/importCompetitiveMatches.ts:89`, `scripts/importCompetitiveMatches.ts:760`, `scripts/importCompetitiveMatches.ts:1420`, `scripts/importCompetitiveMatches.ts:2070`
 - Category: Clean Code / Architecture
+- Status: partially resolved; CLI parsing and tranche preset logic have been moved to `scripts/lib/competitiveImportCli.ts`.
 - Principle: separate command-line adapter from domain workflow
 - Impact: the 2135-line script contains both operational workflow and reusable ingestion logic. This makes dry-runs, checkpoint recovery, and auth failure handling difficult to review safely.
 - Recommendation: move CLI parsing to a small entrypoint; extract `competitiveDiscoveryRunner`, `competitiveProgressReporter`, and `competitiveImportRunner` modules under `server/src/lib/riot` or `scripts/lib`.
@@ -199,3 +205,4 @@ Re-run `$audit` after fixes to see your score improve.
 - `npm run lint` - passed with 0 warnings after second follow-up.
 - `npm run test` - passed previously: 25 test files, 112 tests.
 - Fourth/fifth follow-up: `npm run lint` passed, `npm run build` passed, and `npm run test` passed after Docker/PostgreSQL was started: 25 test files, 112 tests.
+- Sixth follow-up: `npx tsc --noEmit --target ES2022 --module NodeNext --moduleResolution NodeNext --types node --skipLibCheck --strict false --noImplicitAny false scripts/importCompetitiveMatches.ts scripts/lib/competitiveImportCli.ts` passed.
