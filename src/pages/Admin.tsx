@@ -79,6 +79,11 @@ import { ItemEditDialog } from "./admin/ItemEditDialog";
 import { PatchDialog } from "./admin/PatchDialog";
 import { PuzzleEditDialog } from "./admin/PuzzleEditDialog";
 import { type SectionKey } from "./admin/adminOptions";
+import {
+  filterAdminChampions,
+  filterAdminItems,
+  filterAdminPuzzles,
+} from "./admin/adminFilters";
 
 const Admin = () => {
   const { data: user, isLoading: userLoading } = useCurrentUser();
@@ -116,35 +121,19 @@ const Admin = () => {
   const syncPatch = useAdminSyncPatch();
 
   const filteredChampions = useMemo(() => {
-    const query = championQuery.trim().toLowerCase();
-    return (champions.data ?? []).filter((entry) =>
-      [entry.name, entry.title ?? "", entry.patch, ...entry.roles].some((value) => value.toLowerCase().includes(query)),
-    );
+    return filterAdminChampions(champions.data, championQuery);
   }, [champions.data, championQuery]);
 
   const filteredItems = useMemo(() => {
-    const query = itemQuery.trim().toLowerCase();
-    return (items.data ?? []).filter((entry) =>
-      [entry.name, entry.category ?? "", entry.patch, ...entry.tags].some((value) => value.toLowerCase().includes(query)),
-    );
+    return filterAdminItems(items.data, itemQuery);
   }, [items.data, itemQuery]);
 
   const filteredPuzzles = useMemo(() => {
-    const query = puzzleQuery.trim().toLowerCase();
-    return (puzzles.data ?? []).filter((entry) =>
-      [entry.title, entry.mode, entry.difficulty, entry.patch, entry.champion?.name ?? ""].some((value) =>
-        value.toLowerCase().includes(query),
-      ),
-    );
+    return filterAdminPuzzles(puzzles.data, puzzleQuery);
   }, [puzzles.data, puzzleQuery]);
 
   const filteredAiGeneratedPuzzles = useMemo(() => {
-    const query = puzzleQuery.trim().toLowerCase();
-    return (aiGeneratedPuzzles.data ?? []).filter((entry) =>
-      [entry.title, entry.mode, entry.difficulty, entry.patch, entry.champion?.name ?? ""].some((value) =>
-        value.toLowerCase().includes(query),
-      ),
-    );
+    return filterAdminPuzzles(aiGeneratedPuzzles.data, puzzleQuery);
   }, [aiGeneratedPuzzles.data, puzzleQuery]);
 
   if (!userLoading && !user) {
