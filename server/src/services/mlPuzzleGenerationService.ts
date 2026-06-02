@@ -11,15 +11,11 @@ import {
 import { env } from "../config/env.js";
 import { getItemGroups } from "../lib/itemGroups.js";
 import {
-  buildBackendPuzzleSeed,
   isLowConfidenceDraftAllowed,
   isMlGenerationConfigured,
-  mapSnapshotToMlPayload,
   type MlPredictNextItemResponse,
-  type MlPuzzleSeed,
   type MlPuzzleSnapshot,
 } from "../lib/ml/mlPuzzle.js";
-import { getItemRestrictionDecision } from "../lib/itemRestrictions.js";
 import {
   buildSnapshotCandidates,
   calculateGoldBeforePurchaseFromFrame,
@@ -32,19 +28,22 @@ import {
 } from "../lib/ml/snapshotCandidateBuilder.js";
 import { buildPatchLookupCandidates, canonicalizePatch, type PatchFormat } from "../lib/riot/patchCanonical.js";
 import {
-  buildChoiceSignatureForHistory,
-  buildMlPuzzleBusinessRules,
   shuffleResolvedChoices,
 } from "../lib/ml/puzzleBusinessRules.js";
 import {
   assessSnapshotPublishability,
-  calculateQualityScore,
-  canOverrideLowConfidence,
   getPublishabilityFloorGold,
   isMeaningfulPurchaseSnapshotCandidate,
-  MIN_MEANINGFUL_PURCHASE_GOLD,
   scoreSnapshotCandidate,
 } from "../lib/ml/snapshotQuality.js";
+import {
+  evaluateSnapshotAttempt,
+  logSnapshotAttempt,
+  prevalidateSnapshotCandidate,
+  type AttemptDebugSummary,
+  type PreparedSnapshotAttempt,
+  type SnapshotAttempt,
+} from "../lib/ml/snapshotAttemptEvaluator.js";
 import {
   buildSnapshotHistoryKey,
   buildSnapshotSignature,
@@ -59,9 +58,6 @@ import {
   type SnapshotSegment,
 } from "../lib/ml/snapshotSeriesSelection.js";
 import {
-  resolveMlChoiceItemRef,
-  resolveMlPuzzleChoices,
-  toChoiceDebugPayload,
   type MlChoiceItem,
 } from "../lib/ml/puzzleChoiceResolution.js";
 import { resolveItemSlug } from "../lib/itemSlugAliases.js";
@@ -71,62 +67,6 @@ import { slugify } from "../lib/slug.js";
 import { HttpError } from "../utils/http.js";
 
 type ImportedMatchForMl = Awaited<ReturnType<typeof prisma.importedMatch.findUnique>>;
-
-type AttemptDebugSummary = {
-  snapshotIndex: number;
-  snapshotMinute: number;
-  patch: string;
-  goldAvailable: number;
-  snapshotSignature: string;
-  rerollDistanceScore?: number;
-  rawCandidatePoolSize: number;
-  filteredCandidatePoolSize: number;
-  goodAnswer: string | null;
-  qualityScore: number;
-  rejectionReasons: string[];
-  lowConfidence: boolean;
-  confidenceScore: number;
-  confidenceGap: number;
-  technicalViable: boolean;
-  publishable: boolean;
-  publishabilityScore: number;
-  publishabilityReasons: string[];
-  goodAnswerSource?: "ml-prediction" | "actual-purchase-fallback";
-};
-
-type PreparedSnapshotAttempt = {
-  status: "accepted";
-  technicalViable: true;
-  snapshotIndex: number;
-  rawPurchaseIndex: number;
-  snapshot: MlPuzzleSnapshot;
-  scenario: ScenarioSnapshot;
-  payload: ReturnType<typeof mapSnapshotToMlPayload>;
-  prediction: MlPredictNextItemResponse;
-  seed: MlPuzzleSeed;
-  resolvedChoices: ReturnType<typeof resolveMlPuzzleChoices>;
-  businessRules: ReturnType<typeof buildMlPuzzleBusinessRules>;
-  qualityScore: number;
-  variationSeed: string;
-  choiceSignature: string;
-  debugSummary: AttemptDebugSummary;
-};
-
-type RejectedSnapshotAttempt = {
-  status: "rejected";
-  snapshotIndex: number;
-  rawPurchaseIndex: number;
-  snapshot: MlPuzzleSnapshot;
-  payload: ReturnType<typeof mapSnapshotToMlPayload>;
-  prediction: MlPredictNextItemResponse | null;
-  seed: MlPuzzleSeed | null;
-  rejectionReasons: string[];
-  debugSummary: AttemptDebugSummary;
-  technicalViable: boolean;
-  details?: Prisma.InputJsonValue;
-};
-
-type SnapshotAttempt = PreparedSnapshotAttempt | RejectedSnapshotAttempt;
 
 type MatchGenerationCompletedResponse = {
   generationStatus: "completed";
@@ -693,50 +633,6 @@ function summarizeNoViableDiagnostics(input: {
   };
 }
 
-function prevalidateSnapshotCandidate(input: {
-  candidate: SnapshotCandidate;
-  patchChoiceItems: MlChoiceItem[];
-  championTags: string[];
-}) {
-  const actualPurchaseSlug = input.candidate.actualPurchase.itemSlug;
-  if (!actualPurchaseSlug) {
-    return {
-      allowed: false,
-      rejectionReasons: ["actual-next-item-unresolved"],
-    };
-  }
-
-  const actualGoodAnswer = resolveMlChoiceItemRef(actualPurchaseSlug, input.patchChoiceItems);
-  if (!actualGoodAnswer) {
-    return {
-      allowed: false,
-      rejectionReasons: ["actual-next-item-unresolved"],
-    };
-  }
-
-  const businessRules = buildMlPuzzleBusinessRules({
-    snapshot: input.candidate.snapshot,
-    championTags: input.championTags,
-    goodAnswer: actualGoodAnswer,
-    rankedCandidates: [actualGoodAnswer],
-    availableItems: input.patchChoiceItems,
-    previousChoiceSignatures: [],
-    variationSeed: `prevalidation:${input.candidate.snapshotIndex}`,
-  });
-
-  const rejectionReasons = [
-    ...businessRules.debug.goodAnswerViolations.map((reason) => `good-answer-${reason}`),
-  ];
-  if (businessRules.debug.candidatePoolSizeAfterFallback < 6) {
-    rejectionReasons.push("candidate-pool-too-small");
-  }
-
-  return {
-    allowed: rejectionReasons.length === 0,
-    rejectionReasons,
-  };
-}
-
 async function buildSnapshotCandidatesFromImportedMatch(
   importedMatch: NonNullable<ImportedMatchForMl>,
 ): Promise<SnapshotCandidate[]> {
@@ -861,380 +757,6 @@ async function buildSnapshotCandidatesFromImportedMatch(
     return [rawCandidates[rawCandidates.length - 1]];
   }
   throw new HttpError(400, "No purchase snapshot could be reconstructed from the imported match.");
-}
-
-function buildRejectedAttempt(input: {
-  candidate: SnapshotCandidate;
-  payload: ReturnType<typeof mapSnapshotToMlPayload>;
-  prediction?: MlPredictNextItemResponse | null;
-  seed?: MlPuzzleSeed | null;
-  rawCandidatePoolSize: number;
-  filteredCandidatePoolSize: number;
-  goodAnswer: string | null;
-  rejectionReasons: string[];
-  qualityScore?: number;
-  technicalViable?: boolean;
-  publishabilityScore?: number;
-  publishabilityReasons?: string[];
-  goodAnswerSource?: "ml-prediction" | "actual-purchase-fallback";
-  details?: Prisma.InputJsonValue;
-}): RejectedSnapshotAttempt {
-  return {
-    status: "rejected",
-    snapshotIndex: input.candidate.snapshotIndex,
-    rawPurchaseIndex: input.candidate.rawPurchaseIndex,
-    snapshot: input.candidate.snapshot,
-    payload: input.payload,
-    prediction: input.prediction ?? null,
-    seed: input.seed ?? null,
-    rejectionReasons: input.rejectionReasons,
-    technicalViable: Boolean(input.technicalViable),
-    debugSummary: {
-      snapshotIndex: input.candidate.snapshotIndex,
-      snapshotMinute: Number(input.candidate.snapshot.timestampMinutes.toFixed(2)),
-      patch: input.candidate.snapshot.patch,
-      goldAvailable: input.candidate.snapshot.goldAvailable,
-      snapshotSignature: buildSnapshotSignature({
-        snapshotMinute: input.candidate.snapshot.timestampMinutes,
-        goldAvailable: input.candidate.snapshot.goldAvailable,
-        role: input.candidate.snapshot.role,
-        currentItems: input.candidate.snapshot.currentItems,
-      }),
-      rawCandidatePoolSize: input.rawCandidatePoolSize,
-      filteredCandidatePoolSize: input.filteredCandidatePoolSize,
-      goodAnswer: input.goodAnswer,
-      qualityScore: input.qualityScore ?? 0,
-      rejectionReasons: input.rejectionReasons,
-      lowConfidence: input.seed?.lowConfidence ?? false,
-      confidenceScore: input.seed?.confidenceScore ?? 0,
-      confidenceGap: input.seed?.confidenceGap ?? 0,
-      technicalViable: Boolean(input.technicalViable),
-      publishable: false,
-      publishabilityScore: input.publishabilityScore ?? 0,
-      publishabilityReasons: input.publishabilityReasons ?? [],
-      goodAnswerSource: input.goodAnswerSource,
-    },
-    details: input.details,
-  };
-}
-
-function logSnapshotAttempt(requestId: string, importedMatchId: string, attempt: SnapshotAttempt) {
-  console.info(
-    "[ml-puzzle] snapshot-attempt",
-    JSON.stringify({
-      requestId,
-      importedMatchId,
-      ...attempt.debugSummary,
-      selected: attempt.status === "accepted",
-    }),
-  );
-}
-
-async function prepareSnapshotAttempt(input: {
-  importedMatchId: string;
-  userId: string;
-  championTags: string[];
-  candidate: SnapshotCandidate;
-  patchChoiceItems: MlChoiceItem[];
-  previousChoiceSignatures: string[];
-}): Promise<SnapshotAttempt> {
-  const payload = mapSnapshotToMlPayload(input.candidate.snapshot);
-
-  try {
-    const prediction = await postPrediction(payload);
-    const seed = buildBackendPuzzleSeed(prediction);
-    const predictedGoodAnswer = resolveMlChoiceItemRef(seed.goodAnswer, input.patchChoiceItems);
-    const actualPurchaseFallback = input.candidate.actualPurchase.itemSlug
-      ? resolveMlChoiceItemRef(input.candidate.actualPurchase.itemSlug, input.patchChoiceItems)
-      : null;
-    const actualPurchaseVerdict = prevalidateSnapshotCandidate({
-      candidate: input.candidate,
-      patchChoiceItems: input.patchChoiceItems,
-      championTags: input.championTags,
-    });
-
-    let resolvedGoodAnswer = predictedGoodAnswer;
-    let goodAnswerSource: "ml-prediction" | "actual-purchase-fallback" = "ml-prediction";
-    if (!resolvedGoodAnswer && actualPurchaseFallback && actualPurchaseVerdict.allowed) {
-      resolvedGoodAnswer = actualPurchaseFallback;
-      goodAnswerSource = "actual-purchase-fallback";
-    }
-
-    if (!resolvedGoodAnswer) {
-      return buildRejectedAttempt({
-        candidate: input.candidate,
-        payload,
-        prediction,
-        seed,
-        rawCandidatePoolSize: prediction.candidate_pool_size,
-        filteredCandidatePoolSize: 0,
-        goodAnswer: seed.goodAnswer,
-        rejectionReasons: ["good-answer-unresolved"],
-        details: {
-          actualPurchaseItemSlug: input.candidate.actualPurchase.itemSlug,
-          actualPurchaseVerdict,
-        } satisfies Prisma.InputJsonValue,
-      });
-    }
-    const goodAnswerRestriction = getItemRestrictionDecision(resolvedGoodAnswer.slug, {
-      patch: input.candidate.snapshot.patch,
-      role: input.candidate.snapshot.role,
-    });
-    if (!goodAnswerRestriction.allowed) {
-      console.info(
-        "[ml-puzzle] restriction-reject",
-        JSON.stringify({
-          scope: "good-answer",
-          patch: input.candidate.snapshot.patch,
-          role: input.candidate.snapshot.role,
-          slug: resolvedGoodAnswer.slug,
-          reasons: goodAnswerRestriction.reasons,
-        }),
-      );
-      return buildRejectedAttempt({
-        candidate: input.candidate,
-        payload,
-        prediction,
-        seed,
-        rawCandidatePoolSize: prediction.candidate_pool_size,
-        filteredCandidatePoolSize: 0,
-        goodAnswer: resolvedGoodAnswer.slug,
-        rejectionReasons: goodAnswerRestriction.reasons.map((reason) => `good-answer-${reason}`),
-        details: {
-          goodAnswerSource,
-          actualPurchaseItemSlug: input.candidate.actualPurchase.itemSlug,
-        } satisfies Prisma.InputJsonValue,
-      });
-    }
-
-    const variationSeed = `${input.importedMatchId}:${input.userId}:${input.candidate.snapshotIndex}:${Date.now()}`;
-    const rankedResolvedItems = prediction.top_k_predictions
-      .map((entry) => resolveMlChoiceItemRef(entry.item_slug, input.patchChoiceItems))
-      .filter((item): item is MlChoiceItem => Boolean(item));
-    let businessRules = buildMlPuzzleBusinessRules({
-      snapshot: input.candidate.snapshot,
-      championTags: input.championTags,
-      goodAnswer: resolvedGoodAnswer,
-      rankedCandidates: rankedResolvedItems,
-      availableItems: input.patchChoiceItems,
-      previousChoiceSignatures: input.previousChoiceSignatures,
-      variationSeed,
-    });
-    if (
-      goodAnswerSource === "ml-prediction"
-      && actualPurchaseFallback
-      && actualPurchaseVerdict.allowed
-      && businessRules.debug.goodAnswerViolations.some((reason) =>
-        reason === "too-cheap" || reason === "too-expensive" || reason === "incoherent-with-champion",
-      )
-    ) {
-      resolvedGoodAnswer = actualPurchaseFallback;
-      goodAnswerSource = "actual-purchase-fallback";
-      businessRules = buildMlPuzzleBusinessRules({
-        snapshot: input.candidate.snapshot,
-        championTags: input.championTags,
-        goodAnswer: resolvedGoodAnswer,
-        rankedCandidates: [resolvedGoodAnswer, ...rankedResolvedItems],
-        availableItems: input.patchChoiceItems,
-        previousChoiceSignatures: input.previousChoiceSignatures,
-        variationSeed: `${variationSeed}:actual-purchase`,
-      });
-    }
-    if (businessRules.debug.restrictedCandidateSamples.length > 0) {
-      console.info(
-        "[ml-puzzle] restriction-reject",
-        JSON.stringify({
-          scope: "candidate-pool",
-          patch: input.candidate.snapshot.patch,
-          role: input.candidate.snapshot.role,
-          rejected: businessRules.debug.restrictedCandidateSamples,
-          counts: {
-            roleRestricted: businessRules.debug.filterReasonCounts["role-restricted"],
-            patchRestricted: businessRules.debug.filterReasonCounts["patch-restricted"],
-          },
-        }),
-      );
-    }
-
-    const rejectionReasons: string[] = [];
-    if (businessRules.debug.goodAnswerViolations.length > 0) {
-      rejectionReasons.push(...businessRules.debug.goodAnswerViolations.map((reason) => `good-answer-${reason}`));
-    }
-    if (businessRules.debug.candidatePoolSizeAfterFallback < 6) {
-      rejectionReasons.push("candidate-pool-too-small");
-    }
-
-    const choiceResolutionInput = {
-      patch: input.candidate.snapshot.patch,
-      role: input.candidate.snapshot.role,
-      currentItemSlugs: input.candidate.snapshot.currentItems,
-      goodAnswer: resolvedGoodAnswer.slug,
-      distractors: businessRules.debug.selectedDistractors,
-      rankedItemSlugs: businessRules.distractorCandidates.map((item) => item.slug),
-      availableItems: input.patchChoiceItems,
-      fallbackItems: businessRules.distractorCandidates,
-    };
-
-    let resolvedChoices: ReturnType<typeof resolveMlPuzzleChoices> | null = null;
-    try {
-      resolvedChoices = resolveMlPuzzleChoices(choiceResolutionInput);
-    } catch (error) {
-      rejectionReasons.push(`choice-resolution-${error instanceof Error ? error.message : String(error)}`);
-    }
-
-    if (!resolvedChoices || rejectionReasons.length > 0) {
-      return buildRejectedAttempt({
-        candidate: input.candidate,
-        payload,
-        prediction,
-        seed,
-        rawCandidatePoolSize: prediction.candidate_pool_size,
-        filteredCandidatePoolSize: businessRules.debug.candidatePoolSizeAfterFallback,
-        goodAnswer: resolvedGoodAnswer.slug,
-        rejectionReasons,
-        goodAnswerSource,
-        details: {
-          goodAnswerSource,
-          businessRules: businessRules.debug,
-          choiceResolution: resolvedChoices ? toChoiceDebugPayload(resolvedChoices) : null,
-        } as Prisma.InputJsonValue,
-      });
-    }
-
-    const publishabilityAssessment = assessSnapshotPublishability({
-      snapshot: input.candidate.snapshot,
-      goodAnswer: resolvedChoices.goodAnswer,
-      distractors: resolvedChoices.distractors,
-      businessRules,
-    });
-    if (!publishabilityAssessment.publishable) {
-      return buildRejectedAttempt({
-        candidate: input.candidate,
-        payload,
-        prediction,
-        seed,
-        rawCandidatePoolSize: prediction.candidate_pool_size,
-        filteredCandidatePoolSize: businessRules.debug.candidatePoolSizeAfterFallback,
-        goodAnswer: resolvedChoices.goodAnswer.slug,
-        rejectionReasons: publishabilityAssessment.reasons,
-        technicalViable: true,
-        publishabilityScore: publishabilityAssessment.publishabilityScore,
-        publishabilityReasons: publishabilityAssessment.reasons,
-        goodAnswerSource,
-        details: {
-          goodAnswerSource,
-          businessRules: businessRules.debug,
-          publishability: publishabilityAssessment,
-          choiceResolution: toChoiceDebugPayload(resolvedChoices),
-        } as Prisma.InputJsonValue,
-      });
-    }
-
-    const effectiveLowConfidence = !canOverrideLowConfidence({
-      seed,
-      prediction,
-      publishabilityScore: publishabilityAssessment.publishabilityScore,
-      candidatePoolSizeAfterFallback: businessRules.debug.candidatePoolSizeAfterFallback,
-      goodAnswerSource,
-    }) && seed.lowConfidence;
-    if (effectiveLowConfidence) {
-      return buildRejectedAttempt({
-        candidate: input.candidate,
-        payload,
-        prediction,
-        seed,
-        rawCandidatePoolSize: prediction.candidate_pool_size,
-        filteredCandidatePoolSize: businessRules.debug.candidatePoolSizeAfterFallback,
-        goodAnswer: resolvedChoices.goodAnswer.slug,
-        rejectionReasons: ["low-confidence"],
-        technicalViable: true,
-        publishabilityScore: publishabilityAssessment.publishabilityScore,
-        publishabilityReasons: [],
-        goodAnswerSource,
-        details: {
-          goodAnswerSource,
-          businessRules: businessRules.debug,
-          publishability: publishabilityAssessment,
-          choiceResolution: toChoiceDebugPayload(resolvedChoices),
-        } as Prisma.InputJsonValue,
-      });
-    }
-
-    const qualityScore = calculateQualityScore({
-      seed: {
-        ...seed,
-        lowConfidence: effectiveLowConfidence,
-      },
-      prediction,
-      businessRules,
-      resolvedChoices,
-    });
-    const choiceSignature = buildChoiceSignatureForHistory(
-      resolvedChoices.goodAnswer.slug,
-      resolvedChoices.distractors.map((item) => item.slug),
-    );
-
-    return {
-      status: "accepted",
-      technicalViable: true,
-      snapshotIndex: input.candidate.snapshotIndex,
-      rawPurchaseIndex: input.candidate.rawPurchaseIndex,
-      snapshot: input.candidate.snapshot,
-      scenario: input.candidate.scenario,
-      payload,
-      prediction,
-        seed: {
-          ...seed,
-          lowConfidence: effectiveLowConfidence,
-        },
-        resolvedChoices,
-        businessRules,
-        qualityScore,
-      variationSeed,
-      choiceSignature,
-      debugSummary: {
-        snapshotIndex: input.candidate.snapshotIndex,
-        snapshotMinute: Number(input.candidate.snapshot.timestampMinutes.toFixed(2)),
-        patch: input.candidate.snapshot.patch,
-        goldAvailable: input.candidate.snapshot.goldAvailable,
-        snapshotSignature: buildSnapshotSignature({
-          snapshotMinute: input.candidate.snapshot.timestampMinutes,
-          goldAvailable: input.candidate.snapshot.goldAvailable,
-          role: input.candidate.snapshot.role,
-          currentItems: input.candidate.snapshot.currentItems,
-        }),
-        rawCandidatePoolSize: prediction.candidate_pool_size,
-        filteredCandidatePoolSize: businessRules.debug.candidatePoolSizeAfterFallback,
-        goodAnswer: resolvedChoices.goodAnswer.slug,
-        qualityScore,
-        rejectionReasons: [],
-        lowConfidence: effectiveLowConfidence,
-        confidenceScore: seed.confidenceScore,
-        confidenceGap: seed.confidenceGap,
-        technicalViable: true,
-        publishable: true,
-        publishabilityScore: publishabilityAssessment.publishabilityScore,
-        publishabilityReasons: [],
-        goodAnswerSource,
-      },
-    };
-  } catch (error) {
-    return buildRejectedAttempt({
-      candidate: input.candidate,
-      payload,
-      rawCandidatePoolSize: 0,
-      filteredCandidatePoolSize: 0,
-      goodAnswer: null,
-      rejectionReasons: [
-        error instanceof HttpError ? `attempt-http-${error.status}` : error instanceof Error ? error.message : String(error),
-      ],
-      goodAnswerSource: "ml-prediction",
-      details:
-        error instanceof HttpError
-          ? ({ status: error.status, details: error.details } as Prisma.InputJsonValue)
-          : undefined,
-    });
-  }
 }
 
 async function persistAiGeneratedPuzzle(input: {
@@ -1459,13 +981,14 @@ export const mlPuzzleGenerationService = {
       const attempts: SnapshotAttempt[] = [];
 
       for (const candidate of viableSnapshotCandidates) {
-        const attempt = await prepareSnapshotAttempt({
+        const attempt = await evaluateSnapshotAttempt({
           importedMatchId,
           userId,
           championTags,
           candidate,
           patchChoiceItems,
           previousChoiceSignatures,
+          predictNextItem: postPrediction,
         });
         attempts.push(attempt);
         logSnapshotAttempt(request.id, importedMatchId, attempt);
