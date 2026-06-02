@@ -44,9 +44,24 @@ Applied in sixth follow-up commit:
 - Started the `importCompetitiveMatches.ts` split by extracting CLI option parsing and tranche preset logic into `scripts/lib/competitiveImportCli.ts`.
 - Added an explicit TypeScript check for the competitive import script and fixed a discovered contract mismatch: `CompetitiveSeedMatchDiscovery.priorityScore` was being read as `matchPriorityScore`.
 
+Applied in seventh follow-up commit:
+
+- Started the `mlPuzzleGenerationService.ts` split by extracting snapshot scoring, publishability, low-confidence override, and quality-score rules into `server/src/lib/ml/snapshotQuality.ts`.
+- Kept `mlPuzzleGenerationService.ts` as the orchestrator while moving pure, test-covered decision logic into a focused ML library module.
+
+Applied in eighth follow-up commit:
+
+- Continued the `importCompetitiveMatches.ts` split by extracting discovery quarantine persistence into `scripts/lib/competitiveDiscoveryQuarantine.ts`.
+- Extracted competitive ingestion Markdown report rendering into `scripts/lib/competitiveImportReport.ts`.
+
+Applied in ninth follow-up commit:
+
+- Continued the `riotSyncService.ts` split by extracting Riot account lookup, platform resolution, account indexing, and import identity resolution into `server/src/lib/riot/riotIdentity.ts`.
+- Continued the admin split by extracting page search filters into `src/pages/admin/adminFilters.ts`.
+
 Still remaining:
 
-- Further large-module extractions for `mlPuzzleGenerationService.ts`, `importCompetitiveMatches.ts`, `riotSyncService.ts`, and remaining admin section/table components if needed.
+- Further large-module extractions for `mlPuzzleGenerationService.ts`, `importCompetitiveMatches.ts`, `riotSyncService.ts`, and remaining admin section/table components if needed. The highest-value next extractions are ML snapshot building / attempt evaluation, competitive discovery/import runners, and Riot match import persistence.
 - Dependency freshness warnings for Browserslist/Prisma/punycode.
 
 ## Audit Health Score
@@ -76,6 +91,7 @@ The product does not look like a pure AI-generated shell: it has domain-specific
 ### [P1] ML puzzle generation service has too many responsibilities
 - Location: `server/src/services/mlPuzzleGenerationService.ts:1`, `server/src/services/mlPuzzleGenerationService.ts:1192`, `server/src/services/mlPuzzleGenerationService.ts:1680`, `server/src/services/mlPuzzleGenerationService.ts:2460`
 - Category: Clean Code / Architecture / Performance
+- Status: partially resolved; snapshot quality and publishability rules have been moved to `server/src/lib/ml/snapshotQuality.ts`.
 - Principle: one responsibility per module, one abstraction level per function
 - Impact: this 2402-line service mixes type definitions, archive loading, timeline parsing, snapshot scoring, candidate filtering, ML calls, publication selection, persistence, diagnostics, and response formatting. Each change to ML behavior risks touching unrelated persistence or diagnostics logic.
 - Recommendation: split by ownership: `snapshotCandidateBuilder`, `attemptEvaluator`, `seriesSelector`, `requestPersistence`, and `diagnostics`. Keep the exported service as an orchestrator with minimal branching.
@@ -84,7 +100,7 @@ The product does not look like a pure AI-generated shell: it has domain-specific
 ### [P1] Competitive import script combines CLI parsing, discovery, checkpointing, classification, persistence, reporting, and quarantine
 - Location: `scripts/importCompetitiveMatches.ts:89`, `scripts/importCompetitiveMatches.ts:760`, `scripts/importCompetitiveMatches.ts:1420`, `scripts/importCompetitiveMatches.ts:2070`
 - Category: Clean Code / Architecture
-- Status: partially resolved; CLI parsing and tranche preset logic have been moved to `scripts/lib/competitiveImportCli.ts`.
+- Status: partially resolved; CLI parsing, tranche preset logic, discovery quarantine persistence, and Markdown report rendering have been moved to `scripts/lib`.
 - Principle: separate command-line adapter from domain workflow
 - Impact: the 2135-line script contains both operational workflow and reusable ingestion logic. This makes dry-runs, checkpoint recovery, and auth failure handling difficult to review safely.
 - Recommendation: move CLI parsing to a small entrypoint; extract `competitiveDiscoveryRunner`, `competitiveProgressReporter`, and `competitiveImportRunner` modules under `server/src/lib/riot` or `scripts/lib`.
@@ -109,7 +125,7 @@ The product does not look like a pure AI-generated shell: it has domain-specific
 ### [P1] Admin page is a 1172-line component containing page orchestration, tables, filters, dialogs, form state, and mutation wiring
 - Location: `src/pages/Admin.tsx:194`, `src/pages/Admin.tsx:700`, `src/pages/Admin.tsx:980`, `src/pages/Admin.tsx:1130`
 - Category: Clean Code / Frontend Architecture / Responsive
-- Status: partially resolved; admin dialogs and shared helper modules have been extracted, and `src/pages/Admin.tsx` is now focused on page orchestration.
+- Status: partially resolved; admin dialogs, shared helper modules, and search filters have been extracted, and `src/pages/Admin.tsx` is now focused on page orchestration.
 - Principle: small components with focused responsibilities
 - Impact: admin changes require editing one large file with several nested workflows. Form state, validation, mutation payload mapping, and UI layout are tightly coupled.
 - Recommendation: extract feature modules for champion, item, puzzle, and patch-sync sections. Move form state/payload mapping into hooks or small adapter functions per entity.
@@ -134,7 +150,7 @@ The product does not look like a pure AI-generated shell: it has domain-specific
 ### [P2] Riot sync service mixes catalog sync, public profile mapping, identity resolution, import retries, and persistence
 - Location: `server/src/services/riotSyncService.ts:415`, `server/src/services/riotSyncService.ts:1000`, `server/src/services/riotSyncService.ts:1148`
 - Category: Clean Code / Architecture
-- Status: partially resolved; pure item catalog selection rules have been moved into `server/src/lib/riot/catalogItemRules.ts`.
+- Status: partially resolved; pure item catalog selection rules have been moved into `server/src/lib/riot/catalogItemRules.ts`, and Riot identity resolution/indexing has been moved into `server/src/lib/riot/riotIdentity.ts`.
 - Principle: separate IO adapters, mapping, and application services
 - Impact: one 1234-line service spans unrelated reasons to change: Data Dragon catalog updates, Riot API retry policy, player profile projections, and match import persistence.
 - Recommendation: split catalog synchronization, identity resolution, match import, and public profile projection into separate modules with the current service as a facade.
@@ -206,3 +222,4 @@ Re-run `$audit` after fixes to see your score improve.
 - `npm run test` - passed previously: 25 test files, 112 tests.
 - Fourth/fifth follow-up: `npm run lint` passed, `npm run build` passed, and `npm run test` passed after Docker/PostgreSQL was started: 25 test files, 112 tests.
 - Sixth follow-up: `npx tsc --noEmit --target ES2022 --module NodeNext --moduleResolution NodeNext --types node --skipLibCheck --strict false --noImplicitAny false scripts/importCompetitiveMatches.ts scripts/lib/competitiveImportCli.ts` passed.
+- Seventh to ninth follow-up: `npm run test -- src/test/mlPuzzleOrchestration.test.ts`, `npx tsc --noEmit --target ES2022 --module NodeNext --moduleResolution NodeNext --types node --skipLibCheck --strict false --noImplicitAny false scripts/importCompetitiveMatches.ts scripts/lib/competitiveImportCli.ts scripts/lib/competitiveDiscoveryQuarantine.ts scripts/lib/competitiveImportReport.ts`, targeted Riot identity TypeScript check, `npm run lint`, and `npm run build` passed.
