@@ -34,6 +34,11 @@ Applied in fourth follow-up commit:
 - Completed the admin dialog split by extracting `ItemEditDialog`, `PuzzleEditDialog`, and `PatchDialog` into focused modules under `src/pages/admin`.
 - Reduced `src/pages/Admin.tsx` to the page orchestration, filtering, tables, mutation wiring, and delete confirmation flow.
 
+Applied in fifth follow-up commit:
+
+- Extracted pure Riot item catalog selection rules from `riotSyncService.ts` into `server/src/lib/riot/catalogItemRules.ts`.
+- Kept network calls and persistence in `riotSyncService.ts`; the new module owns only purchasability filtering, canonical item candidate comparison, and boot item derivation.
+
 Still remaining:
 
 - Further large-module extractions for `mlPuzzleGenerationService.ts`, `importCompetitiveMatches.ts`, `riotSyncService.ts`, and remaining admin section/table components if needed.
@@ -123,6 +128,7 @@ The product does not look like a pure AI-generated shell: it has domain-specific
 ### [P2] Riot sync service mixes catalog sync, public profile mapping, identity resolution, import retries, and persistence
 - Location: `server/src/services/riotSyncService.ts:415`, `server/src/services/riotSyncService.ts:1000`, `server/src/services/riotSyncService.ts:1148`
 - Category: Clean Code / Architecture
+- Status: partially resolved; pure item catalog selection rules have been moved into `server/src/lib/riot/catalogItemRules.ts`.
 - Principle: separate IO adapters, mapping, and application services
 - Impact: one 1234-line service spans unrelated reasons to change: Data Dragon catalog updates, Riot API retry policy, player profile projections, and match import persistence.
 - Recommendation: split catalog synchronization, identity resolution, match import, and public profile projection into separate modules with the current service as a facade.
