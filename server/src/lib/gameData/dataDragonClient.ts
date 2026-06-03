@@ -1,6 +1,6 @@
 const DDRAGON_BASE_URL = "https://ddragon.leagueoflegends.com";
 
-type ChampionSummaryResponse = {
+export type ChampionSummaryResponse = {
   data: Record<
     string,
     {
@@ -16,7 +16,7 @@ type ChampionSummaryResponse = {
   >;
 };
 
-type ItemResponse = {
+export type ItemResponse = {
   data: Record<
     string,
     {

@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
-import { Navigate } from "react-router-dom";
-import { BookOpenCheck, Boxes, Brain, RefreshCw, ShieldCheck, Sparkles } from "lucide-react";
+import { Link, Navigate } from "react-router-dom";
+import { ArrowLeft, BookOpenCheck, Boxes, Brain, RefreshCw, ShieldCheck, Sparkles } from "lucide-react";
 import {
   useAdminAiGeneratedPuzzles,
   useAdminChampions,
@@ -163,6 +163,12 @@ const Admin = () => {
             </SidebarGroup>
           </SidebarContent>
           <SidebarFooter className="border-t border-sidebar-border p-3">
+            <Button variant="outline" className="w-full justify-center" asChild>
+              <Link to="/">
+                <ArrowLeft className="h-4 w-4" />
+                Retour au site
+              </Link>
+            </Button>
             <Button variant="gold" className="w-full justify-center" onClick={() => setPatchDialogOpen(true)}>
               <RefreshCw className="h-4 w-4" />
               Nouveau patch
@@ -180,8 +186,16 @@ const Admin = () => {
                   <p className="text-sm text-muted-foreground">Catalogue, puzzles et synchronisation de patch</p>
                 </div>
               </div>
-              <div className="rounded-xl border border-primary/20 bg-primary/10 px-4 py-2 text-sm text-primary">
-                Admin connecte : {user?.username}
+              <div className="flex items-center gap-2">
+                <Button variant="outline" asChild>
+                  <Link to="/">
+                    <ArrowLeft className="h-4 w-4" />
+                    Retour au site
+                  </Link>
+                </Button>
+                <div className="rounded-xl border border-primary/20 bg-primary/10 px-4 py-2 text-sm text-primary">
+                  Admin connecte : {user?.username}
+                </div>
               </div>
             </div>
           </header>

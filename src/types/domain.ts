@@ -341,15 +341,44 @@ export interface AdminOverviewPayload {
   };
 }
 
+export interface AdminPatchChange {
+  field: string;
+  label: string;
+  before: string;
+  after: string;
+}
+
+export type AdminPatchEntryStatus = "changed" | "new" | "unchanged" | "removed";
+
+export interface AdminPatchChampionEntry extends ChampionView {
+  patchStatus: AdminPatchEntryStatus;
+  changeSummary: string[];
+  changes: AdminPatchChange[];
+}
+
+export interface AdminPatchItemEntry extends GameItem {
+  patchStatus: AdminPatchEntryStatus;
+  changeSummary: string[];
+  changes: AdminPatchChange[];
+}
+
 export interface AdminPatchStatusPayload {
   remoteLatestPatch: string;
   hasUpdate: boolean;
   summary: {
     championCount: number;
     itemCount: number;
+    changedChampionCount: number;
+    changedItemCount: number;
+    newChampionCount: number;
+    newItemCount: number;
+    unchangedChampionCount: number;
+    unchangedItemCount: number;
+    removedChampionCount: number;
+    removedItemCount: number;
   };
-  champions: ChampionView[];
-  items: GameItem[];
+  champions: AdminPatchChampionEntry[];
+  items: AdminPatchItemEntry[];
 }
 
 export interface ProgressOverview {

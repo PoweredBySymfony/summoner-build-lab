@@ -4,6 +4,13 @@ import type {
   AdminItemUpdatePayload,
   AdminPuzzleUpdatePayload,
 } from "../lib/admin/adminPayloadSchemas.js";
+import {
+  buildNewChampionPatchEntry,
+  buildNewItemPatchEntries,
+  countPatchStatus,
+  diffChampionPatch,
+  diffItemPatch,
+} from "../lib/admin/patchDiff.js";
 import { catalogRepository, standardSummonersRiftItemWhere } from "../repositories/catalogRepository.js";
 import { buildChampionViewIndex } from "../lib/championIndex.js";
 import { buildItemViewIndex } from "../lib/itemIndex.js";
@@ -25,6 +32,7 @@ const coerceNullableString = (value: string | null | undefined) => {
   const trimmed = value?.trim();
   return trimmed ? trimmed : null;
 };
+
 
 export type {
   AdminChampionUpdatePayload,
@@ -257,26 +265,61 @@ export const adminService = {
 
   async getPatchStatus() {
     const latestRemotePatch = await dataDragonClient.getLatestVersion();
-    const [champions, items] = await Promise.all([
+    const [champions, allChampions, items, allItems, remoteChampions, remoteItems] = await Promise.all([
       prisma.champion.findMany({
         where: { patch: { not: latestRemotePatch } },
+        orderBy: [{ patch: "asc" }, { name: "asc" }],
+      }),
+      prisma.champion.findMany({
         orderBy: [{ patch: "asc" }, { name: "asc" }],
       }),
       catalogRepository.listStandardItems({
         where: { patch: { not: latestRemotePatch } },
         orderBy: [{ patch: "asc" }, { name: "asc" }],
       }),
+      catalogRepository.listStandardItems(),
+      dataDragonClient.getChampionSummary(latestRemotePatch),
+      dataDragonClient.getItemSummary(latestRemotePatch),
     ]);
+    const localChampionKeys = new Set(allChampions.map((champion) => champion.championKey).filter(Boolean));
+    const localItemIds = new Set(allItems.map((item) => item.riotItemId));
+    const championEntries = [
+      ...champions.map((champion) => {
+        const remoteChampion = champion.championKey ? remoteChampions.data[champion.championKey] : undefined;
+        return {
+          ...mapChampionView(champion),
+          ...diffChampionPatch(champion, remoteChampion),
+        };
+      }),
+      ...Object.values(remoteChampions.data)
+        .filter((champion) => !localChampionKeys.has(champion.id))
+        .map((champion) => buildNewChampionPatchEntry(champion, latestRemotePatch)),
+    ];
+    const itemEntries = [
+      ...items.map((item) => ({
+        ...mapItemView(item),
+        ...diffItemPatch(item, remoteItems.data[String(item.riotItemId)]),
+      })),
+      ...buildNewItemPatchEntries(remoteItems.data, localItemIds, latestRemotePatch),
+    ];
 
     return {
       remoteLatestPatch: latestRemotePatch,
-      hasUpdate: champions.length > 0 || items.length > 0,
+      hasUpdate: championEntries.length > 0 || itemEntries.length > 0,
       summary: {
-        championCount: champions.length,
-        itemCount: items.length,
+        championCount: championEntries.length,
+        itemCount: itemEntries.length,
+        changedChampionCount: countPatchStatus(championEntries, "changed"),
+        changedItemCount: countPatchStatus(itemEntries, "changed"),
+        newChampionCount: countPatchStatus(championEntries, "new"),
+        newItemCount: countPatchStatus(itemEntries, "new"),
+        unchangedChampionCount: countPatchStatus(championEntries, "unchanged"),
+        unchangedItemCount: countPatchStatus(itemEntries, "unchanged"),
+        removedChampionCount: countPatchStatus(championEntries, "removed"),
+        removedItemCount: countPatchStatus(itemEntries, "removed"),
       },
-      champions: champions.map(mapChampionView),
-      items: items.map(mapItemView),
+      champions: championEntries,
+      items: itemEntries,
     };
   },
 
