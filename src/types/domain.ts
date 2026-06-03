@@ -345,6 +345,7 @@ export interface AdminPatchValueLine {
   key: string;
   label: string;
   value: string;
+  delta?: string;
   item?: GameItem;
 }
 

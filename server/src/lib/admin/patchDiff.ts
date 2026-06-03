@@ -69,17 +69,24 @@ export type PatchLineItem = {
 type StatDescriptor = {
   label: string;
   format?: (value: unknown) => string;
+  formatDelta?: (value: number) => string;
 };
 
-const formatSignedNumber = (value: unknown) => {
+const parseNumericStatValue = (value: unknown) => {
   const numericValue = Number(value);
-  return Number.isFinite(numericValue) ? `+${numericValue}` : String(value);
+  return Number.isFinite(numericValue) ? numericValue : null;
 };
+
+const formatNumber = (value: unknown) => String(value ?? "Non renseigne");
+
+const formatDeltaNumber = (value: number) => value > 0 ? `+${value}` : String(value);
 
 const formatPercentFromRatio = (value: unknown) => {
-  const numericValue = Number(value);
-  return Number.isFinite(numericValue) ? `+${Math.round(numericValue * 100)}%` : String(value);
+  const numericValue = parseNumericStatValue(value);
+  return numericValue === null ? String(value ?? "Non renseigne") : `${Math.round(numericValue * 100)}%`;
 };
+
+const formatPercentDeltaFromRatio = (value: number) => `${value > 0 ? "+" : ""}${Math.round(value * 100)}%`;
 
 const championStatDescriptors: Record<string, StatDescriptor> = {
   hp: { label: "PV" },
@@ -105,19 +112,19 @@ const championStatDescriptors: Record<string, StatDescriptor> = {
 };
 
 const itemStatDescriptors: Record<string, StatDescriptor> = {
-  FlatPhysicalDamageMod: { label: "Degats d'attaque", format: formatSignedNumber },
-  FlatMagicDamageMod: { label: "Puissance", format: formatSignedNumber },
-  FlatHPPoolMod: { label: "PV", format: formatSignedNumber },
-  FlatMPPoolMod: { label: "Mana", format: formatSignedNumber },
-  FlatArmorMod: { label: "Armure", format: formatSignedNumber },
-  FlatSpellBlockMod: { label: "Resistance magique", format: formatSignedNumber },
-  PercentAttackSpeedMod: { label: "Vitesse d'attaque", format: formatPercentFromRatio },
-  FlatCritChanceMod: { label: "Chances de coup critique", format: formatPercentFromRatio },
-  FlatMovementSpeedMod: { label: "Vitesse de deplacement", format: formatSignedNumber },
-  PercentMovementSpeedMod: { label: "Vitesse de deplacement", format: formatPercentFromRatio },
-  FlatHPRegenMod: { label: "Regeneration de PV", format: formatSignedNumber },
-  FlatMPRegenMod: { label: "Regeneration de mana", format: formatSignedNumber },
-  PercentLifeStealMod: { label: "Vol de vie", format: formatPercentFromRatio },
+  FlatPhysicalDamageMod: { label: "Degats d'attaque", format: formatNumber, formatDelta: formatDeltaNumber },
+  FlatMagicDamageMod: { label: "Puissance", format: formatNumber, formatDelta: formatDeltaNumber },
+  FlatHPPoolMod: { label: "PV", format: formatNumber, formatDelta: formatDeltaNumber },
+  FlatMPPoolMod: { label: "Mana", format: formatNumber, formatDelta: formatDeltaNumber },
+  FlatArmorMod: { label: "Armure", format: formatNumber, formatDelta: formatDeltaNumber },
+  FlatSpellBlockMod: { label: "Resistance magique", format: formatNumber, formatDelta: formatDeltaNumber },
+  PercentAttackSpeedMod: { label: "Vitesse d'attaque", format: formatPercentFromRatio, formatDelta: formatPercentDeltaFromRatio },
+  FlatCritChanceMod: { label: "Chances de coup critique", format: formatPercentFromRatio, formatDelta: formatPercentDeltaFromRatio },
+  FlatMovementSpeedMod: { label: "Vitesse de deplacement", format: formatNumber, formatDelta: formatDeltaNumber },
+  PercentMovementSpeedMod: { label: "Vitesse de deplacement", format: formatPercentFromRatio, formatDelta: formatPercentDeltaFromRatio },
+  FlatHPRegenMod: { label: "Regeneration de PV", format: formatNumber, formatDelta: formatDeltaNumber },
+  FlatMPRegenMod: { label: "Regeneration de mana", format: formatNumber, formatDelta: formatDeltaNumber },
+  PercentLifeStealMod: { label: "Vol de vie", format: formatPercentFromRatio, formatDelta: formatPercentDeltaFromRatio },
 };
 
 const jsonArray = (value: Prisma.JsonValue | null | undefined) => Array.isArray(value) ? value.map(String) : [];
@@ -176,7 +183,27 @@ const getChangedRecordKeys = (beforeValue: Record<string, unknown>, afterValue: 
     return before !== after;
   });
 
-const formatStatLines = (value: Record<string, unknown>, descriptors: Record<string, StatDescriptor>, keys = Object.keys(value)) =>
+const formatStatDelta = (beforeValue: unknown, afterValue: unknown, descriptor: StatDescriptor | undefined) => {
+  const before = parseNumericStatValue(beforeValue);
+  const after = parseNumericStatValue(afterValue);
+  if (before === null || after === null) {
+    return undefined;
+  }
+
+  const delta = after - before;
+  if (Math.abs(delta) < 0.0001) {
+    return undefined;
+  }
+
+  return descriptor?.formatDelta ? descriptor.formatDelta(delta) : formatDeltaNumber(delta);
+};
+
+const formatStatLines = (
+  value: Record<string, unknown>,
+  descriptors: Record<string, StatDescriptor>,
+  keys = Object.keys(value),
+  deltaBase?: Record<string, unknown>,
+) =>
   keys
     .sort((left, right) => {
       const leftLabel = descriptors[left]?.label ?? left;
@@ -190,6 +217,7 @@ const formatStatLines = (value: Record<string, unknown>, descriptors: Record<str
         key,
         label: descriptor?.label ?? key,
         value: descriptor?.format ? descriptor.format(entryValue) : String(entryValue ?? "Non renseigne"),
+        delta: deltaBase ? formatStatDelta(deltaBase[key], entryValue, descriptor) : undefined,
       };
     });
 
@@ -327,7 +355,7 @@ const addStatRecordChange = (
       before,
       after,
       beforeLines: formatStatLines(beforeValue, descriptors, changedKeys),
-      afterLines: formatStatLines(afterValue, descriptors, changedKeys),
+      afterLines: formatStatLines(afterValue, descriptors, changedKeys, beforeValue),
     });
   }
 };

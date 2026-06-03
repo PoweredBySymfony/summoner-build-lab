@@ -122,8 +122,8 @@ describe("admin patch diffs", () => {
     });
 
     const statsChange = result.changes.find((change) => change.field === "stats");
-    expect(statsChange?.beforeLines).toEqual([{ key: "FlatMagicDamageMod", label: "Puissance", value: "+130" }]);
-    expect(statsChange?.afterLines).toEqual([{ key: "FlatMagicDamageMod", label: "Puissance", value: "+145" }]);
+    expect(statsChange?.beforeLines).toEqual([{ key: "FlatMagicDamageMod", label: "Puissance", value: "130", delta: undefined }]);
+    expect(statsChange?.afterLines).toEqual([{ key: "FlatMagicDamageMod", label: "Puissance", value: "145", delta: "+15" }]);
   });
 
   it("reports only changed champion abilities", () => {

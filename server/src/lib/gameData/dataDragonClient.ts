@@ -87,9 +87,9 @@ export const dataDragonClient = {
     }
     return versions[0];
   },
-  getChampionSummary: (version: string, locale = "fr_FR") =>
+  getChampionSummary: (version: string, locale = "en_US") =>
     fetchJson<ChampionSummaryResponse>(`${DDRAGON_BASE_URL}/cdn/${version}/data/${locale}/champion.json`),
-  async getChampionDetail(version: string, championId: string, locale = "fr_FR") {
+  async getChampionDetail(version: string, championId: string, locale = "en_US") {
     const response = await fetchJson<ChampionDetailResponse>(`${DDRAGON_BASE_URL}/cdn/${version}/data/${locale}/champion/${championId}.json`);
     return response.data[championId];
   },

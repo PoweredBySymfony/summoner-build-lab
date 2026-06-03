@@ -127,12 +127,14 @@ function PatchStatusSummary({ status }: { status: AdminPatchStatusPayload }) {
         <p className="mt-2 text-2xl font-bold text-primary">{status.remoteLatestPatch}</p>
       </div>
       <div className="rounded-2xl border border-border/60 bg-muted/20 p-5">
-        <p className="text-sm text-muted-foreground">Champions a rafraichir</p>
-        <p className="mt-2 text-2xl font-bold text-foreground">{status.summary.championCount}</p>
+        <p className="text-sm text-muted-foreground">Champions modifies</p>
+        <p className="mt-2 text-2xl font-bold text-foreground">{status.summary.changedChampionCount}</p>
+        <p className="mt-1 text-xs text-muted-foreground">{status.summary.championCount} a aligner au patch</p>
       </div>
       <div className="rounded-2xl border border-border/60 bg-muted/20 p-5">
-        <p className="text-sm text-muted-foreground">Items a rafraichir</p>
-        <p className="mt-2 text-2xl font-bold text-foreground">{status.summary.itemCount}</p>
+        <p className="text-sm text-muted-foreground">Items modifies</p>
+        <p className="mt-2 text-2xl font-bold text-foreground">{status.summary.changedItemCount}</p>
+        <p className="mt-1 text-xs text-muted-foreground">{status.summary.itemCount} a aligner au patch</p>
       </div>
       <div className="rounded-2xl border border-primary/30 bg-primary/10 p-5">
         <p className="text-sm text-muted-foreground">Vrais changements</p>
@@ -249,12 +251,11 @@ function PatchEntityDetailDialog({ entry, onOpenChange }: { entry: PatchEntity |
                   <DialogDescription>
                     Patch stocke : {entry.patch}. Comparaison avec les donnees Data Dragon du patch cible.
                   </DialogDescription>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    Survole l'icone pour voir {isItemEntry ? "les statistiques actuelles de l'item" : "la presentation et les sorts du champion"}.
-                  </p>
+                  {isItemEntry ? <p className="mt-1 text-xs text-muted-foreground">Survole l'icone pour voir les statistiques actuelles de l'item.</p> : null}
                 </div>
               </div>
             </DialogHeader>
+            {!isItemEntry && entry.patchPreview ? <ChampionPreviewPanel champion={entry} /> : null}
             <PatchChangeDetails entry={entry} />
           </>
         ) : null}
@@ -316,45 +317,50 @@ function ChampionPatchIcon({ champion, size }: { champion: AdminPatchChampionEnt
   const sizeClass = size === "lg" ? "h-16 w-16" : "h-12 w-12";
 
   return (
-    <div className="group relative shrink-0">
+    <div className="shrink-0">
       <div className={`${sizeClass} overflow-hidden rounded-lg border border-border/60 bg-muted/50`}>
         <img src={champion.icon} alt={champion.name} className="h-full w-full object-cover" loading="lazy" />
       </div>
-      {champion.patchPreview ? (
-        <div className="pointer-events-none absolute left-0 top-full z-50 mt-3 hidden w-[360px] rounded-xl border border-primary/30 bg-background/95 p-4 text-left shadow-2xl shadow-black/50 group-hover:block">
-          <div className="flex gap-3">
-            <ChampionThumb src={champion.icon} alt={champion.name} />
-            <div className="min-w-0">
-              <p className="font-semibold uppercase tracking-wide text-primary">{champion.name}</p>
-              <p className="text-xs text-muted-foreground">{champion.title}</p>
-            </div>
-          </div>
-          {champion.patchPreview.blurb ? <p className="mt-3 text-sm text-foreground/90">{champion.patchPreview.blurb}</p> : null}
-          {champion.patchPreview.passive ? <ChampionAbilityPreview ability={champion.patchPreview.passive} /> : null}
-          <div className="mt-3 grid gap-2">
-            {champion.patchPreview.spells.map((spell) => <ChampionAbilityPreview key={spell.id} ability={spell} compact />)}
-          </div>
-        </div>
-      ) : null}
     </div>
+  );
+}
+
+function ChampionPreviewPanel({ champion }: { champion: AdminPatchChampionEntry }) {
+  if (!champion.patchPreview) {
+    return null;
+  }
+
+  return (
+    <section className="rounded-xl border border-primary/25 bg-background/70 p-4">
+      <div className="flex items-start gap-3">
+        <ChampionThumb src={champion.icon} alt={champion.name} />
+        <div className="min-w-0">
+          <p className="text-sm font-semibold uppercase tracking-wide text-primary">{champion.name}</p>
+          <p className="text-xs text-muted-foreground">{champion.title}</p>
+        </div>
+      </div>
+      {champion.patchPreview.blurb ? <p className="mt-3 text-sm leading-relaxed text-foreground/90">{champion.patchPreview.blurb}</p> : null}
+      <div className="mt-4 grid max-h-[42vh] gap-3 overflow-y-auto pr-2 md:grid-cols-2">
+        {champion.patchPreview.passive ? <ChampionAbilityPreview ability={champion.patchPreview.passive} /> : null}
+        {champion.patchPreview.spells.map((spell) => <ChampionAbilityPreview key={spell.id} ability={spell} />)}
+      </div>
+    </section>
   );
 }
 
 function ChampionAbilityPreview({
   ability,
-  compact = false,
 }: {
   ability: NonNullable<AdminPatchChampionEntry["patchPreview"]>["spells"][number];
-  compact?: boolean;
 }) {
   return (
-    <div className={`mt-3 flex gap-3 rounded-lg border border-border/50 bg-muted/30 ${compact ? "p-2" : "p-3"}`}>
+    <div className="flex gap-3 rounded-lg border border-border/50 bg-muted/30 p-3">
       <img src={ability.icon} alt="" className="h-9 w-9 shrink-0 rounded-md border border-border/60 object-cover" loading="lazy" />
       <div className="min-w-0">
         <p className="text-xs font-semibold text-foreground">
           <span className="text-primary">{ability.key}</span> - {ability.name}
         </p>
-        {!compact ? <p className="mt-1 line-clamp-3 text-xs text-muted-foreground">{stripHtml(ability.description)}</p> : null}
+        <p className="mt-1 line-clamp-4 text-xs leading-relaxed text-muted-foreground">{stripHtml(ability.description)}</p>
       </div>
     </div>
   );
@@ -373,7 +379,7 @@ function PatchRawValue({ title, value }: { title: string; value: string }) {
   );
 }
 
-function PatchValueLines({ title, lines, fallback }: { title: string; lines: Array<{ key: string; label: string; value: string }>; fallback: string }) {
+function PatchValueLines({ title, lines, fallback }: { title: string; lines: Array<{ key: string; label: string; value: string; delta?: string }>; fallback: string }) {
   return (
     <div className="rounded-lg border border-border/50 bg-background/60 p-3">
       <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">{title}</p>
@@ -391,7 +397,14 @@ function PatchValueLines({ title, lines, fallback }: { title: string; lines: Arr
                   line.label
                 )}
               </dt>
-              <dd className="shrink-0 text-sm font-semibold text-foreground">{line.value}</dd>
+              <dd className="flex shrink-0 items-center gap-2 text-sm font-semibold text-foreground">
+                <span>{line.value}</span>
+                {line.delta ? (
+                  <span className={`rounded-full px-2 py-0.5 text-xs ${line.delta.startsWith("-") ? "bg-destructive/15 text-destructive" : "bg-emerald-500/15 text-emerald-300"}`}>
+                    {line.delta}
+                  </span>
+                ) : null}
+              </dd>
             </div>
           ))}
         </dl>
