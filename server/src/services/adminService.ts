@@ -78,6 +78,8 @@ const buildRemoteItemReference = (itemId: string, item: { name?: string; plainte
 };
 
 const createChampionPreview = (detail: RemoteChampionDetail | undefined, patch: string) => detail ? {
+  name: detail.name,
+  title: detail.title,
   blurb: detail.blurb ?? null,
   passive: {
     id: `${detail.id}-passive`,
@@ -95,7 +97,7 @@ const createChampionPreview = (detail: RemoteChampionDetail | undefined, patch: 
   })),
 } : undefined;
 
-async function resolveChampionDetails(champions: Champion[], targetPatch: string) {
+async function resolveChampionDetails(champions: Champion[], targetPatch: string, locale = "en_US") {
   const requests = champions.flatMap((champion) => {
     if (!champion.championKey) {
       return [];
@@ -109,7 +111,7 @@ async function resolveChampionDetails(champions: Champion[], targetPatch: string
   const uniqueRequests = [...new Map(requests.map((request) => [request.key, request])).values()];
   const details = await Promise.all(uniqueRequests.map(async (request) => {
     try {
-      return [request.key, await dataDragonClient.getChampionDetail(request.patch, request.championKey)] as const;
+      return [request.key, await dataDragonClient.getChampionDetail(request.patch, request.championKey, locale)] as const;
     } catch {
       return [request.key, undefined] as const;
     }
@@ -376,16 +378,26 @@ export const adminService = {
       ...allItems.map((item) => [String(item.riotItemId), mapItemView(item) as PatchLineItem] as const),
       ...Object.entries(remoteItems.data).map(([itemId, item]) => [itemId, buildRemoteItemReference(itemId, item, latestRemotePatch)] as const),
     ]);
-    const championDetailByPatch = await resolveChampionDetails(champions, latestRemotePatch);
+    const [championDetailByPatch, championDisplayDetailByPatch] = await Promise.all([
+      resolveChampionDetails(champions, latestRemotePatch, "en_US"),
+      resolveChampionDetails(champions, latestRemotePatch, "fr_FR"),
+    ]);
     const championEntries = [
       ...champions.map((champion) => {
         const remoteChampion = champion.championKey ? remoteChampions.data[champion.championKey] : undefined;
         const localChampionDetail = champion.championKey ? championDetailByPatch.get(`${champion.patch}:${champion.championKey}`) : undefined;
         const remoteChampionDetail = champion.championKey ? championDetailByPatch.get(`${latestRemotePatch}:${champion.championKey}`) : undefined;
+        const localDisplayChampionDetail = champion.championKey ? championDisplayDetailByPatch.get(`${champion.patch}:${champion.championKey}`) : undefined;
+        const remoteDisplayChampionDetail = champion.championKey ? championDisplayDetailByPatch.get(`${latestRemotePatch}:${champion.championKey}`) : undefined;
         return {
           ...mapChampionView(champion),
-          patchPreview: createChampionPreview(remoteChampionDetail, latestRemotePatch),
-          ...diffChampionPatch(champion, remoteChampion, { localChampionDetail, remoteChampionDetail }),
+          patchPreview: createChampionPreview(remoteDisplayChampionDetail, latestRemotePatch),
+          ...diffChampionPatch(champion, remoteChampion, {
+            localChampionDetail,
+            remoteChampionDetail,
+            localDisplayChampionDetail,
+            remoteDisplayChampionDetail,
+          }),
         };
       }),
       ...Object.values(remoteChampions.data)

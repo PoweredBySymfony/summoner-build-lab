@@ -30,6 +30,8 @@ type ItemPatchDiffOptions = {
 type ChampionPatchDiffOptions = {
   localChampionDetail?: RemoteChampionDetail;
   remoteChampionDetail?: RemoteChampionDetail;
+  localDisplayChampionDetail?: RemoteChampionDetail;
+  remoteDisplayChampionDetail?: RemoteChampionDetail;
 };
 
 export type RemoteChampionDetail = ChampionDetailResponse["data"][string];
@@ -77,9 +79,17 @@ const parseNumericStatValue = (value: unknown) => {
   return Number.isFinite(numericValue) ? numericValue : null;
 };
 
-const formatNumber = (value: unknown) => String(value ?? "Non renseigne");
+const formatDecimal = (value: number) => {
+  const rounded = Math.round(value * 100) / 100;
+  return Number.isInteger(rounded) ? String(rounded) : String(rounded);
+};
 
-const formatDeltaNumber = (value: number) => value > 0 ? `+${value}` : String(value);
+const formatNumber = (value: unknown) => {
+  const numericValue = parseNumericStatValue(value);
+  return numericValue === null ? String(value ?? "Non renseigne") : formatDecimal(numericValue);
+};
+
+const formatDeltaNumber = (value: number) => `${value > 0 ? "+" : ""}${formatDecimal(value)}`;
 
 const formatPercentFromRatio = (value: unknown) => {
   const numericValue = parseNumericStatValue(value);
@@ -178,8 +188,8 @@ const formatItemReferenceList = (itemIds: string[], options: ItemPatchDiffOption
 const getChangedRecordKeys = (beforeValue: Record<string, unknown>, afterValue: Record<string, unknown>, descriptors: Record<string, StatDescriptor>) =>
   [...new Set([...Object.keys(beforeValue), ...Object.keys(afterValue)])].filter((key) => {
     const descriptor = descriptors[key];
-    const before = descriptor?.format ? descriptor.format(beforeValue[key]) : String(beforeValue[key] ?? "Non renseigne");
-    const after = descriptor?.format ? descriptor.format(afterValue[key]) : String(afterValue[key] ?? "Non renseigne");
+    const before = descriptor?.format ? descriptor.format(beforeValue[key]) : formatNumber(beforeValue[key]);
+    const after = descriptor?.format ? descriptor.format(afterValue[key]) : formatNumber(afterValue[key]);
     return before !== after;
   });
 
@@ -216,7 +226,7 @@ const formatStatLines = (
       return {
         key,
         label: descriptor?.label ?? key,
-        value: descriptor?.format ? descriptor.format(entryValue) : String(entryValue ?? "Non renseigne"),
+        value: descriptor?.format ? descriptor.format(entryValue) : formatNumber(entryValue),
         delta: deltaBase ? formatStatDelta(deltaBase[key], entryValue, descriptor) : undefined,
       };
     });
@@ -364,9 +374,13 @@ const addChampionAbilityChanges = (
   changes: PatchChange[],
   beforeDetail: RemoteChampionDetail | undefined,
   afterDetail: RemoteChampionDetail | undefined,
+  beforeDisplayDetail: RemoteChampionDetail | undefined,
+  afterDisplayDetail: RemoteChampionDetail | undefined,
 ) => {
   const beforeEntries = new Map(getChampionAbilityEntries(beforeDetail).map((entry) => [entry.key, entry]));
   const afterEntries = new Map(getChampionAbilityEntries(afterDetail).map((entry) => [entry.key, entry]));
+  const beforeDisplayEntries = new Map(getChampionAbilityEntries(beforeDisplayDetail ?? beforeDetail).map((entry) => [entry.key, entry]));
+  const afterDisplayEntries = new Map(getChampionAbilityEntries(afterDisplayDetail ?? afterDetail).map((entry) => [entry.key, entry]));
   const changedKeys = [...new Set([...beforeEntries.keys(), ...afterEntries.keys()])].filter((key) => {
     const before = beforeEntries.get(key)?.value ?? "Non renseigne";
     const after = afterEntries.get(key)?.value ?? "Non renseigne";
@@ -377,8 +391,8 @@ const addChampionAbilityChanges = (
     return;
   }
 
-  const beforeLines = changedKeys.map((key) => beforeEntries.get(key) ?? { key, label: afterEntries.get(key)?.label ?? key, value: "Non renseigne" });
-  const afterLines = changedKeys.map((key) => afterEntries.get(key) ?? { key, label: beforeEntries.get(key)?.label ?? key, value: "Non renseigne" });
+  const beforeLines = changedKeys.map((key) => beforeDisplayEntries.get(key) ?? beforeEntries.get(key) ?? { key, label: afterEntries.get(key)?.label ?? key, value: "Non renseigne" });
+  const afterLines = changedKeys.map((key) => afterDisplayEntries.get(key) ?? afterEntries.get(key) ?? { key, label: beforeEntries.get(key)?.label ?? key, value: "Non renseigne" });
 
   changes.push({
     field: "abilities",
@@ -414,7 +428,13 @@ export function diffChampionPatch(champion: Champion, remoteChampion: RemoteCham
   addChange(changes, "title", "Titre", champion.title, remoteChampion.title);
   addArrayChange(changes, "tags", "Tags Riot", jsonArray(champion.tags), remoteChampion.tags ?? []);
   addStatRecordChange(changes, "Statistiques de base", jsonRecord(champion.stats), remoteChampion.stats ?? {}, championStatDescriptors);
-  addChampionAbilityChanges(changes, options.localChampionDetail, options.remoteChampionDetail);
+  addChampionAbilityChanges(
+    changes,
+    options.localChampionDetail,
+    options.remoteChampionDetail,
+    options.localDisplayChampionDetail,
+    options.remoteDisplayChampionDetail,
+  );
 
   return {
     patchStatus: changes.length ? "changed" as const : "unchanged" as const,

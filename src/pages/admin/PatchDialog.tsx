@@ -296,6 +296,15 @@ function PatchChangeDetails({ entry }: { entry: PatchEntity }) {
 function PatchChangeComparison({ change }: { change: PatchEntity["changes"][number] }) {
   const hasStructuredLines = Boolean(change.beforeLines?.length || change.afterLines?.length);
 
+  if (change.field === "abilities") {
+    return (
+      <div className="mt-3 grid gap-3">
+        <PatchLongTextLines title="Avant" lines={change.beforeLines ?? []} fallback={change.before} />
+        <PatchLongTextLines title="Apres" lines={change.afterLines ?? []} fallback={change.after} />
+      </div>
+    );
+  }
+
   if (!hasStructuredLines) {
     return (
       <div className="mt-2 grid gap-2 text-xs text-muted-foreground md:grid-cols-2">
@@ -332,13 +341,8 @@ function ChampionPreviewPanel({ champion }: { champion: AdminPatchChampionEntry 
 
   return (
     <section className="rounded-xl border border-primary/25 bg-background/70 p-4">
-      <div className="flex items-start gap-3">
-        <ChampionThumb src={champion.icon} alt={champion.name} />
-        <div className="min-w-0">
-          <p className="text-sm font-semibold uppercase tracking-wide text-primary">{champion.name}</p>
-          <p className="text-xs text-muted-foreground">{champion.title}</p>
-        </div>
-      </div>
+      <p className="text-sm font-semibold uppercase tracking-wide text-primary">{champion.patchPreview.name}</p>
+      <p className="text-xs text-muted-foreground">{champion.patchPreview.title}</p>
       {champion.patchPreview.blurb ? <p className="mt-3 text-sm leading-relaxed text-foreground/90">{champion.patchPreview.blurb}</p> : null}
       <div className="mt-4 grid max-h-[42vh] gap-3 overflow-y-auto pr-2 md:grid-cols-2">
         {champion.patchPreview.passive ? <ChampionAbilityPreview ability={champion.patchPreview.passive} /> : null}
@@ -375,6 +379,26 @@ function PatchRawValue({ title, value }: { title: string; value: string }) {
     <div className="rounded-lg border border-border/50 bg-background/60 p-3">
       <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">{title}</p>
       <p className="mt-1 break-words text-sm text-foreground">{value}</p>
+    </div>
+  );
+}
+
+function PatchLongTextLines({ title, lines, fallback }: { title: string; lines: Array<{ key: string; label: string; value: string }>; fallback: string }) {
+  return (
+    <div className="rounded-lg border border-border/50 bg-background/60 p-3">
+      <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">{title}</p>
+      {lines.length ? (
+        <div className="mt-3 space-y-3">
+          {lines.map((line) => (
+            <article key={line.key} className="rounded-md bg-muted/30 px-3 py-2">
+              <p className="text-sm font-semibold text-foreground">{line.label}</p>
+              <p className="mt-1 whitespace-normal break-words text-sm leading-relaxed text-muted-foreground">{line.value}</p>
+            </article>
+          ))}
+        </div>
+      ) : (
+        <p className="mt-2 text-sm text-muted-foreground">{fallback}</p>
+      )}
     </div>
   );
 }

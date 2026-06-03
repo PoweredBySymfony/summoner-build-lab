@@ -374,6 +374,8 @@ export interface AdminPatchItemEntry extends GameItem {
 }
 
 export interface AdminPatchChampionPreview {
+  name: string;
+  title: string;
   blurb?: string | null;
   passive?: AdminPatchChampionAbility;
   spells: AdminPatchChampionAbility[];
