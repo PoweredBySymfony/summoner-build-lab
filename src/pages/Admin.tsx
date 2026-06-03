@@ -1,24 +1,12 @@
 import { useMemo, useState } from "react";
 import { Navigate } from "react-router-dom";
-import {
-  BookOpenCheck,
-  Brain,
-  Boxes,
-  Flame,
-  ImageIcon,
-  PencilLine,
-  RefreshCw,
-  Search,
-  ShieldCheck,
-  Sparkles,
-  Trash2,
-} from "lucide-react";
+import { BookOpenCheck, Boxes, Brain, RefreshCw, ShieldCheck, Sparkles } from "lucide-react";
 import {
   useAdminAiGeneratedPuzzles,
+  useAdminChampions,
   useAdminDeleteChampion,
   useAdminDeleteItem,
   useAdminDeletePuzzle,
-  useAdminChampions,
   useAdminItems,
   useAdminOverview,
   useAdminPatchStatus,
@@ -31,7 +19,6 @@ import {
   useAdminUpdatePuzzle,
   useCurrentUser,
 } from "@/api/hooks";
-import type { ChampionView, GameItem } from "@/types/domain";
 import { Button } from "@/components/ui/button";
 import {
   AlertDialog,
@@ -43,7 +30,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Input } from "@/components/ui/input";
 import {
   Sidebar,
   SidebarContent,
@@ -59,31 +45,30 @@ import {
   SidebarProvider,
   SidebarTrigger,
 } from "@/components/ui/sidebar";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+import type { ChampionView, GameItem } from "@/types/domain";
 import { toast } from "sonner";
-import {
-  ChampionThumb,
-  ItemThumb,
-  SectionHeader,
-  StatTile,
-} from "./admin/shared";
+import { ChampionAdminSection } from "./admin/ChampionAdminSection";
 import { ChampionEditDialog } from "./admin/ChampionEditDialog";
+import { ItemAdminSection } from "./admin/ItemAdminSection";
 import { ItemEditDialog } from "./admin/ItemEditDialog";
+import { OverviewAdminSection } from "./admin/OverviewAdminSection";
 import { PatchDialog } from "./admin/PatchDialog";
+import { PuzzleAdminSection } from "./admin/PuzzleAdminSection";
 import { PuzzleEditDialog } from "./admin/PuzzleEditDialog";
-import { type SectionKey } from "./admin/adminOptions";
-import {
-  filterAdminChampions,
-  filterAdminItems,
-  filterAdminPuzzles,
-} from "./admin/adminFilters";
+import { filterAdminChampions, filterAdminItems, filterAdminPuzzles } from "./admin/adminFilters";
+import type { SectionKey } from "./admin/adminOptions";
+
+type DeleteTarget =
+  | { type: "champion"; id: string; label: string }
+  | { type: "item"; id: string; label: string }
+  | { type: "puzzle"; id: string; label: string };
+
+const adminNavigationItems: Array<{ key: SectionKey; label: string; icon: typeof Sparkles }> = [
+  { key: "overview", label: "Vue d'ensemble", icon: Sparkles },
+  { key: "champions", label: "Champions", icon: Brain },
+  { key: "items", label: "Items", icon: Boxes },
+  { key: "puzzles", label: "Puzzles", icon: BookOpenCheck },
+];
 
 const Admin = () => {
   const { data: user, isLoading: userLoading } = useCurrentUser();
@@ -95,12 +80,7 @@ const Admin = () => {
   const [itemEditor, setItemEditor] = useState<GameItem | null>(null);
   const [puzzleEditorId, setPuzzleEditorId] = useState<string | null>(null);
   const [patchDialogOpen, setPatchDialogOpen] = useState(false);
-  const [deleteTarget, setDeleteTarget] = useState<
-    | { type: "champion"; id: string; label: string }
-    | { type: "item"; id: string; label: string }
-    | { type: "puzzle"; id: string; label: string }
-    | null
-  >(null);
+  const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null);
   const adminEnabled = Boolean(user?.isAdmin);
 
   const overview = useAdminOverview(adminEnabled);
@@ -120,21 +100,13 @@ const Admin = () => {
   const deletePuzzle = useAdminDeletePuzzle();
   const syncPatch = useAdminSyncPatch();
 
-  const filteredChampions = useMemo(() => {
-    return filterAdminChampions(champions.data, championQuery);
-  }, [champions.data, championQuery]);
-
-  const filteredItems = useMemo(() => {
-    return filterAdminItems(items.data, itemQuery);
-  }, [items.data, itemQuery]);
-
-  const filteredPuzzles = useMemo(() => {
-    return filterAdminPuzzles(puzzles.data, puzzleQuery);
-  }, [puzzles.data, puzzleQuery]);
-
-  const filteredAiGeneratedPuzzles = useMemo(() => {
-    return filterAdminPuzzles(aiGeneratedPuzzles.data, puzzleQuery);
-  }, [aiGeneratedPuzzles.data, puzzleQuery]);
+  const filteredChampions = useMemo(() => filterAdminChampions(champions.data, championQuery), [champions.data, championQuery]);
+  const filteredItems = useMemo(() => filterAdminItems(items.data, itemQuery), [items.data, itemQuery]);
+  const filteredPuzzles = useMemo(() => filterAdminPuzzles(puzzles.data, puzzleQuery), [puzzles.data, puzzleQuery]);
+  const filteredAiGeneratedPuzzles = useMemo(
+    () => filterAdminPuzzles(aiGeneratedPuzzles.data, puzzleQuery),
+    [aiGeneratedPuzzles.data, puzzleQuery],
+  );
 
   if (!userLoading && !user) {
     return <Navigate to="/auth" replace />;
@@ -143,6 +115,14 @@ const Admin = () => {
   if (!userLoading && user && !user.isAdmin) {
     return <Navigate to="/dashboard" replace />;
   }
+
+  const publishAiPuzzle = (puzzleId: string) => {
+    void publishPuzzle.mutateAsync(puzzleId).then(() => {
+      toast.success("Puzzle AI publie.");
+    }).catch((error: unknown) => {
+      toast.error(error instanceof Error ? error.message : "Publication impossible.");
+    });
+  };
 
   return (
     <div className="min-h-screen bg-background">
@@ -164,17 +144,12 @@ const Admin = () => {
               <SidebarGroupLabel>Navigation</SidebarGroupLabel>
               <SidebarGroupContent>
                 <SidebarMenu>
-                  {[
-                    { key: "overview", label: "Vue d'ensemble", icon: Sparkles },
-                    { key: "champions", label: "Champions", icon: Brain },
-                    { key: "items", label: "Items", icon: Boxes },
-                    { key: "puzzles", label: "Puzzles", icon: BookOpenCheck },
-                  ].map((entry) => (
+                  {adminNavigationItems.map((entry) => (
                     <SidebarMenuItem key={entry.key}>
                       <SidebarMenuButton
                         type="button"
                         isActive={section === entry.key}
-                        onClick={() => setSection(entry.key as SectionKey)}
+                        onClick={() => setSection(entry.key)}
                         tooltip={entry.label}
                         className="h-11"
                       >
@@ -213,236 +188,40 @@ const Admin = () => {
 
           <div className="space-y-6 px-4 py-6 sm:px-6 lg:px-8">
             {section === "overview" ? (
-              <>
-                <SectionHeader
-                  title="Vue d'ensemble du backoffice"
-                  description="Controle les champions, les items et les puzzles actuellement en base, avec un point de controle explicite sur la version de patch locale."
-                  action={
-                    <Button variant="gold" onClick={() => setPatchDialogOpen(true)}>
-                      <RefreshCw className="h-4 w-4" />
-                      Nouveau patch sorti, mettre a jour les donnees
-                    </Button>
-                  }
-                />
-
-                <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-                  <StatTile icon={Brain} label="Champions synchronises" value={overview.data?.stats.championCount ?? "..."} hint="Base consultable avec images et edition." />
-                  <StatTile icon={Boxes} label="Items enregistres" value={overview.data?.stats.itemCount ?? "..."} hint="Le total actuel de la base d'items Riot." />
-                  <StatTile icon={BookOpenCheck} label="Puzzles" value={overview.data?.stats.puzzleCount ?? "..."} hint="Inclut les puzzles publies et brouillons." />
-                  <StatTile icon={Flame} label="Patch local" value={overview.data?.patch.localLatestPatch ?? "Inconnu"} hint={`Patch distant detecte : ${overview.data?.patch.remoteLatestPatch ?? "..."}`} />
-                </div>
-              </>
+              <OverviewAdminSection overview={overview.data} onOpenPatchDialog={() => setPatchDialogOpen(true)} />
             ) : null}
 
             {section === "champions" ? (
-              <div className="space-y-5">
-                <SectionHeader title="Catalogue champions" description="Liste complete des champions enregistres avec leur image, leurs roles, leur patch et leur statut d'activation." />
-                <div className="flex max-w-md items-center gap-3 rounded-2xl border border-border/60 bg-card/80 px-4 py-3">
-                  <Search className="h-4 w-4 text-muted-foreground" />
-                  <Input value={championQuery} onChange={(event) => setChampionQuery(event.target.value)} placeholder="Filtrer par nom, role, patch..." className="border-0 bg-transparent p-0 focus-visible:ring-0" />
-                </div>
-                <div className="glass-surface overflow-hidden rounded-[28px]">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Champion</TableHead>
-                        <TableHead>Roles</TableHead>
-                        <TableHead>Patch</TableHead>
-                        <TableHead>Statut</TableHead>
-                        <TableHead className="text-right">Action</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {filteredChampions.map((entry) => (
-                        <TableRow key={entry.id}>
-                          <TableCell>
-                            <div className="flex items-center gap-3">
-                              <ChampionThumb src={entry.icon} alt={entry.name} />
-                              <div>
-                                <p className="font-medium text-foreground">{entry.name}</p>
-                                <p className="text-xs text-muted-foreground">{entry.title || "Sans sous-titre"}</p>
-                              </div>
-                            </div>
-                          </TableCell>
-                          <TableCell className="text-muted-foreground">{entry.roles.join(" / ") || "Non defini"}</TableCell>
-                          <TableCell>{entry.patch}</TableCell>
-                          <TableCell>{entry.isActive ? "Actif" : "Archive"}</TableCell>
-                          <TableCell className="text-right">
-                            <div className="flex justify-end gap-2">
-                              <Button variant="outline" onClick={() => setChampionEditor(entry)}>
-                                <PencilLine className="h-4 w-4" />
-                                Modifier
-                              </Button>
-                              <Button variant="destructive" onClick={() => setDeleteTarget({ type: "champion", id: entry.databaseId, label: entry.name })}>
-                                <Trash2 className="h-4 w-4" />
-                                Supprimer
-                              </Button>
-                            </div>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
-              </div>
+              <ChampionAdminSection
+                champions={filteredChampions}
+                query={championQuery}
+                onQueryChange={setChampionQuery}
+                onEdit={setChampionEditor}
+                onDelete={(entry) => setDeleteTarget({ type: "champion", id: entry.databaseId, label: entry.name })}
+              />
             ) : null}
 
             {section === "items" ? (
-              <div className="space-y-5">
-                <SectionHeader title="Catalogue items" description="Inventaire complet des items actuellement sauvegardes, avec image, cout, categorie et patch." />
-                <div className="flex max-w-md items-center gap-3 rounded-2xl border border-border/60 bg-card/80 px-4 py-3">
-                  <Search className="h-4 w-4 text-muted-foreground" />
-                  <Input value={itemQuery} onChange={(event) => setItemQuery(event.target.value)} placeholder="Filtrer par nom, categorie, patch..." className="border-0 bg-transparent p-0 focus-visible:ring-0" />
-                </div>
-                <div className="glass-surface overflow-hidden rounded-[28px]">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Item</TableHead>
-                        <TableHead>Categorie</TableHead>
-                        <TableHead>Cout total</TableHead>
-                        <TableHead>Patch</TableHead>
-                        <TableHead className="text-right">Action</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {filteredItems.map((entry) => (
-                        <TableRow key={entry.id}>
-                          <TableCell>
-                            <div className="flex items-center gap-3">
-                              <ItemThumb src={entry.icon} alt={entry.name} />
-                              <div>
-                                <p className="font-medium text-foreground">{entry.name}</p>
-                                <p className="text-xs text-muted-foreground">{entry.shortDescription || "Sans description courte"}</p>
-                              </div>
-                            </div>
-                          </TableCell>
-                          <TableCell className="text-muted-foreground">{entry.category || "Non classe"}</TableCell>
-                          <TableCell>{entry.cost}</TableCell>
-                          <TableCell>{entry.patch}</TableCell>
-                          <TableCell className="text-right">
-                            <div className="flex justify-end gap-2">
-                              <Button variant="outline" onClick={() => setItemEditor(entry)}>
-                                <PencilLine className="h-4 w-4" />
-                                Modifier
-                              </Button>
-                              <Button variant="destructive" onClick={() => setDeleteTarget({ type: "item", id: entry.databaseId, label: entry.name })}>
-                                <Trash2 className="h-4 w-4" />
-                                Supprimer
-                              </Button>
-                            </div>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
-              </div>
+              <ItemAdminSection
+                items={filteredItems}
+                query={itemQuery}
+                onQueryChange={setItemQuery}
+                onEdit={setItemEditor}
+                onDelete={(entry) => setDeleteTarget({ type: "item", id: entry.databaseId, label: entry.name })}
+              />
             ) : null}
 
             {section === "puzzles" ? (
-              <div className="space-y-5">
-                <SectionHeader title="Bibliotheque puzzles" description="Tous les puzzles, y compris les brouillons, avec acces au detail, au champion associe et aux contenus a corriger." />
-                <div className="flex max-w-md items-center gap-3 rounded-2xl border border-border/60 bg-card/80 px-4 py-3">
-                  <Search className="h-4 w-4 text-muted-foreground" />
-                  <Input value={puzzleQuery} onChange={(event) => setPuzzleQuery(event.target.value)} placeholder="Filtrer par titre, mode, difficulte..." className="border-0 bg-transparent p-0 focus-visible:ring-0" />
-                </div>
-                <div className="rounded-[28px] border border-primary/20 bg-primary/5 p-5">
-                  <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                    <div>
-                      <p className="text-xs font-semibold uppercase tracking-[0.24em] text-primary">Review queue ML</p>
-                      <h2 className="mt-2 text-xl font-semibold text-foreground">Puzzles AI_GENERATED non publies</h2>
-                      <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
-                        Cette file sert de garde-fou avant publication. Les puzzles a faible confiance ne sont pas publies automatiquement.
-                      </p>
-                    </div>
-                    <div className="rounded-2xl border border-primary/20 bg-background/80 px-4 py-3 text-sm text-foreground">
-                      En attente: <span className="font-semibold">{filteredAiGeneratedPuzzles.length}</span>
-                    </div>
-                  </div>
-                  <div className="mt-5 space-y-3">
-                    {filteredAiGeneratedPuzzles.length ? (
-                      filteredAiGeneratedPuzzles.map((entry) => (
-                        <div key={entry.id} className="flex flex-col gap-4 rounded-2xl border border-border/60 bg-background/80 p-4 lg:flex-row lg:items-center lg:justify-between">
-                          <div className="min-w-0">
-                            <p className="font-medium text-foreground">{entry.title}</p>
-                            <p className="mt-1 text-sm text-muted-foreground">
-                              {entry.champion?.name ?? "Sans champion"} · patch {entry.patch} · source {entry.sourceType}
-                            </p>
-                          </div>
-                          <div className="flex flex-wrap gap-2">
-                            <Button variant="outline" onClick={() => setPuzzleEditorId(entry.id)}>
-                              <PencilLine className="h-4 w-4" />
-                              Ouvrir
-                            </Button>
-                            <Button
-                              variant="gold"
-                              disabled={publishPuzzle.isPending}
-                              onClick={() =>
-                                void publishPuzzle.mutateAsync(entry.id).then(() => {
-                                  toast.success("Puzzle AI publie.");
-                                }).catch((error: unknown) => {
-                                  toast.error(error instanceof Error ? error.message : "Publication impossible.");
-                                })
-                              }
-                            >
-                              <Sparkles className="h-4 w-4" />
-                              Publier
-                            </Button>
-                          </div>
-                        </div>
-                      ))
-                    ) : (
-                      <div className="rounded-2xl border border-dashed border-border/60 bg-background/60 p-4 text-sm text-muted-foreground">
-                        Aucun puzzle AI_GENERATED non publie pour le filtre courant.
-                      </div>
-                    )}
-                  </div>
-                </div>
-                <div className="glass-surface overflow-hidden rounded-[28px]">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Puzzle</TableHead>
-                        <TableHead>Mode</TableHead>
-                        <TableHead>Difficulte</TableHead>
-                        <TableHead>Patch</TableHead>
-                        <TableHead className="text-right">Action</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {filteredPuzzles.map((entry) => (
-                        <TableRow key={entry.id}>
-                          <TableCell>
-                            <div className="flex items-center gap-3">
-                              {entry.champion ? <ChampionThumb src={entry.champion.icon} alt={entry.champion.name} /> : <div className="flex h-12 w-12 items-center justify-center rounded-xl border border-border/60 bg-card"><ImageIcon className="h-4 w-4 text-muted-foreground" /></div>}
-                              <div>
-                                <p className="font-medium text-foreground">{entry.title}</p>
-                                <p className="text-xs text-muted-foreground">{entry.champion?.name ?? "Sans champion"} · {entry.choiceCount} choix</p>
-                              </div>
-                            </div>
-                          </TableCell>
-                          <TableCell>{entry.mode}</TableCell>
-                          <TableCell>{entry.difficulty}</TableCell>
-                          <TableCell>{entry.patch}</TableCell>
-                          <TableCell className="text-right">
-                            <div className="flex justify-end gap-2">
-                              <Button variant="outline" onClick={() => setPuzzleEditorId(entry.id)}>
-                                <PencilLine className="h-4 w-4" />
-                                Consulter / modifier
-                              </Button>
-                              <Button variant="destructive" onClick={() => setDeleteTarget({ type: "puzzle", id: entry.id, label: entry.title })}>
-                                <Trash2 className="h-4 w-4" />
-                                Supprimer
-                              </Button>
-                            </div>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
-              </div>
+              <PuzzleAdminSection
+                puzzles={filteredPuzzles}
+                aiGeneratedPuzzles={filteredAiGeneratedPuzzles}
+                query={puzzleQuery}
+                publishing={publishPuzzle.isPending}
+                onQueryChange={setPuzzleQuery}
+                onEdit={setPuzzleEditorId}
+                onPublish={publishAiPuzzle}
+                onDelete={(entry) => setDeleteTarget({ type: "puzzle", id: entry.id, label: entry.title })}
+              />
             ) : null}
           </div>
         </SidebarInset>

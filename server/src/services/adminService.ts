@@ -1,4 +1,9 @@
-import { Prisma, PuzzleDifficulty, PuzzleMode, PuzzleSourceType, Role } from "@prisma/client";
+import { Prisma, PuzzleSourceType } from "@prisma/client";
+import type {
+  AdminChampionUpdatePayload,
+  AdminItemUpdatePayload,
+  AdminPuzzleUpdatePayload,
+} from "../lib/admin/adminPayloadSchemas.js";
 import { catalogRepository, standardSummonersRiftItemWhere } from "../repositories/catalogRepository.js";
 import { buildChampionViewIndex } from "../lib/championIndex.js";
 import { buildItemViewIndex } from "../lib/itemIndex.js";
@@ -12,81 +17,20 @@ import { mapChampionView, mapItemView, mapPuzzleDetailView, mapPuzzleListView } 
 const comparePatch = (left: string, right: string) =>
   right.localeCompare(left, undefined, { numeric: true, sensitivity: "base" });
 
-const normalizeStringArray = (value: unknown) => {
-  if (Array.isArray(value)) {
-    return value.map((entry) => String(entry));
-  }
+const normalizeStringArray = (value: readonly string[] | undefined) => value ? [...value] : [];
 
-  return [];
-};
-
-const normalizeRecord = (value: unknown) => {
-  if (value && typeof value === "object" && !Array.isArray(value)) {
-    return value as Record<string, unknown>;
-  }
-
-  return {};
-};
+const normalizeRecord = (value: Record<string, unknown> | undefined) => value ?? {};
 
 const coerceNullableString = (value: string | null | undefined) => {
   const trimmed = value?.trim();
   return trimmed ? trimmed : null;
 };
 
-export type AdminChampionUpdatePayload = {
-  name: string;
-  title?: string | null;
-  rolePrimary?: Role | null;
-  roleSecondary?: Role | null;
-  patch: string;
-  isActive: boolean;
-  image: string;
-  iconImage?: string | null;
-  splashImage?: string | null;
-  tags?: unknown;
-  stats?: unknown;
-};
-
-export type AdminItemUpdatePayload = {
-  name: string;
-  shortDescription?: string | null;
-  fullDescription?: string | null;
-  image: string;
-  patch: string;
-  category?: string | null;
-  goldTotal: number;
-  goldBase?: number | null;
-  goldSell?: number | null;
-  isBoots: boolean;
-  isLegendary: boolean;
-  isConsumable: boolean;
-  isTrinket: boolean;
-  isStarter: boolean;
-  isActive: boolean;
-  activeEffect?: string | null;
-  passiveEffect?: string | null;
-  tags?: unknown;
-  stats?: unknown;
-  buildsFrom?: unknown;
-  buildsInto?: unknown;
-};
-
-export type AdminPuzzleUpdatePayload = {
-  title: string;
-  slug: string;
-  mode: PuzzleMode;
-  difficulty: PuzzleDifficulty;
-  role?: Role | null;
-  championId?: string | null;
-  patch: string;
-  description: string;
-  shortPrompt: string;
-  situation: string;
-  question: string;
-  explanation: string;
-  isPublished: boolean;
-  isDailyEligible: boolean;
-};
+export type {
+  AdminChampionUpdatePayload,
+  AdminItemUpdatePayload,
+  AdminPuzzleUpdatePayload,
+} from "../lib/admin/adminPayloadSchemas.js";
 
 export const adminService = {
   async getOverview() {

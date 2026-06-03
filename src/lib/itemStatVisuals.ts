@@ -41,3 +41,36 @@ export const itemStatBadgeTintClass: Record<ItemStatIconKey, string> = {
   tenacity: "from-[#52401d] to-[#24190c] border-[#d7ae58]/60",
   default: "from-[#343126] to-[#171610] border-white/10",
 };
+
+export const itemTooltipClassNames = {
+  panel: "overflow-hidden rounded-[18px] border border-[#8b6a24]/35 bg-[#0d1320]/96 shadow-[0_22px_60px_rgba(0,0,0,0.62)] backdrop-blur-md",
+  header: "bg-[linear-gradient(180deg,rgba(255,198,90,0.07),rgba(255,198,90,0))] px-4 pb-4 pt-4",
+  iconFrame: "h-12 w-12 shrink-0 overflow-hidden rounded-md border border-[#c49b43]/45 bg-black/20 shadow-[inset_0_1px_4px_rgba(0,0,0,0.5)]",
+  title: "font-heading text-base font-bold uppercase tracking-[0.04em] text-[#f2c249]",
+  priceLine: "mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm font-semibold text-[#f3d37a]",
+  baseCost: "text-[#c5ab63]/85",
+  categoryBadge: "rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[11px] uppercase tracking-[0.12em] text-[#b7c0d1]",
+  shortDescription: "mt-2 text-sm leading-5 text-[#d1d8e5]/76",
+  section: "shrink-0 border-t border-white/6 px-4 pb-4 pt-3",
+  scrollableSection: "border-t border-white/6 px-4 min-h-0 flex-1 py-3",
+  staticSection: "border-t border-white/6 px-4 py-3",
+  statCardCompact: "grid grid-cols-[24px_minmax(0,1fr)_auto] items-center gap-3 rounded-xl border border-white/6 bg-white/[0.03] px-3 py-2.5",
+  statCardDefault: "grid grid-cols-[24px_minmax(0,1fr)_auto] items-center gap-3 rounded-xl border border-white/6 bg-white/[0.03] px-3 py-3",
+  statLabel: "text-[13px] leading-5 text-[#f4f5f7]",
+  statValue: "justify-self-end text-[13px] font-semibold text-[#6be8ff]",
+  effectCardCompact: "rounded-xl border border-white/6 bg-white/[0.03] px-3 py-2.5",
+  effectCardDefault: "rounded-xl border border-white/6 bg-white/[0.03] px-3 py-3",
+  effectTitle: "text-[11px] font-semibold uppercase tracking-[0.16em] text-[#f7e3a1]",
+  effectBody: "text-sm text-[#d4dae5]/84",
+  componentsTitle: "text-[11px] font-semibold uppercase tracking-[0.24em] text-[#8f97a8]",
+  componentIcon: "h-9 w-9 overflow-hidden rounded-md border border-white/10 bg-black/20 shadow-[inset_0_1px_3px_rgba(0,0,0,0.45)]",
+  componentId: "rounded-md border border-white/8 bg-white/5 px-2 py-1 font-mono text-[11px] text-[#c8cfdd]",
+  arrowBase: "absolute h-3.5 w-3.5 rotate-45 border-[#8b6a24]/40 bg-[#0d1320]/96",
+} as const;
+
+export const itemTooltipArrowClass: Record<"right" | "left" | "top" | "bottom", string> = {
+  top: `${itemTooltipClassNames.arrowBase} left-1/2 top-[calc(100%-7px)] -translate-x-1/2 border-b border-r`,
+  bottom: `${itemTooltipClassNames.arrowBase} bottom-[calc(100%-7px)] left-1/2 -translate-x-1/2 border-l border-t`,
+  left: `${itemTooltipClassNames.arrowBase} left-[calc(100%-7px)] top-1/2 -translate-y-1/2 border-r border-t`,
+  right: `${itemTooltipClassNames.arrowBase} right-[calc(100%-7px)] top-1/2 -translate-y-1/2 border-b border-l`,
+};

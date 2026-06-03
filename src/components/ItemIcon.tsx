@@ -1,6 +1,11 @@
 import type { GameItem } from "@/types/domain";
 import { getItemEffectBlocks, getItemStatLines, type ItemStatIconKey } from "@/lib/itemPresentation";
-import { itemStatBadgeTintClass, itemStatIconTintClass } from "@/lib/itemStatVisuals";
+import {
+  itemStatBadgeTintClass,
+  itemStatIconTintClass,
+  itemTooltipArrowClass,
+  itemTooltipClassNames,
+} from "@/lib/itemStatVisuals";
 import { AnimatePresence, motion } from "framer-motion";
 import type { CSSProperties, MouseEvent, ReactNode } from "react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -459,8 +464,8 @@ const ItemTooltip = ({
         : "grid-cols-1 sm:grid-cols-2";
   const statCardClass =
     layoutMode === "compact"
-      ? "grid grid-cols-[24px_minmax(0,1fr)_auto] items-center gap-3 rounded-xl border border-white/6 bg-white/[0.03] px-3 py-2.5"
-      : "grid grid-cols-[24px_minmax(0,1fr)_auto] items-center gap-3 rounded-xl border border-white/6 bg-white/[0.03] px-3 py-3";
+      ? itemTooltipClassNames.statCardCompact
+      : itemTooltipClassNames.statCardDefault;
 
   return (
     <motion.div
@@ -471,43 +476,43 @@ const ItemTooltip = ({
       className="pointer-events-none relative"
     >
       <div
-        className="overflow-hidden rounded-[18px] border border-[#8b6a24]/35 bg-[#0d1320]/96 shadow-[0_22px_60px_rgba(0,0,0,0.62)] backdrop-blur-md"
+        className={itemTooltipClassNames.panel}
         style={{ maxHeight: `min(78vh, ${maxHeight}px)` }}
       >
         <div className="flex max-h-full min-h-0 flex-col overflow-hidden">
-          <div className="bg-[linear-gradient(180deg,rgba(255,198,90,0.07),rgba(255,198,90,0))] px-4 pb-4 pt-4">
+          <div className={itemTooltipClassNames.header}>
             <div className="flex items-start gap-3">
-              <div className="h-12 w-12 shrink-0 overflow-hidden rounded-md border border-[#c49b43]/45 bg-black/20 shadow-[inset_0_1px_4px_rgba(0,0,0,0.5)]">
+              <div className={itemTooltipClassNames.iconFrame}>
                 <img src={item.icon} alt={item.name} className="h-full w-full object-cover" />
               </div>
               <div className="min-w-0 flex-1">
-                <h4 className="font-heading text-base font-bold uppercase tracking-[0.04em] text-[#f2c249]">
+                <h4 className={itemTooltipClassNames.title}>
                   {item.name}
                 </h4>
-                <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm font-semibold text-[#f3d37a]">
+                <div className={itemTooltipClassNames.priceLine}>
                   <span>{item.cost} or</span>
-                  {item.baseCost ? <span className="text-[#c5ab63]/85">({item.baseCost})</span> : null}
+                  {item.baseCost ? <span className={itemTooltipClassNames.baseCost}>({item.baseCost})</span> : null}
                   {item.category ? (
-                    <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[11px] uppercase tracking-[0.12em] text-[#b7c0d1]">
+                    <span className={itemTooltipClassNames.categoryBadge}>
                       {item.category}
                     </span>
                   ) : null}
                 </div>
                 {item.shortDescription ? (
-                  <p className="mt-2 text-sm leading-5 text-[#d1d8e5]/76">{item.shortDescription}</p>
+                  <p className={itemTooltipClassNames.shortDescription}>{item.shortDescription}</p>
                 ) : null}
               </div>
             </div>
           </div>
 
           {statLines.length > 0 ? (
-            <div className="shrink-0 border-t border-white/6 px-4 pb-4 pt-3">
+            <div className={itemTooltipClassNames.section}>
               <div className={`grid gap-2 ${statsGridClass}`}>
                 {statLines.map((entry) => (
                   <div key={`${item.id}-${entry.key}-${entry.value}`} className={statCardClass}>
                     <StatBadge icon={entry.icon} />
-                    <span className="text-[13px] leading-5 text-[#f4f5f7]">{entry.label}</span>
-                    <span className="justify-self-end text-[13px] font-semibold text-[#6be8ff]">{entry.value}</span>
+                    <span className={itemTooltipClassNames.statLabel}>{entry.label}</span>
+                    <span className={itemTooltipClassNames.statValue}>{entry.value}</span>
                   </div>
                 ))}
               </div>
@@ -515,21 +520,21 @@ const ItemTooltip = ({
           ) : null}
 
           {hasEffects ? (
-            <div className={`border-t border-white/6 px-4 ${useScrollableEffects ? "min-h-0 flex-1 py-3" : "py-3"}`}>
+            <div className={useScrollableEffects ? itemTooltipClassNames.scrollableSection : itemTooltipClassNames.staticSection}>
               <div className={useScrollableEffects ? "min-h-0 max-h-full overflow-y-auto pr-1" : undefined}>
                 <div className="space-y-3">
                   {effectBlocks.map((block, index) => (
                     <div
                       key={`${item.id}-block-${index}`}
-                      className={`rounded-xl border border-white/6 bg-white/[0.03] ${layoutMode === "compact" ? "px-3 py-2.5" : "px-3 py-3"}`}
+                      className={layoutMode === "compact" ? itemTooltipClassNames.effectCardCompact : itemTooltipClassNames.effectCardDefault}
                     >
                       <div className={`flex ${block.icon ? "items-start gap-3" : "block"}`}>
                         {block.icon ? <div className="pt-0.5"><StatBadge icon={block.icon} /></div> : null}
                         <div className="min-w-0 flex-1">
                           {block.title ? (
-                            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#f7e3a1]">{block.title}</p>
+                            <p className={itemTooltipClassNames.effectTitle}>{block.title}</p>
                           ) : null}
-                          <p className={`text-sm text-[#d4dae5]/84 ${layoutMode === "compact" ? "leading-5" : "leading-6"}`}>{block.body}</p>
+                          <p className={`${itemTooltipClassNames.effectBody} ${layoutMode === "compact" ? "leading-5" : "leading-6"}`}>{block.body}</p>
                         </div>
                       </div>
                     </div>
@@ -540,14 +545,14 @@ const ItemTooltip = ({
           ) : null}
 
           {item.buildsFrom.length > 0 ? (
-            <div className="shrink-0 border-t border-white/6 px-4 pb-4 pt-3">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-[#8f97a8]">Composants</p>
+            <div className={itemTooltipClassNames.section}>
+              <p className={itemTooltipClassNames.componentsTitle}>Composants</p>
               {item.buildsFromIcons && item.buildsFromIcons.length > 0 ? (
                 <div className="mt-2 grid grid-cols-[repeat(auto-fit,minmax(36px,36px))] gap-2">
                   {item.buildsFromIcons.slice(0, 6).map((component) => (
                     <div
                       key={`${item.id}-component-${component.riotItemId}`}
-                      className="h-9 w-9 overflow-hidden rounded-md border border-white/10 bg-black/20 shadow-[inset_0_1px_3px_rgba(0,0,0,0.45)]"
+                      className={itemTooltipClassNames.componentIcon}
                       title={`Composant ${component.riotItemId}`}
                     >
                       <img
@@ -563,7 +568,7 @@ const ItemTooltip = ({
                   {item.buildsFrom.slice(0, 6).map((componentId) => (
                     <div
                       key={`${item.id}-component-${componentId}`}
-                      className="rounded-md border border-white/8 bg-white/5 px-2 py-1 font-mono text-[11px] text-[#c8cfdd]"
+                      className={itemTooltipClassNames.componentId}
                     >
                       {componentId}
                     </div>
@@ -575,10 +580,7 @@ const ItemTooltip = ({
         </div>
       </div>
 
-      {placement === "top" ? <div className="absolute left-1/2 top-[calc(100%-7px)] h-3.5 w-3.5 -translate-x-1/2 rotate-45 border-b border-r border-[#8b6a24]/40 bg-[#0d1320]/96" /> : null}
-      {placement === "bottom" ? <div className="absolute bottom-[calc(100%-7px)] left-1/2 h-3.5 w-3.5 -translate-x-1/2 rotate-45 border-l border-t border-[#8b6a24]/40 bg-[#0d1320]/96" /> : null}
-      {placement === "left" ? <div className="absolute left-[calc(100%-7px)] top-1/2 h-3.5 w-3.5 -translate-y-1/2 rotate-45 border-r border-t border-[#8b6a24]/40 bg-[#0d1320]/96" /> : null}
-      {placement === "right" ? <div className="absolute right-[calc(100%-7px)] top-1/2 h-3.5 w-3.5 -translate-y-1/2 rotate-45 border-b border-l border-[#8b6a24]/40 bg-[#0d1320]/96" /> : null}
+      <div className={itemTooltipArrowClass[placement]} />
     </motion.div>
   );
 };

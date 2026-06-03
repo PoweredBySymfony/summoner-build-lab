@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
+import { Search } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -40,6 +41,23 @@ export function SectionHeader({
         <p className="mt-2 max-w-3xl text-sm text-muted-foreground">{description}</p>
       </div>
       {action}
+    </div>
+  );
+}
+
+export function AdminSearchField({
+  value,
+  onChange,
+  placeholder,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  placeholder: string;
+}) {
+  return (
+    <div className="flex max-w-md items-center gap-3 rounded-2xl border border-border/60 bg-card/80 px-4 py-3">
+      <Search className="h-4 w-4 text-muted-foreground" />
+      <Input value={value} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} className="border-0 bg-transparent p-0 focus-visible:ring-0" />
     </div>
   );
 }
