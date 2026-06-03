@@ -16,6 +16,35 @@ export type ChampionSummaryResponse = {
   >;
 };
 
+export type ChampionDetailResponse = {
+  data: Record<
+    string,
+    {
+      id: string;
+      key: string;
+      name: string;
+      title: string;
+      lore?: string;
+      blurb?: string;
+      image: { full: string };
+      tags: string[];
+      stats: Record<string, number>;
+      passive: {
+        name: string;
+        description: string;
+        image: { full: string };
+      };
+      spells: Array<{
+        id: string;
+        name: string;
+        description: string;
+        tooltip?: string;
+        image: { full: string };
+      }>;
+    }
+  >;
+};
+
 export type ItemResponse = {
   data: Record<
     string,
@@ -58,8 +87,12 @@ export const dataDragonClient = {
     }
     return versions[0];
   },
-  getChampionSummary: (version: string) =>
-    fetchJson<ChampionSummaryResponse>(`${DDRAGON_BASE_URL}/cdn/${version}/data/en_US/champion.json`),
+  getChampionSummary: (version: string, locale = "fr_FR") =>
+    fetchJson<ChampionSummaryResponse>(`${DDRAGON_BASE_URL}/cdn/${version}/data/${locale}/champion.json`),
+  async getChampionDetail(version: string, championId: string, locale = "fr_FR") {
+    const response = await fetchJson<ChampionDetailResponse>(`${DDRAGON_BASE_URL}/cdn/${version}/data/${locale}/champion/${championId}.json`);
+    return response.data[championId];
+  },
   getItemSummary: (version: string, locale = "fr_FR") =>
     fetchJson<ItemResponse>(`${DDRAGON_BASE_URL}/cdn/${version}/data/${locale}/item.json`),
   getChampionIconUrl: (version: string, championId: string) => `${DDRAGON_BASE_URL}/cdn/${version}/img/champion/${championId}.png`,

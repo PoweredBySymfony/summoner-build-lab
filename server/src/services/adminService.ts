@@ -1,4 +1,4 @@
-import { Prisma, PuzzleSourceType } from "@prisma/client";
+import { Prisma, PuzzleSourceType, type Champion } from "@prisma/client";
 import type {
   AdminChampionUpdatePayload,
   AdminItemUpdatePayload,
@@ -10,6 +10,8 @@ import {
   countPatchStatus,
   diffChampionPatch,
   diffItemPatch,
+  type PatchLineItem,
+  type RemoteChampionDetail,
 } from "../lib/admin/patchDiff.js";
 import { catalogRepository, standardSummonersRiftItemWhere } from "../repositories/catalogRepository.js";
 import { buildChampionViewIndex } from "../lib/championIndex.js";
@@ -17,6 +19,7 @@ import { buildItemViewIndex } from "../lib/itemIndex.js";
 import { puzzleRepository } from "../repositories/puzzleRepository.js";
 import { dataDragonClient } from "../lib/gameData/dataDragonClient.js";
 import { prisma } from "../lib/prisma.js";
+import { slugify } from "../lib/slug.js";
 import { HttpError } from "../utils/http.js";
 import { riotSyncService } from "./riotSyncService.js";
 import { mapChampionView, mapItemView, mapPuzzleDetailView, mapPuzzleListView } from "./viewMappers.js";
@@ -32,6 +35,88 @@ const coerceNullableString = (value: string | null | undefined) => {
   const trimmed = value?.trim();
   return trimmed ? trimmed : null;
 };
+
+const DDRAGON_BASE_URL = "https://ddragon.leagueoflegends.com";
+
+const buildRemoteItemReference = (itemId: string, item: { name?: string; plaintext?: string; description?: string; gold: { base: number; total: number; sell: number; purchasable: boolean }; tags?: string[]; stats?: Record<string, number>; from?: string[]; into?: string[]; maps?: Record<string, boolean>; consumed?: boolean; inStore?: boolean }, patch: string): PatchLineItem => {
+  const riotItemId = Number(itemId);
+  const name = item.name || `Item ${itemId}`;
+  return {
+    id: slugify(name || itemId),
+    databaseId: `remote:${itemId}`,
+    riotItemId,
+    name,
+    slug: slugify(name || itemId),
+    icon: dataDragonClient.getItemIconUrl(patch, itemId),
+    image: dataDragonClient.getItemIconUrl(patch, itemId),
+    cost: item.gold.total,
+    baseCost: item.gold.base,
+    sellPrice: item.gold.sell,
+    category: item.tags?.[0]?.toLowerCase() ?? "utility",
+    tags: item.tags ?? [],
+    itemGroups: [],
+    stats: item.stats ?? {},
+    shortDescription: item.plaintext || null,
+    fullDescription: item.description || null,
+    activeEffect: null,
+    passiveEffect: null,
+    buildsFrom: item.from ?? [],
+    buildsInto: item.into ?? [],
+    buildsFromIcons: (item.from ?? []).map((entry) => ({
+      riotItemId: Number(entry),
+      icon: dataDragonClient.getItemIconUrl(patch, entry),
+    })),
+    mapAvailability: item.maps ?? null,
+    isBoots: item.tags?.includes("Boots") ?? false,
+    isLegendary: item.gold.total >= 2200,
+    isConsumable: item.consumed ?? false,
+    isTrinket: item.tags?.includes("Trinket") ?? false,
+    isStarter: item.tags?.includes("Lane") ?? false,
+    isActive: item.gold.purchasable && item.inStore !== false,
+    patch,
+  };
+};
+
+const createChampionPreview = (detail: RemoteChampionDetail | undefined, patch: string) => detail ? {
+  blurb: detail.blurb ?? null,
+  passive: {
+    id: `${detail.id}-passive`,
+    key: "Passive",
+    name: detail.passive.name,
+    description: detail.passive.description,
+    icon: `${DDRAGON_BASE_URL}/cdn/${patch}/img/passive/${detail.passive.image.full}`,
+  },
+  spells: detail.spells.map((spell, index) => ({
+    id: spell.id,
+    key: ["A", "Z", "E", "R"][index] ?? `Sort ${index + 1}`,
+    name: spell.name,
+    description: spell.description,
+    icon: `${DDRAGON_BASE_URL}/cdn/${patch}/img/spell/${spell.image.full}`,
+  })),
+} : undefined;
+
+async function resolveChampionDetails(champions: Champion[], targetPatch: string) {
+  const requests = champions.flatMap((champion) => {
+    if (!champion.championKey) {
+      return [];
+    }
+
+    return [
+      { key: `${champion.patch}:${champion.championKey}`, patch: champion.patch, championKey: champion.championKey },
+      { key: `${targetPatch}:${champion.championKey}`, patch: targetPatch, championKey: champion.championKey },
+    ];
+  });
+  const uniqueRequests = [...new Map(requests.map((request) => [request.key, request])).values()];
+  const details = await Promise.all(uniqueRequests.map(async (request) => {
+    try {
+      return [request.key, await dataDragonClient.getChampionDetail(request.patch, request.championKey)] as const;
+    } catch {
+      return [request.key, undefined] as const;
+    }
+  }));
+
+  return new Map<string, RemoteChampionDetail | undefined>(details);
+}
 
 
 export type {
@@ -283,12 +368,24 @@ export const adminService = {
     ]);
     const localChampionKeys = new Set(allChampions.map((champion) => champion.championKey).filter(Boolean));
     const localItemIds = new Set(allItems.map((item) => item.riotItemId));
+    const itemNameById = new Map<string, string>([
+      ...allItems.map((item) => [String(item.riotItemId), item.name] as const),
+      ...Object.entries(remoteItems.data).map(([itemId, item]) => [itemId, item.name || `Item Riot ${itemId}`] as const),
+    ]);
+    const itemReferenceById = new Map<string, PatchLineItem>([
+      ...allItems.map((item) => [String(item.riotItemId), mapItemView(item) as PatchLineItem] as const),
+      ...Object.entries(remoteItems.data).map(([itemId, item]) => [itemId, buildRemoteItemReference(itemId, item, latestRemotePatch)] as const),
+    ]);
+    const championDetailByPatch = await resolveChampionDetails(champions, latestRemotePatch);
     const championEntries = [
       ...champions.map((champion) => {
         const remoteChampion = champion.championKey ? remoteChampions.data[champion.championKey] : undefined;
+        const localChampionDetail = champion.championKey ? championDetailByPatch.get(`${champion.patch}:${champion.championKey}`) : undefined;
+        const remoteChampionDetail = champion.championKey ? championDetailByPatch.get(`${latestRemotePatch}:${champion.championKey}`) : undefined;
         return {
           ...mapChampionView(champion),
-          ...diffChampionPatch(champion, remoteChampion),
+          patchPreview: createChampionPreview(remoteChampionDetail, latestRemotePatch),
+          ...diffChampionPatch(champion, remoteChampion, { localChampionDetail, remoteChampionDetail }),
         };
       }),
       ...Object.values(remoteChampions.data)
@@ -298,7 +395,7 @@ export const adminService = {
     const itemEntries = [
       ...items.map((item) => ({
         ...mapItemView(item),
-        ...diffItemPatch(item, remoteItems.data[String(item.riotItemId)]),
+        ...diffItemPatch(item, remoteItems.data[String(item.riotItemId)], { itemNameById, itemReferenceById }),
       })),
       ...buildNewItemPatchEntries(remoteItems.data, localItemIds, latestRemotePatch),
     ];

@@ -341,11 +341,20 @@ export interface AdminOverviewPayload {
   };
 }
 
+export interface AdminPatchValueLine {
+  key: string;
+  label: string;
+  value: string;
+  item?: GameItem;
+}
+
 export interface AdminPatchChange {
   field: string;
   label: string;
   before: string;
   after: string;
+  beforeLines?: AdminPatchValueLine[];
+  afterLines?: AdminPatchValueLine[];
 }
 
 export type AdminPatchEntryStatus = "changed" | "new" | "unchanged" | "removed";
@@ -354,12 +363,27 @@ export interface AdminPatchChampionEntry extends ChampionView {
   patchStatus: AdminPatchEntryStatus;
   changeSummary: string[];
   changes: AdminPatchChange[];
+  patchPreview?: AdminPatchChampionPreview;
 }
 
 export interface AdminPatchItemEntry extends GameItem {
   patchStatus: AdminPatchEntryStatus;
   changeSummary: string[];
   changes: AdminPatchChange[];
+}
+
+export interface AdminPatchChampionPreview {
+  blurb?: string | null;
+  passive?: AdminPatchChampionAbility;
+  spells: AdminPatchChampionAbility[];
+}
+
+export interface AdminPatchChampionAbility {
+  id: string;
+  key: string;
+  name: string;
+  description: string;
+  icon: string;
 }
 
 export interface AdminPatchStatusPayload {
