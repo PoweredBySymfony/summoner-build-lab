@@ -346,6 +346,7 @@ export interface AdminPatchValueLine {
   label: string;
   value: string;
   delta?: string;
+  changeType?: "added" | "removed";
   item?: GameItem;
 }
 

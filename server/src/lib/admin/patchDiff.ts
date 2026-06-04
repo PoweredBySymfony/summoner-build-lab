@@ -19,6 +19,8 @@ export type PatchValueLine = {
   key: string;
   label: string;
   value: string;
+  delta?: string;
+  changeType?: "added" | "removed";
   item?: PatchLineItem;
 };
 
@@ -172,13 +174,42 @@ const formatMapAvailabilityRecord = (value: Record<string, unknown>) => {
   return lines.length ? lines.map((line) => `${line.label}: ${line.value}`).join(", ") : "Aucune";
 };
 
-const formatItemReferenceLines = (itemIds: string[], options: ItemPatchDiffOptions) =>
-  itemIds
-    .map((itemId) => {
-      const label = options.itemNameById?.get(itemId) ?? `Item Riot ${itemId}`;
-      return { key: itemId, label, value: `ID Riot ${itemId}`, item: options.itemReferenceById?.get(itemId) };
+const getItemReferenceGroupKey = (itemId: string, options: ItemPatchDiffOptions) => {
+  const item = options.itemReferenceById?.get(itemId);
+  const label = options.itemNameById?.get(itemId) ?? `Item Riot ${itemId}`;
+  return `${label}|${item?.cost ?? ""}|${JSON.stringify(item?.stats ?? {})}`;
+};
+
+const formatItemReferenceLines = (itemIds: string[], options: ItemPatchDiffOptions, changeType?: "added" | "removed") => {
+  const groups = new Map<string, { ids: string[]; label: string; item?: PatchLineItem }>();
+  for (const itemId of itemIds) {
+    const key = getItemReferenceGroupKey(itemId, options);
+    const existing = groups.get(key);
+    if (existing) {
+      existing.ids.push(itemId);
+      continue;
+    }
+
+    groups.set(key, {
+      ids: [itemId],
+      label: options.itemNameById?.get(itemId) ?? `Item Riot ${itemId}`,
+      item: options.itemReferenceById?.get(itemId),
+    });
+  }
+
+  return [...groups.values()]
+    .map((group) => {
+      const sortedIds = group.ids.sort((left, right) => Number(left) - Number(right));
+      return {
+        key: sortedIds.join("|"),
+        label: group.label,
+        value: sortedIds.length > 1 ? `IDs Riot ${sortedIds.join(", ")}` : `ID Riot ${sortedIds[0]}`,
+        changeType,
+        item: group.item,
+      };
     })
     .sort((left, right) => left.label.localeCompare(right.label));
+};
 
 const formatItemReferenceList = (itemIds: string[], options: ItemPatchDiffOptions) => {
   const lines = formatItemReferenceLines(itemIds, options);
@@ -301,18 +332,21 @@ const addItemReferenceArrayChange = (
   afterValue: string[],
   options: ItemPatchDiffOptions,
 ) => {
-  const beforeIds = [...beforeValue].sort();
-  const afterIds = [...afterValue].sort();
-  const before = formatItemReferenceList(beforeIds, options);
-  const after = formatItemReferenceList(afterIds, options);
-  if (before !== after) {
+  const beforeIds = new Set(beforeValue);
+  const afterIds = new Set(afterValue);
+  const removedIds = beforeValue.filter((itemId) => !afterIds.has(itemId)).sort();
+  const addedIds = afterValue.filter((itemId) => !beforeIds.has(itemId)).sort();
+
+  if (removedIds.length || addedIds.length) {
+    const before = removedIds.length ? `${formatItemReferenceList(removedIds, options)} retires` : "Aucun item retire";
+    const after = addedIds.length ? `${formatItemReferenceList(addedIds, options)} ajoutes` : "Aucun item ajoute";
     changes.push({
       field,
       label,
       before,
       after,
-      beforeLines: formatItemReferenceLines(beforeIds, options),
-      afterLines: formatItemReferenceLines(afterIds, options),
+      beforeLines: formatItemReferenceLines(removedIds, options, "removed"),
+      afterLines: formatItemReferenceLines(addedIds, options, "added"),
     });
   }
 };

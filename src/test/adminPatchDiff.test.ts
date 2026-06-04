@@ -100,11 +100,11 @@ describe("admin patch diffs", () => {
       "buildsFrom",
       "buildsInto",
     ]);
+    expect(result.changes.find((change) => change.field === "buildsFrom")?.beforeLines).toEqual([]);
     expect(result.changes.find((change) => change.field === "buildsFrom")?.afterLines).toEqual([
-      { key: "1058", label: "Baguette trop grosse", value: "ID Riot 1058" },
-      { key: "1026", label: "Tome explosif", value: "ID Riot 1026" },
+      { key: "1026", label: "Tome explosif", value: "ID Riot 1026", changeType: "added" },
     ]);
-    expect(result.changes.find((change) => change.field === "buildsInto")?.after).toBe("Objet test (ID Riot 9999)");
+    expect(result.changes.find((change) => change.field === "buildsInto")?.after).toBe("Objet test (ID Riot 9999) ajoutes");
   });
 
   it("formats item stat changes with site-facing labels", () => {

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Info, RefreshCw } from "lucide-react";
+import { ArrowRight, Info, RefreshCw } from "lucide-react";
 import { ItemIcon } from "@/components/ItemIcon";
 import { Button } from "@/components/ui/button";
 import {
@@ -11,7 +11,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import type { AdminPatchChampionEntry, AdminPatchEntryStatus, AdminPatchItemEntry, AdminPatchStatusPayload } from "@/types/domain";
+import type { AdminPatchChampionEntry, AdminPatchEntryStatus, AdminPatchItemEntry, AdminPatchStatusPayload, AdminPatchValueLine } from "@/types/domain";
 import { ChampionThumb } from "./shared";
 
 type PatchEntity = AdminPatchChampionEntry | AdminPatchItemEntry;
@@ -81,8 +81,8 @@ export function PatchDialog({
                     entries={status.champions}
                     statusFilter={statusFilter}
                     emptyLabel="Aucun champion en retard."
-                    onSelectDetails={setSelectedEntity}
-                    renderThumb={(entry) => <ChampionPatchIcon champion={entry} size="md" />}
+                    onSelectDetails={(entry) => setSelectedEntity(entry)}
+                    renderThumb={(entry: AdminPatchChampionEntry) => <ChampionPatchIcon champion={entry} size="md" />}
                   />
                 </TabsContent>
                 <TabsContent value="items">
@@ -98,8 +98,8 @@ export function PatchDialog({
                     entries={status.items}
                     statusFilter={statusFilter}
                     emptyLabel="Aucun item en retard."
-                    onSelectDetails={setSelectedEntity}
-                    renderThumb={(entry) => <ItemIcon item={entry} size="md" showTooltip interactive={false} />}
+                    onSelectDetails={(entry) => setSelectedEntity(entry)}
+                    renderThumb={(entry: AdminPatchItemEntry) => <ItemIcon item={entry} size="md" showTooltip interactive={false} />}
                   />
                 </TabsContent>
               </Tabs>
@@ -231,7 +231,8 @@ function PatchEntityGrid<TEntry extends PatchEntity>({
 }
 
 function PatchEntityDetailDialog({ entry, onOpenChange }: { entry: PatchEntity | null; onOpenChange: (open: boolean) => void }) {
-  const isItemEntry = entry ? isPatchItem(entry) : false;
+  const itemEntry = entry && isPatchItem(entry) ? entry : null;
+  const championEntry = entry && !isPatchItem(entry) ? entry : null;
 
   return (
     <Dialog open={Boolean(entry)} onOpenChange={onOpenChange}>
@@ -240,7 +241,8 @@ function PatchEntityDetailDialog({ entry, onOpenChange }: { entry: PatchEntity |
           <>
             <DialogHeader>
               <div className="flex items-start gap-4">
-                {isItemEntry ? <ItemIcon item={entry} size="lg" showTooltip interactive={false} /> : <ChampionPatchIcon champion={entry} size="lg" />}
+                {itemEntry ? <ItemIcon item={itemEntry} size="lg" showTooltip interactive={false} /> : null}
+                {championEntry ? <ChampionPatchIcon champion={championEntry} size="lg" /> : null}
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
                     <DialogTitle>{entry.name}</DialogTitle>
@@ -251,11 +253,11 @@ function PatchEntityDetailDialog({ entry, onOpenChange }: { entry: PatchEntity |
                   <DialogDescription>
                     Patch stocke : {entry.patch}. Comparaison avec les donnees Data Dragon du patch cible.
                   </DialogDescription>
-                  {isItemEntry ? <p className="mt-1 text-xs text-muted-foreground">Survole l'icone pour voir les statistiques actuelles de l'item.</p> : null}
+                  {itemEntry ? <p className="mt-1 text-xs text-muted-foreground">Survole l'icone pour voir les statistiques actuelles de l'item.</p> : null}
                 </div>
               </div>
             </DialogHeader>
-            {!isItemEntry && entry.patchPreview ? <ChampionPreviewPanel champion={entry} /> : null}
+            {championEntry?.patchPreview ? <ChampionPreviewPanel champion={championEntry} /> : null}
             <PatchChangeDetails entry={entry} />
           </>
         ) : null}
@@ -316,8 +318,18 @@ function PatchChangeComparison({ change }: { change: PatchEntity["changes"][numb
 
   return (
     <div className="mt-3 grid gap-3 md:grid-cols-2">
-      <PatchValueLines title="Avant" lines={change.beforeLines ?? []} fallback={change.before} />
-      <PatchValueLines title="Apres" lines={change.afterLines ?? []} fallback={change.after} />
+      <PatchValueLines
+        title={change.field === "buildsFrom" || change.field === "buildsInto" ? "Retires" : "Avant"}
+        lines={change.beforeLines ?? []}
+        fallback={change.before}
+        field={change.field}
+      />
+      <PatchValueLines
+        title={change.field === "buildsFrom" || change.field === "buildsInto" ? "Ajoutes" : "Apres"}
+        lines={change.afterLines ?? []}
+        fallback={change.after}
+        field={change.field}
+      />
     </div>
   );
 }
@@ -403,34 +415,86 @@ function PatchLongTextLines({ title, lines, fallback }: { title: string; lines: 
   );
 }
 
-function PatchValueLines({ title, lines, fallback }: { title: string; lines: Array<{ key: string; label: string; value: string; delta?: string }>; fallback: string }) {
+function getBuildPathExplanation(field: string, line: AdminPatchValueLine) {
+  if (!line.changeType) {
+    return null;
+  }
+
+  const itemName = line.label;
+  if (field === "buildsInto") {
+    return line.changeType === "added"
+      ? `Avant, cette evolution n'etait pas proposee dans l'arborescence. Desormais, apres cet item, tu pourras choisir ${itemName}.`
+      : `Cette evolution quitte l'arborescence: apres cet item, ${itemName} ne sera plus propose.`;
+  }
+
+  if (field === "buildsFrom") {
+    return line.changeType === "added"
+      ? `Avant, ce composant n'etait pas requis. Desormais, ${itemName} fait partie du chemin de construction de l'item.`
+      : `Ce composant quitte le chemin de construction: ${itemName} ne sera plus necessaire pour fabriquer l'item.`;
+  }
+
+  return null;
+}
+
+function PatchLineStatus({ line }: { line: AdminPatchValueLine }) {
+  if (!line.changeType) {
+    return null;
+  }
+
+  return (
+    <span className={`inline-flex items-center rounded-md border px-2 py-1 text-[11px] font-semibold uppercase tracking-[0.08em] ${
+      line.changeType === "added"
+        ? "border-primary/30 bg-primary/10 text-primary"
+        : "border-destructive/30 bg-destructive/10 text-destructive"
+    }`}>
+      {line.changeType === "added" ? "Ajoute" : "Retire"}
+    </span>
+  );
+}
+
+function PatchValueLines({ title, lines, fallback, field }: { title: string; lines: AdminPatchValueLine[]; fallback: string; field: string }) {
   return (
     <div className="rounded-lg border border-border/50 bg-background/60 p-3">
       <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">{title}</p>
       {lines.length ? (
         <dl className="mt-3 grid gap-2">
-          {lines.map((line) => (
-            <div key={line.key} className="flex items-center justify-between gap-3 rounded-md bg-muted/30 px-3 py-2">
-              <dt className="min-w-0 text-sm text-muted-foreground">
-                {line.item ? (
-                  <span className="flex min-w-0 items-center gap-3">
-                    <ItemIcon item={line.item} size="sm" showTooltip interactive={false} />
-                    <span className="truncate">{line.label}</span>
-                  </span>
-                ) : (
-                  line.label
-                )}
-              </dt>
-              <dd className="flex shrink-0 items-center gap-2 text-sm font-semibold text-foreground">
-                <span>{line.value}</span>
-                {line.delta ? (
-                  <span className={`rounded-full px-2 py-0.5 text-xs ${line.delta.startsWith("-") ? "bg-destructive/15 text-destructive" : "bg-emerald-500/15 text-emerald-300"}`}>
-                    {line.delta}
-                  </span>
+          {lines.map((line) => {
+            const explanation = getBuildPathExplanation(field, line);
+            return (
+              <div key={line.key} data-item-tooltip-anchor-area className="rounded-md border border-white/6 bg-muted/30 px-3 py-3">
+                <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start">
+                  <dt className="min-w-0 text-sm text-muted-foreground">
+                    {line.item ? (
+                      <span className="flex min-w-0 items-start gap-3">
+                        <ItemIcon item={line.item} size="sm" showTooltip interactive={false} />
+                        <span className="min-w-0 flex-1">
+                          <span className="block whitespace-normal break-words font-medium leading-5 text-foreground">{line.label}</span>
+                          <span className="mt-1 block text-xs text-muted-foreground">{line.value}</span>
+                        </span>
+                      </span>
+                    ) : (
+                      <span className="block whitespace-normal break-words text-foreground">{line.label}</span>
+                    )}
+                  </dt>
+                  <dd className="flex flex-wrap items-center gap-2 text-sm font-semibold text-foreground sm:justify-end">
+                    <PatchLineStatus line={line} />
+                    {!line.item ? <span>{line.value}</span> : null}
+                    {line.delta ? (
+                      <span className={`rounded-md border px-2 py-1 text-xs ${line.delta.startsWith("-") ? "border-destructive/30 bg-destructive/10 text-destructive" : "border-primary/30 bg-primary/10 text-primary"}`}>
+                        {line.delta}
+                      </span>
+                    ) : null}
+                  </dd>
+                </div>
+                {explanation ? (
+                  <p className="mt-3 flex gap-2 rounded-md border border-primary/15 bg-primary/5 px-3 py-2 text-xs leading-5 text-muted-foreground">
+                    <ArrowRight className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" />
+                    <span>{explanation}</span>
+                  </p>
                 ) : null}
-              </dd>
-            </div>
-          ))}
+              </div>
+            );
+          })}
         </dl>
       ) : (
         <p className="mt-2 text-sm text-muted-foreground">{fallback}</p>

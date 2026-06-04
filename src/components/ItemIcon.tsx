@@ -165,6 +165,7 @@ const TooltipPortal = ({
 
     const updatePosition = () => {
       const rect = anchor.getBoundingClientRect();
+      const boundaryRect = anchor.closest("[data-item-tooltip-anchor-area]")?.getBoundingClientRect() ?? rect;
       const fallbackWidth = Math.min(preferredWidth, window.innerWidth - viewportPadding * 2);
       const measuredWidth = containerRef.current?.offsetWidth ?? fallbackWidth;
       const measuredHeight =
@@ -172,10 +173,10 @@ const TooltipPortal = ({
       const width = Math.min(measuredWidth, window.innerWidth - viewportPadding * 2);
       const panelHeight = Math.min(measuredHeight, window.innerHeight - viewportPadding * 2);
       const gap = 20;
-      const spaceRight = window.innerWidth - rect.right - viewportPadding;
-      const spaceLeft = rect.left - viewportPadding;
-      const spaceBottom = window.innerHeight - rect.bottom - viewportPadding;
-      const spaceTop = rect.top - viewportPadding;
+      const spaceRight = window.innerWidth - boundaryRect.right - viewportPadding;
+      const spaceLeft = boundaryRect.left - viewportPadding;
+      const spaceBottom = window.innerHeight - boundaryRect.bottom - viewportPadding;
+      const spaceTop = boundaryRect.top - viewportPadding;
 
       let nextPlacement: "right" | "left" | "top" | "bottom" = "right";
       if (spaceRight >= width + gap) {
@@ -195,11 +196,11 @@ const TooltipPortal = ({
       if (nextPlacement === "right" || nextPlacement === "left") {
         const left =
           nextPlacement === "right"
-            ? Math.min(window.innerWidth - width - viewportPadding, rect.right + gap)
-            : Math.max(viewportPadding, rect.left - width - gap);
+            ? Math.min(window.innerWidth - width - viewportPadding, boundaryRect.right + gap)
+            : Math.max(viewportPadding, boundaryRect.left - width - gap);
         const top = Math.min(
           window.innerHeight - panelHeight - viewportPadding,
-          Math.max(viewportPadding, rect.top + rect.height / 2 - panelHeight / 2),
+          Math.max(viewportPadding, boundaryRect.top + boundaryRect.height / 2 - panelHeight / 2),
         );
 
         setStyle({
@@ -215,12 +216,12 @@ const TooltipPortal = ({
 
       const left = Math.min(
         window.innerWidth - width - viewportPadding,
-        Math.max(viewportPadding, rect.left + rect.width / 2 - width / 2),
+        Math.max(viewportPadding, boundaryRect.left + boundaryRect.width / 2 - width / 2),
       );
       const top =
         nextPlacement === "top"
-          ? Math.max(viewportPadding, rect.top - panelHeight - gap)
-          : Math.min(window.innerHeight - panelHeight - viewportPadding, rect.bottom + gap);
+          ? Math.max(viewportPadding, boundaryRect.top - panelHeight - gap)
+          : Math.min(window.innerHeight - panelHeight - viewportPadding, boundaryRect.bottom + gap);
 
       setStyle({
         position: "fixed",
@@ -284,7 +285,7 @@ export const ItemIcon = ({
   const [hovered, setHovered] = useState(false);
   const [active, setActive] = useState(false);
   const [failed, setFailed] = useState(false);
-  const triggerRef = useRef<HTMLButtonElement | HTMLDivElement | null>(null);
+  const triggerRef = useRef<HTMLElement | null>(null);
   const openTimeoutRef = useRef<number | null>(null);
   const closeTimeoutRef = useRef<number | null>(null);
   const canPreview = showTooltip || Boolean(onInspect) || Boolean(onOpenDetail);
@@ -363,7 +364,6 @@ export const ItemIcon = ({
   };
 
   const triggerProps = {
-    ref: triggerRef,
     className: "relative inline-block rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
     "data-item-icon": item.slug,
     "aria-label": item.name,
@@ -423,6 +423,9 @@ export const ItemIcon = ({
   return canInteract ? (
     <button
       {...triggerProps}
+      ref={(node) => {
+        triggerRef.current = node;
+      }}
       type="button"
       aria-pressed={highlighted}
     >
@@ -431,6 +434,9 @@ export const ItemIcon = ({
   ) : (
     <div
       {...triggerProps}
+      ref={(node) => {
+        triggerRef.current = node;
+      }}
       role="img"
     >
       {triggerContent}
@@ -456,12 +462,8 @@ const ItemTooltip = ({
   const hasComponents = item.buildsFrom.length > 0;
   const hasEffects = effectBlocks.length > 0;
   const useScrollableEffects = hasEffects && (layoutMode !== "compact" || hasComponents);
-  const statsGridClass =
-    statLines.length === 1
-      ? "grid-cols-1"
-      : layoutMode === "dense"
-        ? "grid-cols-1 xl:grid-cols-2"
-        : "grid-cols-1 sm:grid-cols-2";
+  const effectBodyClampClass = hasComponents ? "line-clamp-6" : "";
+  const statsGridClass = "grid-cols-1";
   const statCardClass =
     layoutMode === "compact"
       ? itemTooltipClassNames.statCardCompact
@@ -479,7 +481,7 @@ const ItemTooltip = ({
         className={itemTooltipClassNames.panel}
         style={{ maxHeight: `min(78vh, ${maxHeight}px)` }}
       >
-        <div className="flex max-h-full min-h-0 flex-col overflow-hidden">
+        <div className="max-h-full overflow-y-auto">
           <div className={itemTooltipClassNames.header}>
             <div className="flex items-start gap-3">
               <div className={itemTooltipClassNames.iconFrame}>
@@ -521,7 +523,7 @@ const ItemTooltip = ({
 
           {hasEffects ? (
             <div className={useScrollableEffects ? itemTooltipClassNames.scrollableSection : itemTooltipClassNames.staticSection}>
-              <div className={useScrollableEffects ? "min-h-0 max-h-full overflow-y-auto pr-1" : undefined}>
+              <div>
                 <div className="space-y-3">
                   {effectBlocks.map((block, index) => (
                     <div
@@ -534,7 +536,7 @@ const ItemTooltip = ({
                           {block.title ? (
                             <p className={itemTooltipClassNames.effectTitle}>{block.title}</p>
                           ) : null}
-                          <p className={`${itemTooltipClassNames.effectBody} ${layoutMode === "compact" ? "leading-5" : "leading-6"}`}>{block.body}</p>
+                          <p className={`${itemTooltipClassNames.effectBody} ${layoutMode === "compact" ? "leading-5" : "leading-6"} ${effectBodyClampClass}`}>{block.body}</p>
                         </div>
                       </div>
                     </div>
