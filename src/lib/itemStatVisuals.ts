@@ -52,6 +52,7 @@ export const itemTooltipClassNames = {
   categoryBadge: "rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[11px] uppercase tracking-[0.12em] text-[#b7c0d1]",
   shortDescription: "mt-2 text-sm leading-5 text-[#d1d8e5]/76",
   section: "shrink-0 border-t border-white/6 px-4 pb-4 pt-3",
+  componentsSection: "shrink-0 border-t border-white/6 bg-[#0b111d]/72 px-4 pb-4 pt-3",
   scrollableSection: "border-t border-white/6 px-4 py-3",
   staticSection: "border-t border-white/6 px-4 py-3",
   statCardCompact: "grid grid-cols-[24px_minmax(0,1fr)_max-content] items-center gap-3 rounded-xl border border-white/6 bg-white/[0.03] px-3 py-2.5",

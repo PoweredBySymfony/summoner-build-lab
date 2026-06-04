@@ -462,7 +462,7 @@ const ItemTooltip = ({
   const hasComponents = item.buildsFrom.length > 0;
   const hasEffects = effectBlocks.length > 0;
   const useScrollableEffects = hasEffects && (layoutMode !== "compact" || hasComponents);
-  const effectBodyClampClass = hasComponents ? "line-clamp-6" : "";
+  const effectBodyClampClass = hasComponents ? "line-clamp-4" : "";
   const statsGridClass = "grid-cols-1";
   const statCardClass =
     layoutMode === "compact"
@@ -521,33 +521,8 @@ const ItemTooltip = ({
             </div>
           ) : null}
 
-          {hasEffects ? (
-            <div className={useScrollableEffects ? itemTooltipClassNames.scrollableSection : itemTooltipClassNames.staticSection}>
-              <div>
-                <div className="space-y-3">
-                  {effectBlocks.map((block, index) => (
-                    <div
-                      key={`${item.id}-block-${index}`}
-                      className={layoutMode === "compact" ? itemTooltipClassNames.effectCardCompact : itemTooltipClassNames.effectCardDefault}
-                    >
-                      <div className={`flex ${block.icon ? "items-start gap-3" : "block"}`}>
-                        {block.icon ? <div className="pt-0.5"><StatBadge icon={block.icon} /></div> : null}
-                        <div className="min-w-0 flex-1">
-                          {block.title ? (
-                            <p className={itemTooltipClassNames.effectTitle}>{block.title}</p>
-                          ) : null}
-                          <p className={`${itemTooltipClassNames.effectBody} ${layoutMode === "compact" ? "leading-5" : "leading-6"} ${effectBodyClampClass}`}>{block.body}</p>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          ) : null}
-
           {item.buildsFrom.length > 0 ? (
-            <div className={itemTooltipClassNames.section}>
+            <div className={itemTooltipClassNames.componentsSection}>
               <p className={itemTooltipClassNames.componentsTitle}>Composants</p>
               {item.buildsFromIcons && item.buildsFromIcons.length > 0 ? (
                 <div className="mt-2 grid grid-cols-[repeat(auto-fit,minmax(36px,36px))] gap-2">
@@ -577,6 +552,31 @@ const ItemTooltip = ({
                   ))}
                 </div>
               )}
+            </div>
+          ) : null}
+
+          {hasEffects ? (
+            <div className={useScrollableEffects ? itemTooltipClassNames.scrollableSection : itemTooltipClassNames.staticSection}>
+              <div>
+                <div className="space-y-3">
+                  {effectBlocks.map((block, index) => (
+                    <div
+                      key={`${item.id}-block-${index}`}
+                      className={layoutMode === "compact" ? itemTooltipClassNames.effectCardCompact : itemTooltipClassNames.effectCardDefault}
+                    >
+                      <div className={`flex ${block.icon ? "items-start gap-3" : "block"}`}>
+                        {block.icon ? <div className="pt-0.5"><StatBadge icon={block.icon} /></div> : null}
+                        <div className="min-w-0 flex-1">
+                          {block.title ? (
+                            <p className={itemTooltipClassNames.effectTitle}>{block.title}</p>
+                          ) : null}
+                          <p className={`${itemTooltipClassNames.effectBody} ${layoutMode === "compact" ? "leading-5" : "leading-6"} ${effectBodyClampClass}`}>{block.body}</p>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
             </div>
           ) : null}
         </div>
