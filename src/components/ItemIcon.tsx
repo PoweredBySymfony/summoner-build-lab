@@ -29,6 +29,33 @@ const sizeMap = {
   lg: "h-16 w-16",
 };
 
+const getTooltipLayoutMetrics = (layoutMode: "compact" | "balanced" | "dense") => {
+  switch (layoutMode) {
+    case "dense":
+      return { width: 384, maxHeight: 540 };
+    case "balanced":
+      return { width: 356, maxHeight: 490 };
+    default:
+      return { width: 332, maxHeight: 430 };
+  }
+};
+
+const getPreviewPopupRole = ({
+  showTooltip,
+  hasDetailAction,
+}: {
+  showTooltip: boolean;
+  hasDetailAction: boolean;
+}) => {
+  if (showTooltip) {
+    return "tooltip" as const;
+  }
+  if (hasDetailAction) {
+    return "dialog" as const;
+  }
+  return undefined;
+};
+
 const renderGlyph = (icon: ItemStatIconKey) => {
   switch (icon) {
     case "attackDamage":
@@ -301,8 +328,7 @@ export const ItemIcon = ({
       : effectBlocks.length > 0 || statLines.length >= 4 || longestStatLabel > 22
         ? "balanced"
         : "compact";
-  const tooltipWidth = layoutMode === "dense" ? 384 : layoutMode === "balanced" ? 356 : 332;
-  const tooltipMaxHeight = layoutMode === "dense" ? 540 : layoutMode === "balanced" ? 490 : 430;
+  const { width: tooltipWidth, maxHeight: tooltipMaxHeight } = getTooltipLayoutMetrics(layoutMode);
 
   useEffect(() => {
     return () => {
@@ -367,7 +393,7 @@ export const ItemIcon = ({
     className: "relative inline-block rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
     "data-item-icon": item.slug,
     "aria-label": item.name,
-    "aria-haspopup": showTooltip ? "tooltip" as const : onOpenDetail ? "dialog" as const : undefined,
+    "aria-haspopup": getPreviewPopupRole({ showTooltip, hasDetailAction: Boolean(onOpenDetail) }),
     "aria-expanded": showTooltip ? hovered : undefined,
     "aria-controls": inspectControls,
     onMouseEnter: scheduleOpen,

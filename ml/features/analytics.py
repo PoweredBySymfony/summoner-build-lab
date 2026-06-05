@@ -204,7 +204,8 @@ def _item_gold_values(catalog: Any, item_id: int) -> tuple[int, int]:
         return 0, 0
     item_meta = catalog.item_meta_by_slug.get(item_slug, {})
     total = safe_int(item_meta.get("goldTotal"))
-    sell = safe_int(item_meta.get("goldSell")) if item_meta.get("goldSell") is not None else int(total * 0.7)
+    gold_sell = item_meta.get("goldSell")
+    sell = safe_int(gold_sell) if gold_sell is not None else int(total * 0.7)
     return total, sell
 
 
@@ -403,8 +404,11 @@ def build_analytic_dataset(config: AppConfig) -> DatasetBuildSummary:
                     inventory.append(item_id)
                     continue
 
+                dict_frame_events = [
+                    frame_event for frame_event in frame_events if isinstance(frame_event, dict)
+                ]
                 gold_available = _gold_before_purchase_from_frame_events(
-                    events=[frame_event for frame_event in frame_events if isinstance(frame_event, dict)],
+                    events=dict_frame_events,
                     participant_id=participant_id,
                     purchase_event_index=purchase_event_index,
                     ending_gold=safe_int(participant_frame.get("currentGold")),
@@ -511,7 +515,9 @@ def build_analytic_dataset(config: AppConfig) -> DatasetBuildSummary:
             raw_dataset["patch_bucket"].isin(["exact_target_patch", "adjacent_recent_patch"])
         ].copy()
         ranking_dataset = raw_ranking_dataset[
-            raw_ranking_dataset["patch_bucket"].isin(["exact_target_patch", "adjacent_recent_patch"])
+            raw_ranking_dataset["patch_bucket"].isin(
+                ["exact_target_patch", "adjacent_recent_patch"]
+            )
         ].copy()
     else:
         raise ValueError(f"Unsupported train_patch_mode: {config.dataset.train_patch_mode}")
@@ -596,12 +602,22 @@ def build_analytic_dataset(config: AppConfig) -> DatasetBuildSummary:
                 if "source_league" in dataset.columns
                 else {}
             ),
-            "snapshots_exact_target_patch": int((dataset["patch_bucket"] == "exact_target_patch").sum()),
-            "snapshots_adjacent_recent_patch": int((dataset["patch_bucket"] == "adjacent_recent_patch").sum()),
-            "snapshots_out_of_target_patch": int((dataset["patch_bucket"] == "out_of_target_patch").sum()),
-            "snapshots_trainable_strict": int((raw_dataset["patch_bucket"] == "exact_target_patch").sum()),
+            "snapshots_exact_target_patch": int(
+                (dataset["patch_bucket"] == "exact_target_patch").sum()
+            ),
+            "snapshots_adjacent_recent_patch": int(
+                (dataset["patch_bucket"] == "adjacent_recent_patch").sum()
+            ),
+            "snapshots_out_of_target_patch": int(
+                (dataset["patch_bucket"] == "out_of_target_patch").sum()
+            ),
+            "snapshots_trainable_strict": int(
+                (raw_dataset["patch_bucket"] == "exact_target_patch").sum()
+            ),
             "snapshots_trainable_preferred_fallback": int(
-                raw_dataset["patch_bucket"].isin(["exact_target_patch", "adjacent_recent_patch"]).sum()
+                raw_dataset["patch_bucket"]
+                .isin(["exact_target_patch", "adjacent_recent_patch"])
+                .sum()
             ),
             "patch_catalogs": manifest.get("patchCatalogs", {}),
             "quality": quality_summary.to_report_payload(),
