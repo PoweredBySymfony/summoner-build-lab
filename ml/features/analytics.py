@@ -96,6 +96,98 @@ class DatasetBuildSummary:
     skipped_matches: int
 
 
+def _extract_match_payloads(record: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]] | None:
+    timeline_wrapper = record.get("timelineData")
+    timeline_raw = timeline_wrapper.get("raw") if isinstance(timeline_wrapper, dict) else None
+    match_wrapper = record.get("matchData", {})
+    match_raw = match_wrapper.get("raw") if isinstance(match_wrapper, dict) else None
+    if not isinstance(timeline_raw, dict) or not isinstance(match_raw, dict):
+        return None
+    return timeline_raw, match_raw
+
+
+def _extract_participants(match_raw: dict[str, Any]) -> list[dict[str, Any]] | None:
+    info = match_raw.get("info", {})
+    participants = info.get("participants", []) if isinstance(info, dict) else []
+    if not isinstance(participants, list):
+        return None
+    return [entry for entry in participants if isinstance(entry, dict)]
+
+
+def _find_target_participant(
+    participants: list[dict[str, Any]],
+    target_puuid: str,
+) -> dict[str, Any] | None:
+    return next(
+        (
+            entry
+            for entry in participants
+            if str(entry.get("puuid") or "") == target_puuid
+        ),
+        None,
+    )
+
+
+def _extract_timeline_frames(timeline_raw: dict[str, Any]) -> list[dict[str, Any]] | None:
+    timeline_info = timeline_raw.get("info", {})
+    frames = timeline_info.get("frames", []) if isinstance(timeline_info, dict) else []
+    if not isinstance(frames, list) or not frames:
+        return None
+    return [frame for frame in frames if isinstance(frame, dict)]
+
+
+def _sorted_timeline_events(frames: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return sorted(
+        (
+            event
+            for frame in frames
+            for event in frame.get("events", [])
+            if isinstance(event, dict)
+        ),
+        key=lambda entry: (safe_int(entry.get("timestamp")), str(entry.get("type") or "")),
+    )
+
+
+def _update_combat_counters(
+    event: dict[str, Any],
+    participant_id: int,
+    kills: int,
+    deaths: int,
+    assists: int,
+) -> tuple[int, int, int]:
+    if str(event.get("type") or "") != "CHAMPION_KILL":
+        return kills, deaths, assists
+
+    if safe_int(event.get("killerId")) == participant_id:
+        kills += 1
+    if safe_int(event.get("victimId")) == participant_id:
+        deaths += 1
+
+    assisting_ids = event.get("assistingParticipantIds", [])
+    normalized_assists = (
+        [safe_int(value) for value in assisting_ids]
+        if isinstance(assisting_ids, list)
+        else []
+    )
+    if participant_id in normalized_assists:
+        assists += 1
+    return kills, deaths, assists
+
+
+def _apply_inventory_event(inventory: list[int], event: dict[str, Any]) -> None:
+    event_type = str(event.get("type") or "")
+    item_id = safe_int(event.get("itemId"))
+    if event_type in {"ITEM_SOLD", "ITEM_DESTROYED"} and item_id > 0:
+        _remove_item_once(inventory, item_id)
+    elif event_type == "ITEM_UNDO":
+        before_id = safe_int(event.get("beforeId"))
+        after_id = safe_int(event.get("afterId"))
+        if before_id > 0:
+            _remove_item_once(inventory, before_id)
+        if after_id > 0:
+            inventory.append(after_id)
+
+
 def _load_json(path: Path) -> Any:
     return json.loads(path.read_text(encoding="utf-8"))
 
@@ -291,17 +383,14 @@ def build_analytic_dataset(config: AppConfig) -> DatasetBuildSummary:
     gold_incoherent_count = 0
 
     for record in raw_matches:
-        timeline_wrapper = record.get("timelineData")
-        timeline_raw = timeline_wrapper.get("raw") if isinstance(timeline_wrapper, dict) else None
-        match_wrapper = record.get("matchData", {})
-        match_raw = match_wrapper.get("raw") if isinstance(match_wrapper, dict) else None
-        if not isinstance(timeline_raw, dict) or not isinstance(match_raw, dict):
+        payloads = _extract_match_payloads(record)
+        if payloads is None:
             skipped_matches += 1
             continue
+        timeline_raw, match_raw = payloads
 
-        info = match_raw.get("info", {})
-        participants = info.get("participants", []) if isinstance(info, dict) else []
-        if not isinstance(participants, list):
+        participants = _extract_participants(match_raw)
+        if participants is None:
             skipped_matches += 1
             continue
 
@@ -314,14 +403,7 @@ def build_analytic_dataset(config: AppConfig) -> DatasetBuildSummary:
             config.paths.champion_catalog_path,
         )
         target_puuid = str(record.get("targetPuuid") or "")
-        participant = next(
-            (
-                entry
-                for entry in participants
-                if isinstance(entry, dict) and str(entry.get("puuid") or "") == target_puuid
-            ),
-            None,
-        )
+        participant = _find_target_participant(participants, target_puuid)
         if participant is None:
             skipped_matches += 1
             continue
@@ -334,48 +416,35 @@ def build_analytic_dataset(config: AppConfig) -> DatasetBuildSummary:
         matches_with_timeline += 1
         own_team_id = safe_int(participant.get("teamId"))
         composition_features = _aggregate_team_features(
-            [entry for entry in participants if isinstance(entry, dict)],
+            participants,
             own_team_id,
             catalog.champion_index,
         )
-        timeline_info = timeline_raw.get("info", {})
-        frames = timeline_info.get("frames", []) if isinstance(timeline_info, dict) else []
-        if not isinstance(frames, list) or not frames:
+        frames = _extract_timeline_frames(timeline_raw)
+        if frames is None:
             skipped_matches += 1
             continue
 
         frame_timestamps, normalized_frames = _frame_state_by_timestamp(
-            [frame for frame in frames if isinstance(frame, dict)]
+            frames
         )
         inventory: list[int] = []
         kills = 0
         deaths = 0
         assists = 0
-        sorted_events = sorted(
-            (
-                event
-                for frame in normalized_frames
-                for event in frame.get("events", [])
-                if isinstance(event, dict)
-            ),
-            key=lambda entry: (safe_int(entry.get("timestamp")), str(entry.get("type") or "")),
-        )
+        sorted_events = _sorted_timeline_events(normalized_frames)
 
-        for _, event in enumerate(sorted_events):
+        for event in sorted_events:
             event_type = str(event.get("type") or "")
             event_timestamp = safe_int(event.get("timestamp"))
 
-            if event_type == "CHAMPION_KILL":
-                if safe_int(event.get("killerId")) == participant_id:
-                    kills += 1
-                if safe_int(event.get("victimId")) == participant_id:
-                    deaths += 1
-                assisting_ids = event.get("assistingParticipantIds", [])
-                normalized_assists = [safe_int(value) for value in assisting_ids] if isinstance(
-                    assisting_ids, list
-                ) else []
-                if participant_id in normalized_assists:
-                    assists += 1
+            kills, deaths, assists = _update_combat_counters(
+                event,
+                participant_id,
+                kills,
+                deaths,
+                assists,
+            )
 
             if safe_int(event.get("participantId")) != participant_id:
                 continue
@@ -475,15 +544,7 @@ def build_analytic_dataset(config: AppConfig) -> DatasetBuildSummary:
                 inventory.append(item_id)
                 continue
 
-            if event_type in {"ITEM_SOLD", "ITEM_DESTROYED"} and item_id > 0:
-                _remove_item_once(inventory, item_id)
-            elif event_type == "ITEM_UNDO":
-                before_id = safe_int(event.get("beforeId"))
-                after_id = safe_int(event.get("afterId"))
-                if before_id > 0:
-                    _remove_item_once(inventory, before_id)
-                if after_id > 0:
-                    inventory.append(after_id)
+            _apply_inventory_event(inventory, event)
 
     raw_dataset = pd.DataFrame(all_rows)
     raw_ranking_dataset = pd.DataFrame(all_ranking_rows)

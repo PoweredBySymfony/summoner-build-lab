@@ -44,7 +44,7 @@ async function fetchItemExplanation(payload: ItemExplanationRequest) {
   }
 
   const inFlight = itemExplanationInFlight.get(key);
-  if (inFlight) {
+  if (inFlight !== undefined) {
     return inFlight;
   }
 

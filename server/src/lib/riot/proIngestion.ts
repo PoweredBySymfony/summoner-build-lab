@@ -107,7 +107,7 @@ export function buildRoundRobinMatchQueue(
   }
 
   const interleavedDiscoveries: ProSeedMatchDiscovery[] = [];
-  const leagueKeys = [...groupedByLeague.keys()].sort();
+  const leagueKeys = [...groupedByLeague.keys()].sort((left, right) => left.localeCompare(right));
   while (interleavedDiscoveries.length < discoveries.length) {
     let progressed = false;
     for (const leagueKey of leagueKeys) {

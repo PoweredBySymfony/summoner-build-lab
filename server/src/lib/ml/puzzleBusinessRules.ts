@@ -1,4 +1,4 @@
-import { Role } from "@prisma/client";
+﻿import { Role } from "@prisma/client";
 import { filterRestrictedItems, type ItemRestrictionReason } from "../itemRestrictions.js";
 import { resolveItemSlug } from "../itemSlugAliases.js";
 import type { MlPuzzleSnapshot } from "./mlPuzzle.js";
@@ -65,7 +65,7 @@ export type MlPuzzleBusinessRulesResult = {
 function createSeededRandom(seed: string) {
   let value = 2166136261;
   for (const character of seed) {
-    value ^= character.charCodeAt(0);
+    value ^= character.codePointAt(0) ?? 0;
     value = Math.imul(value, 16777619);
   }
 
@@ -101,7 +101,7 @@ function uniqueById(items: MlChoiceItem[]) {
 function inferItemProfiles(item: MlChoiceItem) {
   const profiles = new Set<ItemProfile>();
   const category = String(item.category ?? "").trim().toLowerCase();
-  const tags = new Set(item.tags.map((tag) => String(tag)));
+  const tags = new Set(item.tags.map(String));
 
   if (item.isBoots) {
     profiles.add("boots");
@@ -133,7 +133,7 @@ function inferItemProfiles(item: MlChoiceItem) {
 }
 
 function inferAllowedProfiles(snapshot: MlPuzzleSnapshot, championTags: string[]) {
-  const tags = new Set(championTags.map((tag) => String(tag)));
+  const tags = new Set(championTags.map(String));
   const allowed = new Set<ItemProfile>(["boots", "utility"]);
 
   if (tags.has("Mage") || snapshot.role === Role.MID || snapshot.role === Role.SUPPORT) {
@@ -251,7 +251,9 @@ function scoreCandidate(item: MlChoiceItem, goodAnswer: MlChoiceItem, rankedInde
 }
 
 function buildChoiceSignature(goodAnswer: MlChoiceItem, distractors: MlChoiceItem[]) {
-  return [goodAnswer.slug, ...distractors.map((item) => item.slug)].sort().join("|");
+  return [goodAnswer.slug, ...distractors.map((item) => item.slug)]
+    .sort((left, right) => left.localeCompare(right))
+    .join("|");
 }
 
 function getDistractorDecisionBand(goodAnswerGold: number, snapshotGold: number) {
@@ -416,43 +418,64 @@ function classifyTempo(snapshot: MlPuzzleSnapshot) {
     return "mid-game naissant";
   }
   if (snapshot.timestampMinutes < 23) {
-    return "mid-game contesté";
+    return "mid-game contestÃ©";
   }
   return "teamfight d'objectif majeur";
 }
 
+function describePuzzleObjective(snapshot: MlPuzzleSnapshot) {
+  if (snapshot.timestampMinutes < 14) {
+    return "sÃ©curiser la prochaine rotation dragon / plaques";
+  }
+  if (snapshot.timestampMinutes < 23) {
+    return "tenir le prochain fight d'objectif";
+  }
+  return "convertir un fight Nashor / Ã¢me";
+}
+
+function describeGameState(snapshot: MlPuzzleSnapshot) {
+  if (snapshot.kills + snapshot.assists >= snapshot.deaths + 4) {
+    return "avantage Ã  convertir";
+  }
+  if (snapshot.deaths >= snapshot.kills + 2) {
+    return "tempo Ã  stabiliser";
+  }
+  return "fenÃªtre encore Ã©quilibrÃ©e";
+}
+
+function describeGoldState(snapshot: MlPuzzleSnapshot) {
+  if (snapshot.goldAvailable >= 2600) {
+    return "fenÃªtre de spike complet";
+  }
+  if (snapshot.goldAvailable >= 1600) {
+    return "achat intermÃ©diaire dÃ©cisif";
+  }
+  return "budget serrÃ©";
+}
+
+function describeChampionPlan(championTags: string[]) {
+  if (championTags.includes("Mage")) {
+    return "conserver une menace magique crÃ©dible";
+  }
+  if (championTags.includes("Marksman")) {
+    return "prÃ©server un DPS front-to-back crÃ©dible";
+  }
+  if (championTags.includes("Tank")) {
+    return "tenir l'entrÃ©e et protÃ©ger la ligne arriÃ¨re";
+  }
+  return "garder un achat cohÃ©rent avec le plan du champion";
+}
+
 function buildPuzzleObjective(snapshot: MlPuzzleSnapshot, championTags: string[], goodAnswer: MlChoiceItem, seed: string) {
-  const objective =
-    snapshot.timestampMinutes < 14
-      ? "sécuriser la prochaine rotation dragon / plaques"
-      : snapshot.timestampMinutes < 23
-        ? "tenir le prochain fight d'objectif"
-        : "convertir un fight Nashor / âme";
-  const gameState =
-    snapshot.kills + snapshot.assists >= snapshot.deaths + 4
-      ? "avantage à convertir"
-      : snapshot.deaths >= snapshot.kills + 2
-        ? "tempo à stabiliser"
-        : "fenêtre encore équilibrée";
-  const goldState =
-    snapshot.goldAvailable >= 2600
-      ? "fenêtre de spike complet"
-      : snapshot.goldAvailable >= 1600
-        ? "achat intermédiaire décisif"
-        : "budget serré";
-  const championPlan =
-    championTags.includes("Mage")
-      ? "conserver une menace magique crédible"
-      : championTags.includes("Marksman")
-        ? "préserver un DPS front-to-back crédible"
-        : championTags.includes("Tank")
-          ? "tenir l'entrée et protéger la ligne arrière"
-          : "garder un achat cohérent avec le plan du champion";
+  const objective = describePuzzleObjective(snapshot);
+  const gameState = describeGameState(snapshot);
+  const goldState = describeGoldState(snapshot);
+  const championPlan = describeChampionPlan(championTags);
   const angle = shuffleWithSeed(
     [
-      "Évalue le prochain achat le plus crédible pour le fight à venir.",
-      "Trouve l'achat qui garde le plan de jeu cohérent sans solution triviale.",
-      "La bonne réponse doit rester réaliste pour ce timing et ce profil de champion.",
+      "Ã‰value le prochain achat le plus crÃ©dible pour le fight Ã  venir.",
+      "Trouve l'achat qui garde le plan de jeu cohÃ©rent sans solution triviale.",
+      "La bonne rÃ©ponse doit rester rÃ©aliste pour ce timing et ce profil de champion.",
     ],
     `${seed}:objective-copy`,
   )[0];
@@ -460,7 +483,7 @@ function buildPuzzleObjective(snapshot: MlPuzzleSnapshot, championTags: string[]
   return {
     objectiveState: {
       objectif: objective,
-      fenêtre: goldState,
+      fenÃªtre: goldState,
       contexte: gameState,
     },
     damageProfile: {
@@ -475,6 +498,88 @@ function buildPuzzleObjective(snapshot: MlPuzzleSnapshot, championTags: string[]
     },
     notes: angle,
   };
+}
+
+function recordRejectedItems(
+  rejections: Array<{
+    item: MlChoiceItem;
+    reasons: Array<ItemRestrictionReason | MlCandidateRuleReason>;
+  }>,
+  filterReasonCounts: Record<CandidateFilterReason, number>,
+  restrictedCandidateSamples: Array<{ slug: string; reasons: Array<ItemRestrictionReason | MlCandidateRuleReason> }>,
+) {
+  for (const rejection of rejections) {
+    for (const reason of rejection.reasons) {
+      filterReasonCounts[reason] += 1;
+    }
+    if (restrictedCandidateSamples.length < 20) {
+      restrictedCandidateSamples.push({
+        slug: rejection.item.slug,
+        reasons: rejection.reasons,
+      });
+    }
+  }
+}
+
+function filterChampionCandidates(
+  candidates: MlChoiceItem[],
+  currentItems: Set<string>,
+  allowedProfiles: ItemProfile[],
+  filterReasonCounts: Record<CandidateFilterReason, number>,
+) {
+  return candidates.filter((item) => {
+    if (currentItems.has(item.slug)) {
+      filterReasonCounts["already-owned"] += 1;
+      return false;
+    }
+    if (!isItemCoherent(item, allowedProfiles)) {
+      filterReasonCounts["incoherent-with-champion"] += 1;
+      return false;
+    }
+    return true;
+  });
+}
+
+function filterGoldCandidates(
+  candidates: MlChoiceItem[],
+  goodAnswer: MlChoiceItem,
+  allowedProfiles: ItemProfile[],
+  goldFilter: ReturnType<typeof buildGoldWindow>,
+  filterReasonCounts: Record<CandidateFilterReason, number>,
+) {
+  return candidates.filter((item) => {
+    if (!goldFilter.applied) {
+      return true;
+    }
+    if (
+      item.goldTotal < goldFilter.minGold
+      && !isLegitimateCheapComponent({ item, goodAnswer, allowedProfiles, goldFilter })
+    ) {
+      filterReasonCounts["too-cheap"] += 1;
+      return false;
+    }
+    if (item.goldTotal > goldFilter.maxGold) {
+      filterReasonCounts["too-expensive"] += 1;
+      return false;
+    }
+    return true;
+  });
+}
+
+function getGoodAnswerGoldAssessment(
+  goodAnswerViolations: CandidateFilterReason[],
+  goodAnswerIsLegitimateCheapComponent: boolean,
+) {
+  if (goodAnswerViolations.includes("too-expensive")) {
+    return "too-expensive";
+  }
+  if (goodAnswerViolations.includes("too-cheap")) {
+    return "too-cheap";
+  }
+  if (goodAnswerIsLegitimateCheapComponent) {
+    return "legitimate-component";
+  }
+  return "in-window";
 }
 
 export function buildMlPuzzleBusinessRules(
@@ -529,68 +634,28 @@ export function buildMlPuzzleBusinessRules(
     patch: input.snapshot.patch,
     role: input.snapshot.role,
   });
-  for (const rejection of restricted.rejectedItems) {
-    for (const reason of rejection.reasons) {
-      filterReasonCounts[reason] += 1;
-    }
-    if (restrictedCandidateSamples.length < 20) {
-      restrictedCandidateSamples.push({
-        slug: rejection.item.slug,
-        reasons: rejection.reasons,
-      });
-    }
-  }
+  recordRejectedItems(restricted.rejectedItems, filterReasonCounts, restrictedCandidateSamples);
   const structural = filterMlCandidateRules(restricted.allowedItems, {
     role: input.snapshot.role,
     catalog: input.availableItems,
     ownedItems,
   });
-  for (const rejection of structural.rejectedItems) {
-    for (const reason of rejection.reasons) {
-      filterReasonCounts[reason] += 1;
-    }
-    if (restrictedCandidateSamples.length < 20) {
-      restrictedCandidateSamples.push({
-        slug: rejection.item.slug,
-        reasons: rejection.reasons,
-      });
-    }
-  }
+  recordRejectedItems(structural.rejectedItems, filterReasonCounts, restrictedCandidateSamples);
 
-  const afterChampion = structural.allowedItems.filter((item) => {
-    if (currentItems.has(item.slug)) {
-      filterReasonCounts["already-owned"] += 1;
-      return false;
-    }
-    if (!isItemCoherent(item, allowedProfiles)) {
-      filterReasonCounts["incoherent-with-champion"] += 1;
-      return false;
-    }
-    return true;
-  });
+  const afterChampion = filterChampionCandidates(
+    structural.allowedItems,
+    currentItems,
+    allowedProfiles,
+    filterReasonCounts,
+  );
 
-  const afterGold = afterChampion.filter((item) => {
-    if (!goldFilter.applied) {
-      return true;
-    }
-    if (
-      item.goldTotal < goldFilter.minGold
-      && !isLegitimateCheapComponent({
-        item,
-        goodAnswer: input.goodAnswer,
-        allowedProfiles,
-        goldFilter,
-      })
-    ) {
-      filterReasonCounts["too-cheap"] += 1;
-      return false;
-    }
-    if (item.goldTotal > goldFilter.maxGold) {
-      filterReasonCounts["too-expensive"] += 1;
-      return false;
-    }
-    return true;
-  });
+  const afterGold = filterGoldCandidates(
+    afterChampion,
+    input.goodAnswer,
+    allowedProfiles,
+    goldFilter,
+    filterReasonCounts,
+  );
 
   const rankedIndex = new Map(input.rankedCandidates.map((item, index) => [item.slug, index]));
   const strictCandidates = [...afterGold].sort((left, right) => {
@@ -646,14 +711,10 @@ export function buildMlPuzzleBusinessRules(
       restrictedCandidateSamples,
       allowedProfiles,
       goldFilter,
-      goodAnswerGoldAssessment:
-        goodAnswerViolations.includes("too-expensive")
-          ? "too-expensive"
-          : goodAnswerViolations.includes("too-cheap")
-            ? "too-cheap"
-            : goodAnswerIsLegitimateCheapComponent
-              ? "legitimate-component"
-              : "in-window",
+      goodAnswerGoldAssessment: getGoodAnswerGoldAssessment(
+        goodAnswerViolations,
+        goodAnswerIsLegitimateCheapComponent,
+      ),
       preferredSignature: selected.signature,
       previousSignatureCount: input.previousChoiceSignatures.length,
       historyAvoided: selected.historyAvoided,
@@ -667,7 +728,7 @@ export function buildChoiceSignatureForHistory(
   goodAnswerSlug: string,
   distractorSlugs: string[],
 ) {
-  return [goodAnswerSlug, ...distractorSlugs].sort().join("|");
+  return [goodAnswerSlug, ...distractorSlugs].sort((left, right) => left.localeCompare(right)).join("|");
 }
 
 export function shuffleResolvedChoices(

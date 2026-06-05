@@ -215,12 +215,12 @@ export async function resolveNewestExistingPath(candidates: string[]) {
     })),
   );
 
-  const newest = rankedPaths
-    .sort((left, right) =>
+  const sortedRankedPaths = [...rankedPaths].sort((left, right) =>
       right.stats.mtimeMs - left.stats.mtimeMs
       || right.stats.size - left.stats.size
       || left.candidatePath.localeCompare(right.candidatePath),
-    )[0];
+    );
+  const newest = sortedRankedPaths[0];
 
   return newest?.candidatePath ?? resolveFirstExistingPath(candidates);
 }

@@ -9,12 +9,12 @@ declare global {
 }
 
 export const prisma =
-  global.__prisma ??
+  globalThis.__prisma ??
   new PrismaClient({
     adapter,
     log: ["warn", "error"],
   });
 
 if (process.env.NODE_ENV !== "production") {
-  global.__prisma = prisma;
+  globalThis.__prisma = prisma;
 }

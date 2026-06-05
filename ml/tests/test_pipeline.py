@@ -190,12 +190,13 @@ def make_raw_export(tmp_path: Path) -> AppConfig:
         },
     }
     write_json(config.paths.export_manifest_path, manifest)
+    catalog_patch_dir = config.paths.raw_data_dir / "catalogs" / "26.1"
     write_json(
-        tmp_path / "raw" / "catalogs" / "26.1" / "item_catalog.json",
+        catalog_patch_dir / "item_catalog.json",
         json.loads(config.paths.item_catalog_path.read_text(encoding="utf-8")),
     )
     write_json(
-        tmp_path / "raw" / "catalogs" / "26.1" / "champion_catalog.json",
+        catalog_patch_dir / "champion_catalog.json",
         json.loads(config.paths.champion_catalog_path.read_text(encoding="utf-8")),
     )
 

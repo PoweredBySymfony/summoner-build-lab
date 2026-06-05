@@ -417,7 +417,7 @@ async function getPreviousChoiceSignatures(input: {
         .filter((slug): slug is string => Boolean(slug)) ?? [],
     )
     .filter((slugs) => slugs.length === 4)
-    .map((slugs) => [...slugs].sort().join("|"));
+    .map((slugs) => [...slugs].sort((left, right) => left.localeCompare(right)).join("|"));
 }
 
 async function getPreviousServedSnapshots(input: {

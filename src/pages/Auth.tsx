@@ -84,7 +84,7 @@ const Auth = () => {
                 disabled={googleUrl.isLoading || !googleUrl.data}
                 onClick={() => {
                   if (googleUrl.data) {
-                    window.location.href = googleUrl.data;
+                    globalThis.location.href = googleUrl.data;
                   }
                 }}
               >

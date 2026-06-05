@@ -3,7 +3,7 @@ import { buildComparisonSummary, formatStatValue, getStatDefinition } from "@/li
 
 const STORAGE_KEY = "summoner-build-lab:item-lab-experiments";
 
-const canUseStorage = () => typeof window !== "undefined" && typeof window.localStorage !== "undefined";
+const canUseStorage = () => globalThis.window !== undefined && globalThis.localStorage !== undefined;
 
 export const getSavedExperiments = (): SavedLabExperiment[] => {
   if (!canUseStorage()) {
@@ -11,7 +11,7 @@ export const getSavedExperiments = (): SavedLabExperiment[] => {
   }
 
   try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
+    const raw = globalThis.localStorage.getItem(STORAGE_KEY);
     if (!raw) {
       return [];
     }
@@ -35,7 +35,7 @@ export const persistExperiment = (experiment: SavedLabExperiment) => {
   } else {
     entries.unshift(experiment);
   }
-  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(entries.slice(0, 20)));
+  globalThis.localStorage.setItem(STORAGE_KEY, JSON.stringify(entries.slice(0, 20)));
 };
 
 export const deleteSavedExperiment = (id: string) => {
@@ -44,7 +44,7 @@ export const deleteSavedExperiment = (id: string) => {
   }
 
   const entries = getSavedExperiments().filter((entry) => entry.id !== id);
-  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(entries));
+  globalThis.localStorage.setItem(STORAGE_KEY, JSON.stringify(entries));
 };
 
 const formatItemList = (items: SetupAnalysis["items"]) => (items.length > 0 ? items.map((item) => item.name).join(", ") : "Aucun item");

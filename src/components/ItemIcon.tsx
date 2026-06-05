@@ -41,15 +41,10 @@ const getTooltipLayoutMetrics = (layoutMode: "compact" | "balanced" | "dense") =
 };
 
 const getPreviewPopupRole = ({
-  showTooltip,
   hasDetailAction,
 }: {
-  showTooltip: boolean;
   hasDetailAction: boolean;
 }) => {
-  if (showTooltip) {
-    return "tooltip" as const;
-  }
   if (hasDetailAction) {
     return "dialog" as const;
   }
@@ -193,16 +188,16 @@ const TooltipPortal = ({
     const updatePosition = () => {
       const rect = anchor.getBoundingClientRect();
       const boundaryRect = anchor.closest("[data-item-tooltip-anchor-area]")?.getBoundingClientRect() ?? rect;
-      const fallbackWidth = Math.min(preferredWidth, window.innerWidth - viewportPadding * 2);
+      const fallbackWidth = Math.min(preferredWidth, globalThis.innerWidth - viewportPadding * 2);
       const measuredWidth = containerRef.current?.offsetWidth ?? fallbackWidth;
       const measuredHeight =
-        containerRef.current?.offsetHeight ?? Math.min(preferredMaxHeight, window.innerHeight - viewportPadding * 2);
-      const width = Math.min(measuredWidth, window.innerWidth - viewportPadding * 2);
-      const panelHeight = Math.min(measuredHeight, window.innerHeight - viewportPadding * 2);
+        containerRef.current?.offsetHeight ?? Math.min(preferredMaxHeight, globalThis.innerHeight - viewportPadding * 2);
+      const width = Math.min(measuredWidth, globalThis.innerWidth - viewportPadding * 2);
+      const panelHeight = Math.min(measuredHeight, globalThis.innerHeight - viewportPadding * 2);
       const gap = 20;
-      const spaceRight = window.innerWidth - boundaryRect.right - viewportPadding;
+      const spaceRight = globalThis.innerWidth - boundaryRect.right - viewportPadding;
       const spaceLeft = boundaryRect.left - viewportPadding;
-      const spaceBottom = window.innerHeight - boundaryRect.bottom - viewportPadding;
+      const spaceBottom = globalThis.innerHeight - boundaryRect.bottom - viewportPadding;
       const spaceTop = boundaryRect.top - viewportPadding;
 
       let nextPlacement: "right" | "left" | "top" | "bottom" = "right";
@@ -223,10 +218,10 @@ const TooltipPortal = ({
       if (nextPlacement === "right" || nextPlacement === "left") {
         const left =
           nextPlacement === "right"
-            ? Math.min(window.innerWidth - width - viewportPadding, boundaryRect.right + gap)
+            ? Math.min(globalThis.innerWidth - width - viewportPadding, boundaryRect.right + gap)
             : Math.max(viewportPadding, boundaryRect.left - width - gap);
         const top = Math.min(
-          window.innerHeight - panelHeight - viewportPadding,
+          globalThis.innerHeight - panelHeight - viewportPadding,
           Math.max(viewportPadding, boundaryRect.top + boundaryRect.height / 2 - panelHeight / 2),
         );
 
@@ -242,13 +237,13 @@ const TooltipPortal = ({
       }
 
       const left = Math.min(
-        window.innerWidth - width - viewportPadding,
+        globalThis.innerWidth - width - viewportPadding,
         Math.max(viewportPadding, boundaryRect.left + boundaryRect.width / 2 - width / 2),
       );
       const top =
         nextPlacement === "top"
           ? Math.max(viewportPadding, boundaryRect.top - panelHeight - gap)
-          : Math.min(window.innerHeight - panelHeight - viewportPadding, boundaryRect.bottom + gap);
+          : Math.min(globalThis.innerHeight - panelHeight - viewportPadding, boundaryRect.bottom + gap);
 
       setStyle({
         position: "fixed",
@@ -265,7 +260,7 @@ const TooltipPortal = ({
         return;
       }
 
-      frameId = window.requestAnimationFrame(() => {
+      frameId = globalThis.requestAnimationFrame(() => {
         frameId = null;
         updatePosition();
       });
@@ -275,19 +270,19 @@ const TooltipPortal = ({
       position: "fixed",
       left: viewportPadding,
       top: viewportPadding,
-      width: Math.min(preferredWidth, window.innerWidth - viewportPadding * 2),
+      width: Math.min(preferredWidth, globalThis.innerWidth - viewportPadding * 2),
       zIndex: 9999,
       visibility: "hidden",
     });
     scheduleUpdate();
-    window.addEventListener("scroll", scheduleUpdate, true);
-    window.addEventListener("resize", scheduleUpdate);
+    globalThis.addEventListener("scroll", scheduleUpdate, true);
+    globalThis.addEventListener("resize", scheduleUpdate);
     return () => {
       if (frameId !== null) {
-        window.cancelAnimationFrame(frameId);
+        globalThis.cancelAnimationFrame(frameId);
       }
-      window.removeEventListener("scroll", scheduleUpdate, true);
-      window.removeEventListener("resize", scheduleUpdate);
+      globalThis.removeEventListener("scroll", scheduleUpdate, true);
+      globalThis.removeEventListener("resize", scheduleUpdate);
     };
   }, [anchor, preferredMaxHeight, preferredWidth]);
 
@@ -313,8 +308,8 @@ export const ItemIcon = ({
   const [active, setActive] = useState(false);
   const [failed, setFailed] = useState(false);
   const triggerRef = useRef<HTMLElement | null>(null);
-  const openTimeoutRef = useRef<number | null>(null);
-  const closeTimeoutRef = useRef<number | null>(null);
+  const openTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const closeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const canPreview = showTooltip || Boolean(onInspect) || Boolean(onOpenDetail);
   const canInteract = interactive && canPreview;
   const statLines = useMemo(() => getItemStatLines(item), [item]);
@@ -333,10 +328,10 @@ export const ItemIcon = ({
   useEffect(() => {
     return () => {
       if (openTimeoutRef.current !== null) {
-        window.clearTimeout(openTimeoutRef.current);
+        globalThis.clearTimeout(openTimeoutRef.current);
       }
       if (closeTimeoutRef.current !== null) {
-        window.clearTimeout(closeTimeoutRef.current);
+        globalThis.clearTimeout(closeTimeoutRef.current);
       }
     };
   }, []);
@@ -347,7 +342,7 @@ export const ItemIcon = ({
     }
 
     if (closeTimeoutRef.current !== null) {
-      window.clearTimeout(closeTimeoutRef.current);
+      globalThis.clearTimeout(closeTimeoutRef.current);
       closeTimeoutRef.current = null;
     }
 
@@ -359,10 +354,10 @@ export const ItemIcon = ({
     }
 
     if (openTimeoutRef.current !== null) {
-      window.clearTimeout(openTimeoutRef.current);
+      globalThis.clearTimeout(openTimeoutRef.current);
     }
 
-    openTimeoutRef.current = window.setTimeout(() => {
+    openTimeoutRef.current = globalThis.setTimeout(() => {
       setHovered(true);
       openTimeoutRef.current = null;
     }, 120);
@@ -374,15 +369,15 @@ export const ItemIcon = ({
     }
 
     if (openTimeoutRef.current !== null) {
-      window.clearTimeout(openTimeoutRef.current);
+      globalThis.clearTimeout(openTimeoutRef.current);
       openTimeoutRef.current = null;
     }
 
     if (closeTimeoutRef.current !== null) {
-      window.clearTimeout(closeTimeoutRef.current);
+      globalThis.clearTimeout(closeTimeoutRef.current);
     }
 
-    closeTimeoutRef.current = window.setTimeout(() => {
+    closeTimeoutRef.current = globalThis.setTimeout(() => {
       setActive(false);
       setHovered(false);
       closeTimeoutRef.current = null;
@@ -393,7 +388,7 @@ export const ItemIcon = ({
     className: "relative inline-block rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
     "data-item-icon": item.slug,
     "aria-label": item.name,
-    "aria-haspopup": getPreviewPopupRole({ showTooltip, hasDetailAction: Boolean(onOpenDetail) }),
+    "aria-haspopup": getPreviewPopupRole({ hasDetailAction: Boolean(onOpenDetail) }),
     "aria-expanded": showTooltip ? hovered : undefined,
     "aria-controls": inspectControls,
     onMouseEnter: scheduleOpen,
