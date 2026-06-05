@@ -9,6 +9,63 @@
     --font-heading: 'Rajdhani', sans-serif;
     --font-body: 'Inter', sans-serif;
 
+    color-scheme: light;
+
+    --background: 45 33% 96%;
+    --foreground: 223 30% 14%;
+
+    --card: 42 38% 99%;
+    --card-foreground: 223 30% 14%;
+
+    --popover: 42 38% 99%;
+    --popover-foreground: 223 30% 14%;
+
+    --primary: 40 86% 42%;
+    --primary-foreground: 44 50% 98%;
+
+    --secondary: 215 26% 90%;
+    --secondary-foreground: 223 30% 18%;
+
+    --muted: 215 22% 91%;
+    --muted-foreground: 217 14% 40%;
+
+    --accent: 189 78% 38%;
+    --accent-foreground: 44 50% 98%;
+
+    --destructive: 0 70% 48%;
+    --destructive-foreground: 44 50% 98%;
+
+    --success: 145 56% 34%;
+    --success-foreground: 44 50% 98%;
+
+    --border: 216 22% 82%;
+    --input: 216 22% 84%;
+    --ring: 40 86% 42%;
+
+    --radius: 0.5rem;
+
+    --gold: 40 86% 42%;
+    --gold-dim: 39 54% 54%;
+    --cyan: 189 78% 38%;
+    --cyan-dim: 190 46% 52%;
+
+    --surface-glass: 42 38% 99%;
+    --surface-elevated: 43 40% 97%;
+    --surface-overlay: 42 38% 99%;
+
+    --sidebar-background: 44 45% 98%;
+    --sidebar-foreground: 223 30% 18%;
+    --sidebar-primary: 40 86% 42%;
+    --sidebar-primary-foreground: 44 50% 98%;
+    --sidebar-accent: 215 26% 90%;
+    --sidebar-accent-foreground: 223 30% 18%;
+    --sidebar-border: 216 22% 82%;
+    --sidebar-ring: 40 86% 42%;
+  }
+
+  .dark {
+    color-scheme: dark;
+
     --background: 222 47% 6%;
     --foreground: 210 20% 92%;
 
@@ -39,8 +96,6 @@
     --border: 215 25% 18%;
     --input: 215 25% 15%;
     --ring: 43 80% 55%;
-
-    --radius: 0.5rem;
 
     --gold: 43 80% 55%;
     --gold-dim: 43 60% 35%;
@@ -98,14 +153,14 @@
   }
 
   .glass-surface {
-    background: linear-gradient(135deg, hsl(220 40% 9% / 0.9), hsl(220 40% 7% / 0.95));
+    background: linear-gradient(135deg, hsl(var(--surface-glass) / 0.9), hsl(var(--surface-overlay) / 0.95));
     backdrop-filter: blur(12px);
-    border: 1px solid hsl(215 25% 18% / 0.6);
+    border: 1px solid hsl(var(--border) / 0.6);
   }
 
   .surface-elevated {
-    background: linear-gradient(180deg, hsl(220 35% 12%), hsl(220 38% 10%));
-    border: 1px solid hsl(215 25% 18% / 0.5);
+    background: linear-gradient(180deg, hsl(var(--surface-elevated)), hsl(var(--surface-glass)));
+    border: 1px solid hsl(var(--border) / 0.5);
   }
 
   .layer-base {
@@ -138,12 +193,12 @@
 
   .item-slot {
     @apply w-12 h-12 rounded-md border border-border/60 bg-muted/50 flex items-center justify-center overflow-hidden;
-    box-shadow: inset 0 2px 4px hsl(222 47% 4% / 0.5);
+    box-shadow: inset 0 2px 4px hsl(var(--foreground) / 0.12);
   }
 
   .item-slot-lg {
     @apply w-16 h-16 rounded-lg border border-border/60 bg-muted/50 flex items-center justify-center overflow-hidden;
-    box-shadow: inset 0 2px 6px hsl(222 47% 4% / 0.5);
+    box-shadow: inset 0 2px 6px hsl(var(--foreground) / 0.12);
   }
 }
 
@@ -152,12 +207,12 @@
   width: 6px;
 }
 ::-webkit-scrollbar-track {
-  background: hsl(222 47% 6%);
+  background: hsl(var(--background));
 }
 ::-webkit-scrollbar-thumb {
-  background: hsl(215 25% 22%);
+  background: hsl(var(--border));
   border-radius: 3px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: hsl(215 25% 30%);
+  background: hsl(var(--muted-foreground));
 }

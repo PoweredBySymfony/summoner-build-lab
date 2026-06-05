@@ -1,6 +1,7 @@
 import { Link, useLocation } from "react-router-dom";
 import { BrainCircuit, Flame, FlaskConical, LayoutDashboard, Shield, Swords, Trophy, User } from "lucide-react";
 import { useCurrentUser, useLogout } from "@/api/hooks";
+import ThemeToggle from "@/components/ThemeToggle";
 
 const Navbar = () => {
   const location = useLocation();
@@ -49,6 +50,8 @@ const Navbar = () => {
         </div>
 
         <div className="flex items-center gap-2">
+          <ThemeToggle />
+
           <Link to="/training" className="hidden h-11 items-center gap-2 rounded-lg bg-secondary px-4 text-sm text-foreground sm:flex">
             <Trophy className="h-4 w-4" />
             S&apos;entraîner
