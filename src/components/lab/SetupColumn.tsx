@@ -302,7 +302,7 @@ const SetupColumn = ({
                                     setItemSearch("");
                                   }}
                                 >
-                                  <ItemIcon item={item} size="sm" showTooltip={false} interactive={false} />
+                                  <ItemIcon item={item} size="sm" showTooltip interactive={false} />
                                   <div className="min-w-0 flex-1">
                                     <p className="truncate text-sm font-medium text-foreground">{item.name}</p>
                                     <p className="truncate text-xs text-muted-foreground">{item.cost} or · {item.tags.slice(0, 3).join(" · ")}</p>

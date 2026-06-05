@@ -21,6 +21,7 @@ import {
 } from "@/api/hooks";
 import { Button } from "@/components/ui/button";
 import ThemeToggle from "@/components/ThemeToggle";
+import UserMenu from "@/components/UserMenu";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -189,15 +190,7 @@ const Admin = () => {
               </div>
               <div className="flex items-center gap-2">
                 <ThemeToggle />
-                <Button variant="outline" asChild>
-                  <Link to="/">
-                    <ArrowLeft className="h-4 w-4" />
-                    Retour au site
-                  </Link>
-                </Button>
-                <div className="rounded-xl border border-primary/20 bg-primary/10 px-4 py-2 text-sm text-primary">
-                  Admin connecte : {user?.username}
-                </div>
+                {user ? <UserMenu username={user.username} showBackoffice={false} showReturnToSite /> : null}
               </div>
             </div>
           </header>

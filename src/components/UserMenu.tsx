@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { LayoutDashboard, LogOut, Shield, User } from "lucide-react";
+import { ArrowLeft, LayoutDashboard, LogOut, Shield, User } from "lucide-react";
 
 import { useLogout } from "@/api/hooks";
 import { Button } from "@/components/ui/button";
@@ -15,9 +15,18 @@ import {
 type UserMenuProps = {
   username: string;
   isAdmin?: boolean;
+  showBackoffice?: boolean;
+  showReturnToSite?: boolean;
 };
 
-const UserMenu = ({ username, isAdmin }: UserMenuProps) => {
+const menuItemClass = "gap-2 rounded-md focus:bg-primary/10 focus:text-foreground";
+
+const UserMenu = ({
+  username,
+  isAdmin,
+  showBackoffice = isAdmin,
+  showReturnToSite = false,
+}: UserMenuProps) => {
   const logout = useLogout();
 
   return (
@@ -35,29 +44,37 @@ const UserMenu = ({ username, isAdmin }: UserMenuProps) => {
       <DropdownMenuContent align="end" className="w-56 rounded-lg">
         <DropdownMenuLabel className="truncate">{username}</DropdownMenuLabel>
         <DropdownMenuSeparator />
-        <DropdownMenuItem asChild>
-          <Link to="/dashboard" className="gap-2">
+        <DropdownMenuItem asChild className={menuItemClass}>
+          <Link to="/dashboard">
             <LayoutDashboard className="h-4 w-4" />
             Ma progression
           </Link>
         </DropdownMenuItem>
-        <DropdownMenuItem asChild>
-          <Link to="/profile" className="gap-2">
+        <DropdownMenuItem asChild className={menuItemClass}>
+          <Link to="/profile">
             <User className="h-4 w-4" />
             Mon profil
           </Link>
         </DropdownMenuItem>
-        {isAdmin ? (
-          <DropdownMenuItem asChild>
-            <Link to="/admin" className="gap-2">
+        {showBackoffice ? (
+          <DropdownMenuItem asChild className={menuItemClass}>
+            <Link to="/admin">
               <Shield className="h-4 w-4" />
               Backoffice
             </Link>
           </DropdownMenuItem>
         ) : null}
+        {showReturnToSite ? (
+          <DropdownMenuItem asChild className={menuItemClass}>
+            <Link to="/">
+              <ArrowLeft className="h-4 w-4" />
+              Retour au site
+            </Link>
+          </DropdownMenuItem>
+        ) : null}
         <DropdownMenuSeparator />
         <DropdownMenuItem
-          className="gap-2 text-destructive focus:text-destructive"
+          className="gap-2 rounded-md text-destructive focus:bg-destructive/10 focus:text-destructive"
           onClick={() => logout.mutate()}
         >
           <LogOut className="h-4 w-4" />
