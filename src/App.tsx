@@ -78,7 +78,6 @@ const AppFrame = () => {
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/modules" element={<Modules />} />
           <Route path="/puzzles" element={<Modules />} />
-          <Route path="/training" element={<KeyedTrainingRoute />} />
           <Route path="/training/:slug" element={<KeyedTrainingRoute />} />
           <Route path="/daily" element={<Daily />} />
           <Route path="/auth" element={<Auth />} />

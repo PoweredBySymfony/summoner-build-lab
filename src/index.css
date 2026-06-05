@@ -20,7 +20,7 @@
     --popover: 42 38% 99%;
     --popover-foreground: 223 30% 14%;
 
-    --primary: 40 86% 42%;
+    --primary: 40 86% 30%;
     --primary-foreground: 44 50% 98%;
 
     --secondary: 215 26% 90%;
@@ -40,12 +40,12 @@
 
     --border: 216 22% 82%;
     --input: 216 22% 84%;
-    --ring: 40 86% 42%;
+    --ring: 40 86% 30%;
 
     --radius: 0.5rem;
 
-    --gold: 40 86% 42%;
-    --gold-dim: 39 54% 54%;
+    --gold: 40 86% 30%;
+    --gold-dim: 39 54% 42%;
     --cyan: 189 78% 38%;
     --cyan-dim: 190 46% 52%;
 
@@ -55,12 +55,12 @@
 
     --sidebar-background: 44 45% 98%;
     --sidebar-foreground: 223 30% 18%;
-    --sidebar-primary: 40 86% 42%;
+    --sidebar-primary: 40 86% 30%;
     --sidebar-primary-foreground: 44 50% 98%;
     --sidebar-accent: 215 26% 90%;
     --sidebar-accent-foreground: 223 30% 18%;
     --sidebar-border: 216 22% 82%;
-    --sidebar-ring: 40 86% 42%;
+    --sidebar-ring: 40 86% 30%;
   }
 
   .dark {

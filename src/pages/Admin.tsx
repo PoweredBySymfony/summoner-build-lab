@@ -20,6 +20,7 @@ import {
   useCurrentUser,
 } from "@/api/hooks";
 import { Button } from "@/components/ui/button";
+import ThemeToggle from "@/components/ThemeToggle";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -187,6 +188,7 @@ const Admin = () => {
                 </div>
               </div>
               <div className="flex items-center gap-2">
+                <ThemeToggle />
                 <Button variant="outline" asChild>
                   <Link to="/">
                     <ArrowLeft className="h-4 w-4" />
