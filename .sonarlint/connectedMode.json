@@ -1,5 +1,4 @@
 {
-    "sonarCloudOrganization": "poweredbysymfony",
-    "projectKey": "PoweredBySymfony_summoner-build-lab",
-    "region": "EU"
+    "sonarQubeUri": "http://localhost:9000",
+    "projectKey": "summoner-build-lab"
 }
