@@ -19,6 +19,8 @@ type ScenarioChampionRef = {
   note?: string;
 };
 
+type ChampionRef = Pick<Champion, "id" | "riotChampionId" | "championKey" | "slug" | "rolePrimary"> | null;
+
 const slotOrder: Role[] = [Role.TOP, Role.JUNGLE, Role.MID, Role.ADC, Role.SUPPORT];
 
 const defaultItemSlugsByRole: Record<Role, string[]> = {
@@ -71,6 +73,30 @@ function resolveItemRef(itemRefIndex: Map<string, ScenarioItemRef>, raw: string)
   return itemRefIndex.get(raw) ?? itemRefIndex.get(resolveItemSlug(raw)) ?? null;
 }
 
+function resolveItemRefs(itemRefIndex: Map<string, ScenarioItemRef>, slugs: string[]) {
+  return slugs
+    .map((slug) => resolveItemRef(itemRefIndex, slug))
+    .filter(notNull);
+}
+
+function getDefaultItemRefs(itemRefIndex: Map<string, ScenarioItemRef>, role: Role | null) {
+  return role ? resolveItemRefs(itemRefIndex, defaultItemSlugsByRole[role]) : [];
+}
+
+function getLegacySlugs(value: Prisma.JsonValue, shouldRebuild: boolean) {
+  return shouldRebuild && isLegacyStringArray(value) ? value : [];
+}
+
+function getLegacyStringArray(value: Prisma.JsonValue) {
+  return isLegacyStringArray(value) ? value : [];
+}
+
+function getEnemyVisibleSlugs(value: Prisma.JsonValue) {
+  return Array.isArray(value) && value.every((entry) => typeof entry === "string")
+    ? (value as string[])
+    : [];
+}
+
 function inferTeamSlots(
   championEntries: Array<Pick<Champion, "slug" | "rolePrimary"> | null>,
   playerChampionSlug: string,
@@ -107,6 +133,120 @@ function inferTeamSlots(
   return resolved;
 }
 
+function buildMember(
+  champion: ChampionRef,
+  fallbackSlug: string,
+  role: Role | null,
+  itemRefs: ScenarioItemRef[],
+): ScenarioChampionRef {
+  return {
+    championId: champion?.id ?? fallbackSlug,
+    riotChampionId: champion?.riotChampionId ?? null,
+    championKey: champion?.championKey ?? null,
+    championSlug: champion?.slug ?? fallbackSlug,
+    role,
+    items: itemRefs,
+  };
+}
+
+function buildAllyTeam(input: {
+  allySlugs: string[];
+  allyChampions: ChampionRef[];
+  allyRoles: Array<Role | null>;
+  playerChampionSlug: string;
+  currentBuild: ScenarioItemRef[];
+  itemRefIndex: Map<string, ScenarioItemRef>;
+}) {
+  return input.allySlugs.map((slug, index) => {
+    const champion = input.allyChampions[index];
+    const role = input.allyRoles[index];
+    const isPlayer = slug === input.playerChampionSlug;
+    const items = isPlayer ? input.currentBuild : getDefaultItemRefs(input.itemRefIndex, role);
+
+    return buildMember(champion, slug, role, items);
+  });
+}
+
+function buildEnemyTeam(input: {
+  enemySlugs: string[];
+  enemyChampions: ChampionRef[];
+  enemyRoles: Array<Role | null>;
+  itemRefIndex: Map<string, ScenarioItemRef>;
+}) {
+  return input.enemySlugs.map((slug, index) => {
+    const champion = input.enemyChampions[index];
+    const role = input.enemyRoles[index];
+    return buildMember(champion, slug, role, getDefaultItemRefs(input.itemRefIndex, role));
+  });
+}
+
+function mergeVisibleEnemyItems(
+  enemyTeam: ScenarioChampionRef[],
+  enemyVisibleSlugs: string[],
+  itemRefIndex: Map<string, ScenarioItemRef>,
+) {
+  if (enemyVisibleSlugs.length === 0 || enemyTeam.length === 0) {
+    return enemyTeam;
+  }
+
+  const extraVisibleItems = resolveItemRefs(itemRefIndex, enemyVisibleSlugs);
+  const supportIndex = enemyTeam.findIndex((member) => member.role === Role.SUPPORT);
+  const targetIndex = supportIndex >= 0 ? supportIndex : enemyTeam.length - 1;
+  const targetMember = enemyTeam[targetIndex];
+
+  return enemyTeam.map((member, index) => {
+    if (index !== targetIndex) {
+      return member;
+    }
+
+    return {
+      ...targetMember,
+      items: resolveItemRefs(
+        itemRefIndex,
+        unique([
+          ...extraVisibleItems.map((item) => item.itemSlug),
+          ...targetMember.items.map((item) => item.itemSlug),
+        ]),
+      ),
+    };
+  });
+}
+
+function buildBackfillData(input: {
+  targets: ReturnType<typeof classifyLegacyScenarioBackfill>;
+  scenario: {
+    allyItems: Prisma.JsonValue;
+    enemyItems: Prisma.JsonValue;
+    allyTeam: Prisma.JsonValue;
+    enemyTeam: Prisma.JsonValue;
+  };
+  currentBuild: ScenarioItemRef[];
+  rebuiltAllyTeam: ScenarioChampionRef[];
+  rebuiltEnemyTeam: ScenarioChampionRef[];
+}) {
+  const data: Prisma.PuzzleScenarioUpdateInput = {};
+
+  if (input.targets.rebuildCurrentBuild) {
+    data.currentBuild = input.currentBuild as Prisma.InputJsonValue;
+  }
+
+  if (input.targets.rebuildAllyTeam) {
+    data.allyTeam = input.rebuiltAllyTeam as Prisma.InputJsonValue;
+    data.allyItems = input.rebuiltAllyTeam as Prisma.InputJsonValue;
+  } else if (!Array.isArray(input.scenario.allyItems) || input.scenario.allyItems.length === 0) {
+    data.allyItems = input.scenario.allyTeam as Prisma.InputJsonValue;
+  }
+
+  if (input.targets.rebuildEnemyTeam) {
+    data.enemyTeam = input.rebuiltEnemyTeam as Prisma.InputJsonValue;
+    data.enemyItems = input.rebuiltEnemyTeam as Prisma.InputJsonValue;
+  } else if (!Array.isArray(input.scenario.enemyItems) || input.scenario.enemyItems.length === 0) {
+    data.enemyItems = input.scenario.enemyTeam as Prisma.InputJsonValue;
+  }
+
+  return data;
+}
+
 async function main() {
   const [itemRefIndex, championIndex, scenarios] = await Promise.all([
     buildItemRefIndex(),
@@ -138,103 +278,41 @@ async function main() {
       continue;
     }
 
-    const allySlugs = backfillTargets.rebuildAllyTeam && isLegacyStringArray(scenario.allyTeam) ? scenario.allyTeam : [];
-    const enemySlugs = backfillTargets.rebuildEnemyTeam && isLegacyStringArray(scenario.enemyTeam) ? scenario.enemyTeam : [];
-    const buildSlugs = isLegacyStringArray(scenario.currentBuild) ? scenario.currentBuild : [];
-    const enemyVisibleSlugs = Array.isArray(scenario.enemyItems) && scenario.enemyItems.every((entry) => typeof entry === "string")
-      ? (scenario.enemyItems as string[])
-      : [];
+    const allySlugs = getLegacySlugs(scenario.allyTeam, backfillTargets.rebuildAllyTeam);
+    const enemySlugs = getLegacySlugs(scenario.enemyTeam, backfillTargets.rebuildEnemyTeam);
+    const buildSlugs = getLegacyStringArray(scenario.currentBuild);
+    const enemyVisibleSlugs = getEnemyVisibleSlugs(scenario.enemyItems);
 
     const allyChampions = allySlugs.map((slug) => championIndex.get(slug) ?? null);
     const enemyChampions = enemySlugs.map((slug) => championIndex.get(slug) ?? null);
     const allyRoles = inferTeamSlots(allyChampions, scenario.playerChampion.slug, scenario.playerRole);
     const enemyRoles = inferTeamSlots(enemyChampions, "__enemy__", scenario.playerRole);
 
-    const serializedCurrentBuild =
-      buildSlugs
-        .map((slug) => resolveItemRef(itemRefIndex, slug))
-        .filter(notNull);
-
-    const fallbackCurrentBuild =
-      defaultItemSlugsByRole[scenario.playerRole]
-        .map((slug) => resolveItemRef(itemRefIndex, slug))
-        .filter(notNull);
+    const serializedCurrentBuild = resolveItemRefs(itemRefIndex, buildSlugs);
+    const fallbackCurrentBuild = getDefaultItemRefs(itemRefIndex, scenario.playerRole);
 
     const currentBuild = serializedCurrentBuild.length > 0 ? serializedCurrentBuild : fallbackCurrentBuild;
 
-    const buildMember = (
-      champion: Pick<Champion, "id" | "riotChampionId" | "championKey" | "slug" | "rolePrimary"> | null,
-      fallbackSlug: string,
-      role: Role | null,
-      itemRefs: ScenarioItemRef[],
-    ): ScenarioChampionRef => ({
-      championId: champion?.id ?? fallbackSlug,
-      riotChampionId: champion?.riotChampionId ?? null,
-      championKey: champion?.championKey ?? null,
-      championSlug: champion?.slug ?? fallbackSlug,
-      role,
-      items: itemRefs,
+    const rebuiltAllyTeam = buildAllyTeam({
+      allySlugs,
+      allyChampions,
+      allyRoles,
+      playerChampionSlug: scenario.playerChampion.slug,
+      currentBuild,
+      itemRefIndex,
     });
-
-    const rebuiltAllyTeam = allySlugs.map((slug, index) => {
-      const champion = allyChampions[index];
-      const role = allyRoles[index];
-      const isPlayer = slug === scenario.playerChampion.slug;
-      const items = isPlayer
-        ? currentBuild
-        : ((role ? defaultItemSlugsByRole[role] : [])
-            .map((itemSlug) => resolveItemRef(itemRefIndex, itemSlug))
-            .filter(notNull));
-
-      return buildMember(champion, slug, role, items);
+    const rebuiltEnemyTeam = mergeVisibleEnemyItems(
+      buildEnemyTeam({ enemySlugs, enemyChampions, enemyRoles, itemRefIndex }),
+      enemyVisibleSlugs,
+      itemRefIndex,
+    );
+    const data = buildBackfillData({
+      targets: backfillTargets,
+      scenario,
+      currentBuild,
+      rebuiltAllyTeam,
+      rebuiltEnemyTeam,
     });
-
-    const rebuiltEnemyTeam = enemySlugs.map((slug, index) => {
-      const champion = enemyChampions[index];
-      const role = enemyRoles[index];
-      const defaultItems = (role ? defaultItemSlugsByRole[role] : [])
-        .map((itemSlug) => resolveItemRef(itemRefIndex, itemSlug))
-        .filter(notNull);
-      return buildMember(champion, slug, role, defaultItems);
-    });
-
-    if (enemyVisibleSlugs.length > 0 && rebuiltEnemyTeam.length > 0) {
-      const extraVisibleItems = enemyVisibleSlugs
-        .map((slug) => resolveItemRef(itemRefIndex, slug))
-        .filter(notNull);
-
-      const supportIndex = rebuiltEnemyTeam.findIndex((member) => member.role === Role.SUPPORT);
-      const targetIndex = supportIndex >= 0 ? supportIndex : rebuiltEnemyTeam.length - 1;
-      rebuiltEnemyTeam[targetIndex] = {
-        ...rebuiltEnemyTeam[targetIndex],
-        items: unique([
-          ...extraVisibleItems.map((item) => item.itemSlug),
-          ...rebuiltEnemyTeam[targetIndex].items.map((item) => item.itemSlug),
-        ])
-          .map((slug) => resolveItemRef(itemRefIndex, slug))
-          .filter(notNull),
-      };
-    }
-
-    const data: Prisma.PuzzleScenarioUpdateInput = {};
-
-    if (backfillTargets.rebuildCurrentBuild) {
-      data.currentBuild = currentBuild as Prisma.InputJsonValue;
-    }
-
-    if (backfillTargets.rebuildAllyTeam) {
-      data.allyTeam = rebuiltAllyTeam as Prisma.InputJsonValue;
-      data.allyItems = rebuiltAllyTeam as Prisma.InputJsonValue;
-    } else if (!Array.isArray(scenario.allyItems) || scenario.allyItems.length === 0) {
-      data.allyItems = scenario.allyTeam as Prisma.InputJsonValue;
-    }
-
-    if (backfillTargets.rebuildEnemyTeam) {
-      data.enemyTeam = rebuiltEnemyTeam as Prisma.InputJsonValue;
-      data.enemyItems = rebuiltEnemyTeam as Prisma.InputJsonValue;
-    } else if (!Array.isArray(scenario.enemyItems) || scenario.enemyItems.length === 0) {
-      data.enemyItems = scenario.enemyTeam as Prisma.InputJsonValue;
-    }
 
     await prisma.puzzleScenario.update({
       where: { id: scenario.id },
