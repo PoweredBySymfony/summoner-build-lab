@@ -38,12 +38,10 @@ async function createMongoClient() {
 }
 
 export async function getMongoClient() {
-  if (clientPromise === null) {
-    clientPromise = createMongoClient().catch((error) => {
-      clientPromise = null;
-      throw error;
-    });
-  }
+  clientPromise ??= createMongoClient().catch((error) => {
+    clientPromise = null;
+    throw error;
+  });
   return clientPromise;
 }
 
