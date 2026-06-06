@@ -14,6 +14,11 @@ type QueueEntry<T> = () => Promise<T>;
 
 type RetryAction = "try-next-api-key" | "retry-attempt";
 
+type RequestAttemptResult<T> =
+  | { type: "success"; value: T }
+  | { type: "retry-attempt" }
+  | { type: "exhausted-api-keys" };
+
 type RiotApiClientMetrics = {
   totalRequests: number;
   successfulRequests: number;
@@ -290,52 +295,86 @@ export class RiotApiClient {
     return { ...this.metrics };
   }
 
+  private async runApiKeyAttempt<T>(input: {
+    path: string;
+    options: RequestOptions;
+    scopeKey: string;
+    attempt: number;
+    apiKeys: string[];
+    apiKeyIndex: number;
+  }): Promise<RequestAttemptResult<T> | { type: "try-next-api-key" }> {
+    const apiKey = input.apiKeys[input.apiKeyIndex]!;
+    this.metrics.totalRequests += 1;
+
+    try {
+      const response = await this.fetchWithApiKey(input.path, input.options, apiKey);
+
+      if (!response.ok) {
+        const action = await this.handleUnsuccessfulResponse(response, {
+          scopeKey: input.scopeKey,
+          apiKeyIndex: input.apiKeyIndex,
+          apiKeysLength: input.apiKeys.length,
+          attempt: input.attempt,
+        });
+        return { type: action };
+      }
+
+      if (input.apiKeyIndex > 0) {
+        this.metrics.authFallbackRecoveries += 1;
+      }
+      this.rememberPreferredApiKey(input.path, apiKey);
+      this.metrics.successfulRequests += 1;
+      return { type: "success", value: (await response.json()) as T };
+    } catch (error) {
+      const action = await this.handleRequestFailure(error, input.attempt);
+      return { type: action };
+    }
+  }
+
+  private async runRetryAttempt<T>(path: string, options: RequestOptions, scopeKey: string, attempt: number): Promise<RequestAttemptResult<T>> {
+    const apiKeys = this.getApiKeysForPath(path);
+
+    for (let apiKeyIndex = 0; apiKeyIndex < apiKeys.length; apiKeyIndex += 1) {
+      const result = await this.runApiKeyAttempt<T>({
+        path,
+        options,
+        scopeKey,
+        attempt,
+        apiKeys,
+        apiKeyIndex,
+      });
+
+      if (result.type === "try-next-api-key") {
+        continue;
+      }
+
+      return result;
+    }
+
+    return { type: "exhausted-api-keys" };
+  }
+
+  private async runScheduledRequest<T>(path: string, options: RequestOptions, scopeKey: string) {
+    for (let attempt = 0; attempt <= this.retryCount; attempt += 1) {
+      const result = await this.runRetryAttempt<T>(path, options, scopeKey, attempt);
+
+      if (result.type === "success") {
+        return result.value;
+      }
+
+      if (result.type === "retry-attempt") {
+        continue;
+      }
+    }
+
+    throw new HttpError(502, "Riot API request failed after retries.");
+  }
+
   async request<T>(path: string, options: RequestOptions = {}): Promise<T> {
     this.ensureConfigured();
     const scopeKey = this.getScopeKey(path, options);
 
-    return this.schedule(scopeKey, async () => {
-      attemptLoop:
-      for (let attempt = 0; attempt <= this.retryCount; attempt += 1) {
-        const apiKeys = this.getApiKeysForPath(path);
-
-        for (let apiKeyIndex = 0; apiKeyIndex < apiKeys.length; apiKeyIndex += 1) {
-          const apiKey = apiKeys[apiKeyIndex]!;
-          this.metrics.totalRequests += 1;
-
-          try {
-            const response = await this.fetchWithApiKey(path, options, apiKey);
-
-            if (!response.ok) {
-              const action = await this.handleUnsuccessfulResponse(response, {
-                scopeKey,
-                apiKeyIndex,
-                apiKeysLength: apiKeys.length,
-                attempt,
-              });
-              if (action === "try-next-api-key") {
-                continue;
-              }
-              continue attemptLoop;
-            }
-
-            if (apiKeyIndex > 0) {
-              this.metrics.authFallbackRecoveries += 1;
-            }
-            this.rememberPreferredApiKey(path, apiKey);
-            this.metrics.successfulRequests += 1;
-            return (await response.json()) as T;
-          } catch (error) {
-            const action = await this.handleRequestFailure(error, attempt);
-            if (action === "retry-attempt") {
-              continue attemptLoop;
-            }
-          }
-        }
-      }
-
-      throw new HttpError(502, "Riot API request failed after retries.");
-    });
+    return this.schedule(scopeKey, () => this.runScheduledRequest<T>(path, options, scopeKey));
   }
 
   getAccountByRiotId(gameName: string, tagLine: string) {
