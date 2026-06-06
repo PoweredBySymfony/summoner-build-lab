@@ -219,6 +219,58 @@ function buildEnemyTeam(
   return [];
 }
 
+type ScenarioForRepair = {
+  id: string;
+  playerRole: Role;
+  playerChampion: Pick<Champion, "slug">;
+  currentBuild: unknown;
+  allyTeam: unknown;
+  enemyTeam: unknown;
+  allyItems: unknown;
+  enemyItems: unknown;
+};
+
+type ChampionIndexMap = Map<string, Pick<Champion, "id" | "riotChampionId" | "championKey" | "slug" | "rolePrimary">>;
+
+function buildTeamRepairData(
+  scenario: ScenarioForRepair,
+  rawParameters: unknown,
+  itemRefIndex: Map<string, ScenarioItemRef>,
+  championIndex: ChampionIndexMap,
+): Prisma.PuzzleScenarioUpdateInput | null {
+  const parameters =
+    rawParameters && typeof rawParameters === "object" && !Array.isArray(rawParameters)
+      ? (rawParameters as Record<string, unknown>)
+      : null;
+
+  const playerRole = parseRole(parameters?.playerSlot ?? parameters?.role, scenario.playerRole);
+  const currentBuild = parseCurrentBuild(scenario.currentBuild, itemRefIndex, playerRole);
+
+  const nextAllyTeam = isTeamMissing(scenario.allyTeam)
+    ? buildAllyTeam(scenario.playerChampion.slug, playerRole, currentBuild, championIndex, itemRefIndex)
+    : scenario.allyTeam;
+  const nextEnemyTeam = isTeamMissing(scenario.enemyTeam)
+    ? buildEnemyTeam(parameters?.enemyTeam, championIndex, itemRefIndex)
+    : scenario.enemyTeam;
+
+  if (!isRichTeam(nextAllyTeam) || !isRichTeam(nextEnemyTeam)) {
+    return null;
+  }
+
+  return {
+    allyTeam: nextAllyTeam as Prisma.InputJsonValue,
+    enemyTeam: nextEnemyTeam as Prisma.InputJsonValue,
+    allyItems:
+      !Array.isArray(scenario.allyItems) || scenario.allyItems.length === 0
+        ? (nextAllyTeam as Prisma.InputJsonValue)
+        : undefined,
+    enemyItems:
+      !Array.isArray(scenario.enemyItems) || scenario.enemyItems.length === 0
+        ? (nextEnemyTeam as Prisma.InputJsonValue)
+        : undefined,
+  };
+}
+
 async function main() {
   const [itemRefIndex, championIndex, rows] = await Promise.all([
     buildItemRefIndex(),
@@ -251,46 +303,16 @@ async function main() {
     if (!puzzle.scenario) {
       continue;
     }
-
-    const request = puzzle.generatedFrom[0];
-    const parameters = request?.parameters;
-    const playerRole = parseRole(
-      parameters && typeof parameters === "object" ? (parameters as Record<string, unknown>).playerSlot ?? (parameters as Record<string, unknown>).role : undefined,
-      puzzle.scenario.playerRole,
+    const repairData = buildTeamRepairData(
+      puzzle.scenario,
+      puzzle.generatedFrom[0]?.parameters,
+      itemRefIndex,
+      championIndex,
     );
-
-    const currentBuild = parseCurrentBuild(puzzle.scenario.currentBuild, itemRefIndex, playerRole);
-    const nextAllyTeam = isTeamMissing(puzzle.scenario.allyTeam)
-      ? buildAllyTeam(puzzle.scenario.playerChampion.slug, playerRole, currentBuild, championIndex, itemRefIndex)
-      : puzzle.scenario.allyTeam;
-    const nextEnemyTeam = isTeamMissing(puzzle.scenario.enemyTeam)
-      ? buildEnemyTeam(
-          parameters && typeof parameters === "object" ? (parameters as Record<string, unknown>).enemyTeam : undefined,
-          championIndex,
-          itemRefIndex,
-        )
-      : puzzle.scenario.enemyTeam;
-
-    if (!isRichTeam(nextAllyTeam) || !isRichTeam(nextEnemyTeam)) {
+    if (!repairData) {
       continue;
     }
-
-    await prisma.puzzleScenario.update({
-      where: { id: puzzle.scenario.id },
-      data: {
-        allyTeam: nextAllyTeam as Prisma.InputJsonValue,
-        enemyTeam: nextEnemyTeam as Prisma.InputJsonValue,
-        allyItems:
-          !Array.isArray(puzzle.scenario.allyItems) || puzzle.scenario.allyItems.length === 0
-            ? (nextAllyTeam as Prisma.InputJsonValue)
-            : undefined,
-        enemyItems:
-          !Array.isArray(puzzle.scenario.enemyItems) || puzzle.scenario.enemyItems.length === 0
-            ? (nextEnemyTeam as Prisma.InputJsonValue)
-            : undefined,
-      },
-    });
-
+    await prisma.puzzleScenario.update({ where: { id: puzzle.scenario.id }, data: repairData });
     repaired += 1;
   }
 

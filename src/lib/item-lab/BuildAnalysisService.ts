@@ -12,6 +12,49 @@ import type { ChampionView, GameItem } from "@/types/domain";
 
 const clamp = (value: number, min = 0, max = 100) => Math.min(max, Math.max(min, value));
 
+function detectCompositionStrengths(signals: BuildSignalMap, stats: StatValueMap): CompositionArchetypeTag[] {
+  const strengths: CompositionArchetypeTag[] = [];
+  if (signals.antiFrontlineScore >= 55 || (signals.sustainedDpsScore >= 60 && (stats.armorPen > 15 || stats.magicPen > 10))) {
+    strengths.push("Frontline lourde");
+  }
+  if (signals.burstScore >= 60 || (stats.critChance >= 50 && stats.attackDamage >= 180) || (stats.lethality >= 12 && signals.burstScore >= 50)) {
+    strengths.push("Squishy");
+  }
+  if (signals.sustainScore >= 55) {
+    strengths.push("Sustain");
+  }
+  if ((signals.mobilityScore >= 45 && signals.burstScore >= 45) || (stats.abilityHaste >= 35 && (stats.abilityPower >= 180 || stats.attackDamage >= 180))) {
+    strengths.push("Poke");
+  }
+  if (signals.mobilityScore >= 60 && (signals.burstScore >= 50 || signals.survivabilityScore >= 50)) {
+    strengths.push("Engage fort");
+  }
+  if (signals.sustainedDpsScore >= 55 && (signals.survivabilityScore >= 45 || signals.sustainScore >= 45)) {
+    strengths.push("Combat long");
+  }
+  if (signals.burstScore >= 65) {
+    strengths.push("Burst rapide");
+  }
+  return strengths;
+}
+
+function detectCompositionWeaknesses(signals: BuildSignalMap, stats: StatValueMap): CompositionWeaknessTag[] {
+  const weaknesses: CompositionWeaknessTag[] = [];
+  if (signals.pokeStabilityScore < 35 && stats.moveSpeed < 375 && signals.survivabilityScore < 45) {
+    weaknesses.push("Faible contre poke");
+  }
+  if (signals.survivabilityScore < 40 && stats.health < 2200 && (stats.armor < 80 || stats.magicResist < 50)) {
+    weaknesses.push("Faible contre burst");
+  }
+  if (signals.antiFrontlineScore < 40 && signals.sustainedDpsScore < 50) {
+    weaknesses.push("Faible contre frontline");
+  }
+  if (signals.burstScore >= 60 && signals.sustainedDpsScore < 40 && signals.sustainScore < 35) {
+    weaknesses.push("Faible dans les combats longs");
+  }
+  return weaknesses;
+}
+
 const hasTag = (tags: string[], matcher: RegExp) => tags.some((tag) => matcher.test(tag));
 
 const getProfileValueMap = (profileScores: SetupProfileScore[]) =>
@@ -231,62 +274,8 @@ export const BuildAnalysisService = {
       };
     }
 
-    const strengths: CompositionArchetypeTag[] = [];
-    const weaknesses: CompositionWeaknessTag[] = [];
-
-    if (
-      signals.antiFrontlineScore >= 55 ||
-      (signals.sustainedDpsScore >= 60 && (stats.armorPen > 15 || stats.magicPen > 10))
-    ) {
-      strengths.push("Frontline lourde");
-    }
-
-    if (
-      signals.burstScore >= 60 ||
-      (stats.critChance >= 50 && stats.attackDamage >= 180) ||
-      (stats.lethality >= 12 && signals.burstScore >= 50)
-    ) {
-      strengths.push("Squishy");
-    }
-
-    if (signals.sustainScore >= 55) {
-      strengths.push("Sustain");
-    }
-
-    if (
-      (signals.mobilityScore >= 45 && signals.burstScore >= 45) ||
-      (stats.abilityHaste >= 35 && (stats.abilityPower >= 180 || stats.attackDamage >= 180))
-    ) {
-      strengths.push("Poke");
-    }
-
-    if (signals.mobilityScore >= 60 && (signals.burstScore >= 50 || signals.survivabilityScore >= 50)) {
-      strengths.push("Engage fort");
-    }
-
-    if (signals.sustainedDpsScore >= 55 && (signals.survivabilityScore >= 45 || signals.sustainScore >= 45)) {
-      strengths.push("Combat long");
-    }
-
-    if (signals.burstScore >= 65) {
-      strengths.push("Burst rapide");
-    }
-
-    if (signals.pokeStabilityScore < 35 && stats.moveSpeed < 375 && signals.survivabilityScore < 45) {
-      weaknesses.push("Faible contre poke");
-    }
-
-    if (signals.survivabilityScore < 40 && stats.health < 2200 && (stats.armor < 80 || stats.magicResist < 50)) {
-      weaknesses.push("Faible contre burst");
-    }
-
-    if (signals.antiFrontlineScore < 40 && signals.sustainedDpsScore < 50) {
-      weaknesses.push("Faible contre frontline");
-    }
-
-    if (signals.burstScore >= 60 && signals.sustainedDpsScore < 40 && signals.sustainScore < 35) {
-      weaknesses.push("Faible dans les combats longs");
-    }
+    const strengths = detectCompositionStrengths(signals, stats);
+    const weaknesses = detectCompositionWeaknesses(signals, stats);
 
     const confidence =
       itemCount >= 6 || (itemCount >= 4 && strengths.length >= 2)
