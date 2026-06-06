@@ -273,6 +273,63 @@ async function discoverMatchIdsForQueue(input: {
   return matchIds;
 }
 
+function addDiscoveredMatchIds(allMatchIds: Set<string>, matchIds: string[]) {
+  for (const matchId of matchIds) {
+    allMatchIds.add(matchId);
+  }
+}
+
+async function discoverMatchIdsForQueueRound(input: {
+  seed: CompetitiveResolvedSeed & { puuid: string; cluster: NonNullable<CompetitiveResolvedSeed["cluster"]> };
+  uniqueQueues: number[];
+  allMatchIds: Set<string>;
+  scanStateByQueue: Record<string, CompetitiveDiscoveryQueueState>;
+  pageSize: number;
+  maxIdsPerSeed: number;
+  targetIds: number;
+  startTime: number | null;
+  endTime: number | null;
+}) {
+  let progressed = false;
+
+  for (const queue of input.uniqueQueues) {
+    const state = getOrCreateQueueScanState(input.scanStateByQueue, queue);
+
+    if (state.exhausted) {
+      continue;
+    }
+
+    const requestCount = calculateDiscoveryRequestCount({
+      allMatchIdsSize: input.allMatchIds.size,
+      maxIdsPerSeed: input.maxIdsPerSeed,
+      pageSize: input.pageSize,
+      scanStateByQueue: input.scanStateByQueue,
+      targetIds: input.targetIds,
+    });
+    if (requestCount <= 0) {
+      break;
+    }
+
+    const matchIds = await discoverMatchIdsForQueue({
+      seed: input.seed,
+      queue,
+      requestCount,
+      state,
+      startTime: input.startTime,
+      endTime: input.endTime,
+    });
+
+    addDiscoveredMatchIds(input.allMatchIds, matchIds);
+    progressed = progressed || matchIds.length > 0;
+
+    if (input.allMatchIds.size >= input.targetIds) {
+      break;
+    }
+  }
+
+  return progressed;
+}
+
 export async function discoverMatchIdsForSeed(
   seed: CompetitiveResolvedSeed & { puuid: string; cluster: NonNullable<CompetitiveResolvedSeed["cluster"]> },
   input: {
@@ -301,50 +358,23 @@ export async function discoverMatchIdsForSeed(
   });
 
   while (allMatchIds.size < input.targetIds) {
-    let progressed = false;
     const totalRequested = countRequestedDiscoveryIds(scanStateByQueue);
     const remainingGlobalBudget = input.maxIdsPerSeed - totalRequested;
     if (remainingGlobalBudget <= 0) {
       break;
     }
 
-    for (const queue of uniqueQueues) {
-      const state = getOrCreateQueueScanState(scanStateByQueue, queue);
-
-      if (state.exhausted) {
-        continue;
-      }
-
-      const requestCount = calculateDiscoveryRequestCount({
-        allMatchIdsSize: allMatchIds.size,
-        maxIdsPerSeed: input.maxIdsPerSeed,
-        pageSize: input.pageSize,
-        scanStateByQueue,
-        targetIds: input.targetIds,
-      });
-      if (requestCount <= 0) {
-        break;
-      }
-
-      const matchIds = await discoverMatchIdsForQueue({
-        seed,
-        queue,
-        requestCount,
-        state,
-        startTime: input.startTime,
-        endTime: input.endTime,
-      });
-
-      for (const matchId of matchIds) {
-        allMatchIds.add(matchId);
-      }
-      progressed = progressed || matchIds.length > 0;
-
-      if (allMatchIds.size >= input.targetIds) {
-        break;
-      }
-    }
-
+    const progressed = await discoverMatchIdsForQueueRound({
+      seed,
+      uniqueQueues,
+      allMatchIds,
+      scanStateByQueue,
+      pageSize: input.pageSize,
+      maxIdsPerSeed: input.maxIdsPerSeed,
+      targetIds: input.targetIds,
+      startTime: input.startTime,
+      endTime: input.endTime,
+    });
     if (!progressed) {
       break;
     }
