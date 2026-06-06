@@ -19,6 +19,10 @@ RUNNER_WORKDIR="${RUNNER_WORKDIR:-_work}"
 sudo mkdir -p "${RUNNER_WORKDIR}" "${RUNNER_WORKDIR}/_tool"
 sudo chown -R runner:runner "${RUNNER_WORKDIR}"
 
+if [[ -S /var/run/docker.sock ]]; then
+  sudo chmod 666 /var/run/docker.sock
+fi
+
 if [[ ! -f .runner ]]; then
   if [[ -z "${RUNNER_TOKEN:-}" ]]; then
     echo "RUNNER_TOKEN is required for first-time registration" >&2
