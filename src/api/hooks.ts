@@ -2,8 +2,11 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "./client";
 import type {
   BootstrapPayload,
+  AdminChampionUpdatePayload,
+  AdminItemUpdatePayload,
   AdminOverviewPayload,
   AdminPatchStatusPayload,
+  AdminPuzzleUpdatePayload,
   CatalogPayload,
   ChampionView,
   ChampionLearningPayload,
@@ -233,7 +236,7 @@ export const useAdminPatchStatus = (enabled = true) =>
 export const useAdminUpdateChampion = () => {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (payload: { id: string; data: Record<string, unknown> }) =>
+    mutationFn: (payload: { id: string; data: AdminChampionUpdatePayload }) =>
       apiFetch<ChampionView>(`/admin/champions/${payload.id}`, {
         method: "PATCH",
         body: JSON.stringify(payload.data),
@@ -249,7 +252,7 @@ export const useAdminUpdateChampion = () => {
 export const useAdminUpdateItem = () => {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (payload: { id: string; data: Record<string, unknown> }) =>
+    mutationFn: (payload: { id: string; data: AdminItemUpdatePayload }) =>
       apiFetch<GameItem>(`/admin/items/${payload.id}`, {
         method: "PATCH",
         body: JSON.stringify(payload.data),
@@ -265,7 +268,7 @@ export const useAdminUpdateItem = () => {
 export const useAdminUpdatePuzzle = () => {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (payload: { id: string; data: Record<string, unknown> }) =>
+    mutationFn: (payload: { id: string; data: AdminPuzzleUpdatePayload }) =>
       apiFetch<PuzzleDetail>(`/admin/puzzles/${payload.id}`, {
         method: "PATCH",
         body: JSON.stringify(payload.data),

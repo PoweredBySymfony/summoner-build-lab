@@ -1,4 +1,4 @@
-from features.catalogs import build_candidate_pool, CatalogBundle
+from features.catalogs import CatalogBundle, build_candidate_pool
 from features.item_restrictions import get_item_restriction_reasons
 
 
@@ -117,7 +117,14 @@ def test_build_candidate_pool_applies_role_restrictions() -> None:
           },
       ],
       champions=[],
-      item_slug_by_id={3006: "jambieres-du-berzerker", 3158: "bottes-de-lucidite", 3171: "lucidite-pourpre", 3172: "jambieres-de-metal", 3001: "jarvan-i", 3031: "lame-dinfini"},
+      item_slug_by_id={
+          3006: "jambieres-du-berzerker",
+          3158: "bottes-de-lucidite",
+          3171: "lucidite-pourpre",
+          3172: "jambieres-de-metal",
+          3001: "jarvan-i",
+          3031: "lame-dinfini",
+      },
       item_meta_by_slug={
           "jambieres-du-berzerker": {
               "riotItemId": 3006,
@@ -223,8 +230,20 @@ def test_build_candidate_pool_filters_same_family_items_already_owned() -> None:
         champions=[],
         item_slug_by_id={3036: "salutations-de-dominik", 3033: "rappel-mortel"},
         item_meta_by_slug={
-            "salutations-de-dominik": {"slug": "salutations-de-dominik", "riotItemId": 3036, "buildsFrom": [3035], "itemGroups": ["LastWhisper"], "isBoots": False},
-            "rappel-mortel": {"slug": "rappel-mortel", "riotItemId": 3033, "buildsFrom": [3035], "itemGroups": ["LastWhisper"], "isBoots": False},
+            "salutations-de-dominik": {
+                "slug": "salutations-de-dominik",
+                "riotItemId": 3036,
+                "buildsFrom": [3035],
+                "itemGroups": ["LastWhisper"],
+                "isBoots": False,
+            },
+            "rappel-mortel": {
+                "slug": "rappel-mortel",
+                "riotItemId": 3033,
+                "buildsFrom": [3035],
+                "itemGroups": ["LastWhisper"],
+                "isBoots": False,
+            },
         },
         champion_index={},
     )

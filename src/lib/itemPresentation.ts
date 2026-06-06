@@ -164,6 +164,29 @@ function parseNumericValue(value: string) {
   };
 }
 
+function decodeHtmlEntities(value: string) {
+  return value
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, "\"")
+    .replace(/&#39;/g, "'");
+}
+
+function stripDataDragonMarkup(value: string) {
+  return decodeHtmlEntities(value)
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/(?:stats|mainText)>/gi, "\n")
+    .replace(/<\/(?:active|passive)>/gi, ": ")
+    .replace(/<[^>]+>/g, "")
+    .replace(/\{\{[^}]+\}\}/g, "")
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n\s+/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 function resolveDescriptor(rawLabel: string) {
   const normalizedLabel = normalizeText(rawLabel);
   const descriptor = phraseMap.find((entry) => entry.match.test(normalizedLabel));
@@ -200,7 +223,7 @@ function parseStatLine(line: string): ResolvedItemStatLine | null {
 }
 
 function getDescriptionLines(item: GameItem) {
-  return (item.fullDescription ?? "")
+  return stripDataDragonMarkup(item.fullDescription ?? "")
     .split("\n")
     .map((line) => line.trim())
     .filter(Boolean);

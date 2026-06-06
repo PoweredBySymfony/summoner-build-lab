@@ -5,7 +5,44 @@ import { RiotIdSearch } from "@/components/RiotIdSearch";
 import { useCurrentUser, useGenerateMatchPuzzleSeries, useImportRecentMatches, usePlayerSearch } from "@/api/hooks";
 import { savePuzzleSeries } from "@/lib/puzzleSeries";
 import { buildRiotProfileIconUrl, saveRecentRiotSearch } from "@/lib/riotSearch";
-import type { GeneratedMatchPuzzleResponse } from "@/types/domain";
+import type { GeneratedMatchPuzzleResponse, PlayerSearchPayload } from "@/types/domain";
+
+const buildCompactStats = (data: PlayerSearchPayload | undefined) => {
+  if (!data) {
+    return [];
+  }
+
+  return [
+    { label: "WR", value: `${data.summary.winRate}%`, detail: `${data.summary.wins}V/${data.summary.losses}D`, icon: Trophy },
+    { label: "KDA", value: String(data.summary.averageKda), detail: `${data.summary.matchesAnalyzed} parties`, icon: Swords },
+    { label: "Degats", value: data.summary.averageDamageToChampions.toLocaleString(), detail: "moyenne", icon: Crosshair },
+    { label: "KP", value: `${data.summary.averageKillParticipation}%`, detail: "participation", icon: BarChart3 },
+    { label: "CS/min", value: String(data.summary.averageCsPerMinute), detail: `${data.summary.averageCs} CS`, icon: BarChart3 },
+    { label: "Vision", value: String(data.summary.averageVisionScore), detail: `${data.summary.averageGoldEarned.toLocaleString()} or`, icon: Eye },
+  ];
+};
+
+const isSnapshotGenerationFailure = (
+  result: GeneratedMatchPuzzleResponse | null,
+): result is Extract<
+  GeneratedMatchPuzzleResponse,
+  { generationStatus: "no_viable_snapshot_found" | "no_publishable_snapshot_found" }
+> =>
+  result?.generationStatus === "no_viable_snapshot_found"
+  || result?.generationStatus === "no_publishable_snapshot_found";
+
+const getGenerationFailureMessage = (
+  result: Extract<
+    GeneratedMatchPuzzleResponse,
+    { generationStatus: "no_viable_snapshot_found" | "no_publishable_snapshot_found" }
+  >,
+) => {
+  if (result.failureCode === "no_publishable_snapshot_found") {
+    return "La partie est exploitable, mais aucun moment n'a encore passe la gate de publishability.";
+  }
+
+  return result.message;
+};
 
 const PlayerProfile = () => {
   const navigate = useNavigate();
@@ -34,16 +71,7 @@ const PlayerProfile = () => {
 
   const profileIconUrl = buildRiotProfileIconUrl(data?.profile.profileIconId);
   const canLoadMoreMatches = matchFetchCount < 20 && data ? data.recentMatches.length >= matchFetchCount : false;
-  const compactStats = data
-    ? [
-      { label: "WR", value: `${data.summary.winRate}%`, detail: `${data.summary.wins}V/${data.summary.losses}D`, icon: Trophy },
-      { label: "KDA", value: String(data.summary.averageKda), detail: `${data.summary.matchesAnalyzed} parties`, icon: Swords },
-      { label: "Degats", value: data.summary.averageDamageToChampions.toLocaleString(), detail: "moyenne", icon: Crosshair },
-      { label: "KP", value: `${data.summary.averageKillParticipation}%`, detail: "participation", icon: BarChart3 },
-      { label: "CS/min", value: String(data.summary.averageCsPerMinute), detail: `${data.summary.averageCs} CS`, icon: BarChart3 },
-      { label: "Vision", value: String(data.summary.averageVisionScore), detail: `${data.summary.averageGoldEarned.toLocaleString()} or`, icon: Eye },
-    ]
-    : [];
+  const compactStats = buildCompactStats(data);
 
   const generateSeriesFromMatch = async (matchId: string, matchIndex: number) => {
     if (!data) {
@@ -126,16 +154,10 @@ const PlayerProfile = () => {
                     </button>
                   </div>
                 ) : null}
-                {generationResult
-                && (
-                  generationResult.generationStatus === "no_viable_snapshot_found"
-                  || generationResult.generationStatus === "no_publishable_snapshot_found"
-                ) ? (
+                {isSnapshotGenerationFailure(generationResult) ? (
                   <div className="mt-4 rounded-2xl border border-border/60 bg-background/60 px-4 py-3 text-sm text-muted-foreground">
                     <p>
-                      {generationResult.failureCode === "no_publishable_snapshot_found"
-                        ? "La partie est exploitable, mais aucun moment n'a encore passe la gate de publishability."
-                        : generationResult.message}
+                      {getGenerationFailureMessage(generationResult)}
                     </p>
                     <p className="mt-2">
                       Snapshots evalues: {generationResult.snapshotsEvaluated}

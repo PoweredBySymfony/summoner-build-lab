@@ -28,6 +28,51 @@ const isChampionPortraitView = (
 ): entry is ChampionView =>
   Boolean(entry && typeof entry === "object" && "slug" in entry && "databaseId" in entry);
 
+const getTeamEntryName = (entry: TeamEntry, champion: ChampionView | { id: string; name: string } | undefined) => {
+  if (champion && "name" in champion) {
+    return champion.name;
+  }
+  return entry.name;
+};
+
+const getChoiceButtonClass = ({
+  correct,
+  wrongSelected,
+  selected,
+}: {
+  correct: unknown;
+  wrongSelected: unknown;
+  selected: boolean;
+}) => {
+  if (correct) {
+    return "border-emerald-400/60 bg-emerald-500/10 shadow-lg shadow-emerald-500/10";
+  }
+  if (wrongSelected) {
+    return "border-destructive/60 bg-destructive/10";
+  }
+  if (selected) {
+    return "border-primary bg-primary/10 shadow-lg shadow-primary/10";
+  }
+  return "border-border/60 bg-background/70 hover:border-primary/40";
+};
+
+const getChoiceMarkerClass = (correct: unknown, selected: boolean) => {
+  if (correct) {
+    return "border-emerald-400 bg-emerald-500 text-white";
+  }
+  if (selected) {
+    return "border-primary bg-primary text-primary-foreground";
+  }
+  return "border-border/60 bg-background text-muted-foreground";
+};
+
+const getChoiceMarkerText = (correct: unknown, selected: boolean) => {
+  if (correct) {
+    return "V";
+  }
+  return selected ? "." : "";
+};
+
 const renderItem = (
   item: GameItem | { id: string; name: string },
   options: {
@@ -59,7 +104,7 @@ const TeamRow = ({ entry }: { entry: TeamEntry }) => {
         {isChampionPortraitView(champion) ? <ChampionPortrait champion={champion} size="sm" /> : <div className="h-10 w-10 rounded-lg bg-secondary" />}
         <div className="min-w-0">
           <p className="truncate text-sm font-semibold text-foreground">
-            {champion && "name" in champion ? champion.name : isChampionView(entry) ? entry.name : entry.name}
+            {getTeamEntryName(entry, champion)}
           </p>
           <p className="text-xs text-muted-foreground">{role ?? "Role inconnu"}</p>
         </div>
@@ -290,15 +335,7 @@ const Training = () => {
                     key={choice.id}
                     type="button"
                     onClick={() => !result && setSelectedChoiceId(choice.id)}
-                    className={`rounded-3xl border p-4 text-left transition-all ${
-                      correct
-                        ? "border-emerald-400/60 bg-emerald-500/10 shadow-lg shadow-emerald-500/10"
-                        : wrongSelected
-                          ? "border-destructive/60 bg-destructive/10"
-                          : selected
-                            ? "border-primary bg-primary/10 shadow-lg shadow-primary/10"
-                            : "border-border/60 bg-background/70 hover:border-primary/40"
-                    } ${result ? "cursor-default" : "cursor-pointer"}`}
+                    className={`rounded-3xl border p-4 text-left transition-all ${getChoiceButtonClass({ correct, wrongSelected, selected })} ${result ? "cursor-default" : "cursor-pointer"}`}
                   >
                     <div className="grid grid-cols-[56px_1fr_auto] items-center gap-4">
                       <div className="relative">
@@ -310,10 +347,8 @@ const Training = () => {
                             interactive={false}
                           />
                         ) : <div className="h-12 w-12 rounded-xl bg-secondary" />}
-                        <div className={`absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full border text-[10px] font-bold ${
-                          correct ? "border-emerald-400 bg-emerald-500 text-white" : selected ? "border-primary bg-primary text-primary-foreground" : "border-border/60 bg-background text-muted-foreground"
-                        }`}>
-                          {correct ? "V" : selected ? "." : ""}
+                        <div className={`absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full border text-[10px] font-bold ${getChoiceMarkerClass(correct, selected)}`}>
+                          {getChoiceMarkerText(correct, selected)}
                         </div>
                       </div>
                       <div>

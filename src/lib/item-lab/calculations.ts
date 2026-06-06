@@ -94,7 +94,7 @@ const getNormalizedItemBonuses = (item: GameItem) => {
 };
 
 const getChampionBaseStats = (champion: ChampionView, level: number) => {
-  const stats = champion.stats as Record<string, unknown>;
+  const stats = champion.stats;
   const baseStats = emptyStats();
 
   baseStats.health = scaledStat(safeNumber(stats.hp), safeNumber(stats.hpperlevel), level);
@@ -115,7 +115,7 @@ const getChampionBaseStats = (champion: ChampionView, level: number) => {
 };
 
 const getScalingScore = (champion: ChampionView, analysis: { stats: StatValueMap; items: GameItem[] }) => {
-  const stats = champion.stats as Record<string, unknown>;
+  const stats = champion.stats;
   const innate =
     safeNumber(stats.attackdamageperlevel) * 1.2 +
     safeNumber(stats.hpperlevel) * 0.08 +

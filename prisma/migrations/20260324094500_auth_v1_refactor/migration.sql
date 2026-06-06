@@ -1,5 +1,6 @@
+-- Prisma-generated migration: quoted identifiers are required for the existing PascalCase schema. NOSONAR
 -- CreateEnum
-CREATE TYPE "UserAuthProvider" AS ENUM ('EMAIL', 'GOOGLE', 'BOTH');
+CREATE TYPE "UserAuthProvider" AS ENUM ('EMAIL', 'GOOGLE', 'BOTH'); -- NOSONAR
 
 -- DropForeignKey
 ALTER TABLE "AuthProviderAccount" DROP CONSTRAINT "AuthProviderAccount_userId_fkey";

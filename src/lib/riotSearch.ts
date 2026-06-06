@@ -12,7 +12,7 @@ const HISTORY_EVENT = "riot-search-history-updated";
 
 const tagLikePattern = /^[A-Za-z0-9]{2,6}$/;
 
-const canUseStorage = () => typeof window !== "undefined";
+const canUseStorage = () => globalThis.window !== undefined;
 
 export const parseRiotIdInput = (value: string) => {
   const trimmed = value.trim();
@@ -49,7 +49,7 @@ export const getRecentRiotSearches = (): RecentRiotSearch[] => {
   }
 
   try {
-    const stored = window.localStorage.getItem(STORAGE_KEY);
+    const stored = globalThis.localStorage.getItem(STORAGE_KEY);
     if (!stored) {
       return [];
     }
@@ -66,8 +66,8 @@ const writeRecentRiotSearches = (entries: RecentRiotSearch[]) => {
     return;
   }
 
-  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(entries));
-  window.dispatchEvent(new Event(HISTORY_EVENT));
+  globalThis.localStorage.setItem(STORAGE_KEY, JSON.stringify(entries));
+  globalThis.dispatchEvent(new Event(HISTORY_EVENT));
 };
 
 export const saveRecentRiotSearch = (entry: Omit<RecentRiotSearch, "searchedAt" | "riotId"> & { riotId?: string }) => {
@@ -99,8 +99,8 @@ export const subscribeToRecentRiotSearches = (callback: () => void) => {
   }
 
   const listener = () => callback();
-  window.addEventListener(HISTORY_EVENT, listener);
-  return () => window.removeEventListener(HISTORY_EVENT, listener);
+  globalThis.addEventListener(HISTORY_EVENT, listener);
+  return () => globalThis.removeEventListener(HISTORY_EVENT, listener);
 };
 
 export const buildRiotProfileIconUrl = (profileIconId: number | null | undefined) => {

@@ -1,7 +1,13 @@
 import type { GameItem } from "@/types/domain";
 import { getItemEffectBlocks, getItemStatLines, type ItemStatIconKey } from "@/lib/itemPresentation";
+import {
+  itemStatBadgeTintClass,
+  itemStatIconTintClass,
+  itemTooltipArrowClass,
+  itemTooltipClassNames,
+} from "@/lib/itemStatVisuals";
 import { AnimatePresence, motion } from "framer-motion";
-import type { CSSProperties, ReactNode } from "react";
+import type { CSSProperties, MouseEvent, ReactNode } from "react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
@@ -23,46 +29,26 @@ const sizeMap = {
   lg: "h-16 w-16",
 };
 
-const iconTintMap: Record<ItemStatIconKey, string> = {
-  attackDamage: "text-[#ffb14a]",
-  abilityPower: "text-[#7ec8ff]",
-  health: "text-[#7ef08a]",
-  mana: "text-[#59a8ff]",
-  armor: "text-[#ffd27a]",
-  magicResist: "text-[#c9a0ff]",
-  attackSpeed: "text-[#ffe66d]",
-  abilityHaste: "text-[#7ee7ff]",
-  crit: "text-[#ff9f43]",
-  moveSpeed: "text-[#f8f1c1]",
-  omnivamp: "text-[#9cff8c]",
-  lifesteal: "text-[#ff7f7f]",
-  lethality: "text-[#ff8a65]",
-  magicPen: "text-[#78c2ff]",
-  healthRegen: "text-[#8cf5ad]",
-  manaRegen: "text-[#8fc6ff]",
-  tenacity: "text-[#f4c86a]",
-  default: "text-[#d9d7cf]",
+const getTooltipLayoutMetrics = (layoutMode: "compact" | "balanced" | "dense") => {
+  switch (layoutMode) {
+    case "dense":
+      return { width: 384, maxHeight: 540 };
+    case "balanced":
+      return { width: 356, maxHeight: 490 };
+    default:
+      return { width: 332, maxHeight: 430 };
+  }
 };
 
-const badgeTintMap: Record<ItemStatIconKey, string> = {
-  attackDamage: "from-[#4c2e12] to-[#23160a] border-[#a45b1c]/60",
-  abilityPower: "from-[#183954] to-[#0b1826] border-[#4ca7df]/60",
-  health: "from-[#19452b] to-[#0d1f15] border-[#4fc96f]/60",
-  mana: "from-[#17375b] to-[#0b1727] border-[#4f8fe0]/60",
-  armor: "from-[#4a3a17] to-[#21190b] border-[#b8993c]/60",
-  magicResist: "from-[#352451] to-[#171024] border-[#9f74ff]/60",
-  attackSpeed: "from-[#4e4314] to-[#231d0a] border-[#cab13e]/60",
-  abilityHaste: "from-[#17414f] to-[#0a1d23] border-[#55b9d1]/60",
-  crit: "from-[#542b12] to-[#261209] border-[#df8f35]/60",
-  moveSpeed: "from-[#4d4425] to-[#231d11] border-[#c5b88a]/60",
-  omnivamp: "from-[#214523] to-[#0c1f10] border-[#59cc61]/60",
-  lifesteal: "from-[#4e1e1e] to-[#240d0d] border-[#d86868]/60",
-  lethality: "from-[#4a2118] to-[#220e0a] border-[#d97757]/60",
-  magicPen: "from-[#173858] to-[#0b1724] border-[#61aee8]/60",
-  healthRegen: "from-[#1d492a] to-[#0d2113] border-[#67db8b]/60",
-  manaRegen: "from-[#1b3a57] to-[#0c1824] border-[#5f9ce1]/60",
-  tenacity: "from-[#52401d] to-[#24190c] border-[#d7ae58]/60",
-  default: "from-[#343126] to-[#171610] border-white/10",
+const getPreviewPopupRole = ({
+  hasDetailAction,
+}: {
+  hasDetailAction: boolean;
+}) => {
+  if (hasDetailAction) {
+    return "dialog" as const;
+  }
+  return undefined;
 };
 
 const renderGlyph = (icon: ItemStatIconKey) => {
@@ -168,8 +154,8 @@ const renderGlyph = (icon: ItemStatIconKey) => {
 };
 
 const StatBadge = ({ icon }: { icon: ItemStatIconKey }) => (
-  <div className={`flex h-6 w-6 items-center justify-center rounded-md border bg-gradient-to-br ${badgeTintMap[icon]}`}>
-    <svg viewBox="0 0 24 24" className={`h-4 w-4 ${iconTintMap[icon]}`} aria-hidden="true">
+  <div className={`flex h-6 w-6 items-center justify-center rounded-md border bg-gradient-to-br ${itemStatBadgeTintClass[icon]}`}>
+    <svg viewBox="0 0 24 24" className={`h-4 w-4 ${itemStatIconTintClass[icon]}`} aria-hidden="true">
       {renderGlyph(icon)}
     </svg>
   </div>
@@ -201,17 +187,18 @@ const TooltipPortal = ({
 
     const updatePosition = () => {
       const rect = anchor.getBoundingClientRect();
-      const fallbackWidth = Math.min(preferredWidth, window.innerWidth - viewportPadding * 2);
+      const boundaryRect = anchor.closest("[data-item-tooltip-anchor-area]")?.getBoundingClientRect() ?? rect;
+      const fallbackWidth = Math.min(preferredWidth, globalThis.innerWidth - viewportPadding * 2);
       const measuredWidth = containerRef.current?.offsetWidth ?? fallbackWidth;
       const measuredHeight =
-        containerRef.current?.offsetHeight ?? Math.min(preferredMaxHeight, window.innerHeight - viewportPadding * 2);
-      const width = Math.min(measuredWidth, window.innerWidth - viewportPadding * 2);
-      const panelHeight = Math.min(measuredHeight, window.innerHeight - viewportPadding * 2);
+        containerRef.current?.offsetHeight ?? Math.min(preferredMaxHeight, globalThis.innerHeight - viewportPadding * 2);
+      const width = Math.min(measuredWidth, globalThis.innerWidth - viewportPadding * 2);
+      const panelHeight = Math.min(measuredHeight, globalThis.innerHeight - viewportPadding * 2);
       const gap = 20;
-      const spaceRight = window.innerWidth - rect.right - viewportPadding;
-      const spaceLeft = rect.left - viewportPadding;
-      const spaceBottom = window.innerHeight - rect.bottom - viewportPadding;
-      const spaceTop = rect.top - viewportPadding;
+      const spaceRight = globalThis.innerWidth - boundaryRect.right - viewportPadding;
+      const spaceLeft = boundaryRect.left - viewportPadding;
+      const spaceBottom = globalThis.innerHeight - boundaryRect.bottom - viewportPadding;
+      const spaceTop = boundaryRect.top - viewportPadding;
 
       let nextPlacement: "right" | "left" | "top" | "bottom" = "right";
       if (spaceRight >= width + gap) {
@@ -231,11 +218,11 @@ const TooltipPortal = ({
       if (nextPlacement === "right" || nextPlacement === "left") {
         const left =
           nextPlacement === "right"
-            ? Math.min(window.innerWidth - width - viewportPadding, rect.right + gap)
-            : Math.max(viewportPadding, rect.left - width - gap);
+            ? Math.min(globalThis.innerWidth - width - viewportPadding, boundaryRect.right + gap)
+            : Math.max(viewportPadding, boundaryRect.left - width - gap);
         const top = Math.min(
-          window.innerHeight - panelHeight - viewportPadding,
-          Math.max(viewportPadding, rect.top + rect.height / 2 - panelHeight / 2),
+          globalThis.innerHeight - panelHeight - viewportPadding,
+          Math.max(viewportPadding, boundaryRect.top + boundaryRect.height / 2 - panelHeight / 2),
         );
 
         setStyle({
@@ -250,13 +237,13 @@ const TooltipPortal = ({
       }
 
       const left = Math.min(
-        window.innerWidth - width - viewportPadding,
-        Math.max(viewportPadding, rect.left + rect.width / 2 - width / 2),
+        globalThis.innerWidth - width - viewportPadding,
+        Math.max(viewportPadding, boundaryRect.left + boundaryRect.width / 2 - width / 2),
       );
       const top =
         nextPlacement === "top"
-          ? Math.max(viewportPadding, rect.top - panelHeight - gap)
-          : Math.min(window.innerHeight - panelHeight - viewportPadding, rect.bottom + gap);
+          ? Math.max(viewportPadding, boundaryRect.top - panelHeight - gap)
+          : Math.min(globalThis.innerHeight - panelHeight - viewportPadding, boundaryRect.bottom + gap);
 
       setStyle({
         position: "fixed",
@@ -273,7 +260,7 @@ const TooltipPortal = ({
         return;
       }
 
-      frameId = window.requestAnimationFrame(() => {
+      frameId = globalThis.requestAnimationFrame(() => {
         frameId = null;
         updatePosition();
       });
@@ -283,19 +270,19 @@ const TooltipPortal = ({
       position: "fixed",
       left: viewportPadding,
       top: viewportPadding,
-      width: Math.min(preferredWidth, window.innerWidth - viewportPadding * 2),
+      width: Math.min(preferredWidth, globalThis.innerWidth - viewportPadding * 2),
       zIndex: 9999,
       visibility: "hidden",
     });
     scheduleUpdate();
-    window.addEventListener("scroll", scheduleUpdate, true);
-    window.addEventListener("resize", scheduleUpdate);
+    globalThis.addEventListener("scroll", scheduleUpdate, true);
+    globalThis.addEventListener("resize", scheduleUpdate);
     return () => {
       if (frameId !== null) {
-        window.cancelAnimationFrame(frameId);
+        globalThis.cancelAnimationFrame(frameId);
       }
-      window.removeEventListener("scroll", scheduleUpdate, true);
-      window.removeEventListener("resize", scheduleUpdate);
+      globalThis.removeEventListener("scroll", scheduleUpdate, true);
+      globalThis.removeEventListener("resize", scheduleUpdate);
     };
   }, [anchor, preferredMaxHeight, preferredWidth]);
 
@@ -320,9 +307,9 @@ export const ItemIcon = ({
   const [hovered, setHovered] = useState(false);
   const [active, setActive] = useState(false);
   const [failed, setFailed] = useState(false);
-  const triggerRef = useRef<HTMLDivElement | null>(null);
-  const openTimeoutRef = useRef<number | null>(null);
-  const closeTimeoutRef = useRef<number | null>(null);
+  const triggerRef = useRef<HTMLElement | null>(null);
+  const openTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const closeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const canPreview = showTooltip || Boolean(onInspect) || Boolean(onOpenDetail);
   const canInteract = interactive && canPreview;
   const statLines = useMemo(() => getItemStatLines(item), [item]);
@@ -336,16 +323,15 @@ export const ItemIcon = ({
       : effectBlocks.length > 0 || statLines.length >= 4 || longestStatLabel > 22
         ? "balanced"
         : "compact";
-  const tooltipWidth = layoutMode === "dense" ? 384 : layoutMode === "balanced" ? 356 : 332;
-  const tooltipMaxHeight = layoutMode === "dense" ? 540 : layoutMode === "balanced" ? 490 : 430;
+  const { width: tooltipWidth, maxHeight: tooltipMaxHeight } = getTooltipLayoutMetrics(layoutMode);
 
   useEffect(() => {
     return () => {
       if (openTimeoutRef.current !== null) {
-        window.clearTimeout(openTimeoutRef.current);
+        globalThis.clearTimeout(openTimeoutRef.current);
       }
       if (closeTimeoutRef.current !== null) {
-        window.clearTimeout(closeTimeoutRef.current);
+        globalThis.clearTimeout(closeTimeoutRef.current);
       }
     };
   }, []);
@@ -356,7 +342,7 @@ export const ItemIcon = ({
     }
 
     if (closeTimeoutRef.current !== null) {
-      window.clearTimeout(closeTimeoutRef.current);
+      globalThis.clearTimeout(closeTimeoutRef.current);
       closeTimeoutRef.current = null;
     }
 
@@ -368,10 +354,10 @@ export const ItemIcon = ({
     }
 
     if (openTimeoutRef.current !== null) {
-      window.clearTimeout(openTimeoutRef.current);
+      globalThis.clearTimeout(openTimeoutRef.current);
     }
 
-    openTimeoutRef.current = window.setTimeout(() => {
+    openTimeoutRef.current = globalThis.setTimeout(() => {
       setHovered(true);
       openTimeoutRef.current = null;
     }, 120);
@@ -383,46 +369,44 @@ export const ItemIcon = ({
     }
 
     if (openTimeoutRef.current !== null) {
-      window.clearTimeout(openTimeoutRef.current);
+      globalThis.clearTimeout(openTimeoutRef.current);
       openTimeoutRef.current = null;
     }
 
     if (closeTimeoutRef.current !== null) {
-      window.clearTimeout(closeTimeoutRef.current);
+      globalThis.clearTimeout(closeTimeoutRef.current);
     }
 
-    closeTimeoutRef.current = window.setTimeout(() => {
+    closeTimeoutRef.current = globalThis.setTimeout(() => {
       setActive(false);
       setHovered(false);
       closeTimeoutRef.current = null;
     }, 90);
   };
 
-  return (
-    <div
-      ref={triggerRef}
-      className="relative"
-      data-item-icon={item.slug}
-      tabIndex={canInteract ? 0 : -1}
-      role={canInteract ? "button" : "img"}
-      aria-label={item.name}
-      aria-haspopup={showTooltip ? "tooltip" : onOpenDetail ? "dialog" : undefined}
-      aria-expanded={showTooltip ? hovered : undefined}
-      aria-controls={inspectControls}
-      aria-pressed={canInteract ? highlighted : undefined}
-      onMouseEnter={scheduleOpen}
-      onMouseLeave={closeTooltip}
-      onFocus={scheduleOpen}
-      onBlur={closeTooltip}
-      onClick={(event) => {
-        if (!canInteract) {
-          return;
-        }
-        event.stopPropagation();
-        onInspect?.(item);
-        onOpenDetail?.(item);
-      }}
-    >
+  const triggerProps = {
+    className: "relative inline-block rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+    "data-item-icon": item.slug,
+    "aria-label": item.name,
+    "aria-haspopup": getPreviewPopupRole({ hasDetailAction: Boolean(onOpenDetail) }),
+    "aria-expanded": showTooltip ? hovered : undefined,
+    "aria-controls": inspectControls,
+    onMouseEnter: scheduleOpen,
+    onMouseLeave: closeTooltip,
+    onFocus: scheduleOpen,
+    onBlur: closeTooltip,
+    onClick: (event: MouseEvent<HTMLElement>) => {
+      if (!canInteract) {
+        return;
+      }
+      event.stopPropagation();
+      onInspect?.(item);
+      onOpenDetail?.(item);
+    },
+  };
+
+  const triggerContent = (
+    <>
       <div
         className={`${sizeMap[size]} overflow-hidden rounded-md border border-border/60 bg-muted/50 ${canInteract ? "cursor-pointer" : ""} transition-all duration-200 hover:border-primary/50 hover:shadow-lg hover:shadow-primary/10 ${active || highlighted ? "border-primary/50 shadow-lg shadow-primary/10" : ""} ${className}`}
         style={{ boxShadow: "inset 0 2px 4px hsl(222 47% 4% / 0.5)" }}
@@ -454,6 +438,29 @@ export const ItemIcon = ({
           ) : null}
         </AnimatePresence>
       ) : null}
+    </>
+  );
+
+  return canInteract ? (
+    <button
+      {...triggerProps}
+      ref={(node) => {
+        triggerRef.current = node;
+      }}
+      type="button"
+      aria-pressed={highlighted}
+    >
+      {triggerContent}
+    </button>
+  ) : (
+    <div
+      {...triggerProps}
+      ref={(node) => {
+        triggerRef.current = node;
+      }}
+      role="img"
+    >
+      {triggerContent}
     </div>
   );
 };
@@ -476,16 +483,12 @@ const ItemTooltip = ({
   const hasComponents = item.buildsFrom.length > 0;
   const hasEffects = effectBlocks.length > 0;
   const useScrollableEffects = hasEffects && (layoutMode !== "compact" || hasComponents);
-  const statsGridClass =
-    statLines.length === 1
-      ? "grid-cols-1"
-      : layoutMode === "dense"
-        ? "grid-cols-1 xl:grid-cols-2"
-        : "grid-cols-1 sm:grid-cols-2";
+  const effectBodyClampClass = hasComponents ? "line-clamp-4" : "";
+  const statsGridClass = "grid-cols-1";
   const statCardClass =
     layoutMode === "compact"
-      ? "grid grid-cols-[24px_minmax(0,1fr)_auto] items-center gap-3 rounded-xl border border-white/6 bg-white/[0.03] px-3 py-2.5"
-      : "grid grid-cols-[24px_minmax(0,1fr)_auto] items-center gap-3 rounded-xl border border-white/6 bg-white/[0.03] px-3 py-3";
+      ? itemTooltipClassNames.statCardCompact
+      : itemTooltipClassNames.statCardDefault;
 
   return (
     <motion.div
@@ -496,83 +499,58 @@ const ItemTooltip = ({
       className="pointer-events-none relative"
     >
       <div
-        className="overflow-hidden rounded-[18px] border border-[#8b6a24]/35 bg-[#0d1320]/96 shadow-[0_22px_60px_rgba(0,0,0,0.62)] backdrop-blur-md"
+        className={itemTooltipClassNames.panel}
         style={{ maxHeight: `min(78vh, ${maxHeight}px)` }}
       >
-        <div className="flex max-h-full min-h-0 flex-col overflow-hidden">
-          <div className="bg-[linear-gradient(180deg,rgba(255,198,90,0.07),rgba(255,198,90,0))] px-4 pb-4 pt-4">
+        <div className="max-h-full overflow-y-auto">
+          <div className={itemTooltipClassNames.header}>
             <div className="flex items-start gap-3">
-              <div className="h-12 w-12 shrink-0 overflow-hidden rounded-md border border-[#c49b43]/45 bg-black/20 shadow-[inset_0_1px_4px_rgba(0,0,0,0.5)]">
+              <div className={itemTooltipClassNames.iconFrame}>
                 <img src={item.icon} alt={item.name} className="h-full w-full object-cover" />
               </div>
               <div className="min-w-0 flex-1">
-                <h4 className="font-heading text-base font-bold uppercase tracking-[0.04em] text-[#f2c249]">
+                <h4 className={itemTooltipClassNames.title}>
                   {item.name}
                 </h4>
-                <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm font-semibold text-[#f3d37a]">
+                <div className={itemTooltipClassNames.priceLine}>
                   <span>{item.cost} or</span>
-                  {item.baseCost ? <span className="text-[#c5ab63]/85">({item.baseCost})</span> : null}
+                  {item.baseCost ? <span className={itemTooltipClassNames.baseCost}>({item.baseCost})</span> : null}
                   {item.category ? (
-                    <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[11px] uppercase tracking-[0.12em] text-[#b7c0d1]">
+                    <span className={itemTooltipClassNames.categoryBadge}>
                       {item.category}
                     </span>
                   ) : null}
                 </div>
                 {item.shortDescription ? (
-                  <p className="mt-2 text-sm leading-5 text-[#d1d8e5]/76">{item.shortDescription}</p>
+                  <p className={itemTooltipClassNames.shortDescription}>{item.shortDescription}</p>
                 ) : null}
               </div>
             </div>
           </div>
 
           {statLines.length > 0 ? (
-            <div className="shrink-0 border-t border-white/6 px-4 pb-4 pt-3">
+            <div className={itemTooltipClassNames.section}>
               <div className={`grid gap-2 ${statsGridClass}`}>
                 {statLines.map((entry) => (
                   <div key={`${item.id}-${entry.key}-${entry.value}`} className={statCardClass}>
                     <StatBadge icon={entry.icon} />
-                    <span className="text-[13px] leading-5 text-[#f4f5f7]">{entry.label}</span>
-                    <span className="justify-self-end text-[13px] font-semibold text-[#6be8ff]">{entry.value}</span>
+                    <span className={itemTooltipClassNames.statLabel}>{entry.label}</span>
+                    <span className={itemTooltipClassNames.statValue}>{entry.value}</span>
                   </div>
                 ))}
               </div>
             </div>
           ) : null}
 
-          {hasEffects ? (
-            <div className={`border-t border-white/6 px-4 ${useScrollableEffects ? "min-h-0 flex-1 py-3" : "py-3"}`}>
-              <div className={useScrollableEffects ? "min-h-0 max-h-full overflow-y-auto pr-1" : undefined}>
-                <div className="space-y-3">
-                  {effectBlocks.map((block, index) => (
-                    <div
-                      key={`${item.id}-block-${index}`}
-                      className={`rounded-xl border border-white/6 bg-white/[0.03] ${layoutMode === "compact" ? "px-3 py-2.5" : "px-3 py-3"}`}
-                    >
-                      <div className={`flex ${block.icon ? "items-start gap-3" : "block"}`}>
-                        {block.icon ? <div className="pt-0.5"><StatBadge icon={block.icon} /></div> : null}
-                        <div className="min-w-0 flex-1">
-                          {block.title ? (
-                            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#f7e3a1]">{block.title}</p>
-                          ) : null}
-                          <p className={`text-sm text-[#d4dae5]/84 ${layoutMode === "compact" ? "leading-5" : "leading-6"}`}>{block.body}</p>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          ) : null}
-
           {item.buildsFrom.length > 0 ? (
-            <div className="shrink-0 border-t border-white/6 px-4 pb-4 pt-3">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-[#8f97a8]">Composants</p>
+            <div className={itemTooltipClassNames.componentsSection}>
+              <p className={itemTooltipClassNames.componentsTitle}>Composants</p>
               {item.buildsFromIcons && item.buildsFromIcons.length > 0 ? (
                 <div className="mt-2 grid grid-cols-[repeat(auto-fit,minmax(36px,36px))] gap-2">
                   {item.buildsFromIcons.slice(0, 6).map((component) => (
                     <div
                       key={`${item.id}-component-${component.riotItemId}`}
-                      className="h-9 w-9 overflow-hidden rounded-md border border-white/10 bg-black/20 shadow-[inset_0_1px_3px_rgba(0,0,0,0.45)]"
+                      className={itemTooltipClassNames.componentIcon}
                       title={`Composant ${component.riotItemId}`}
                     >
                       <img
@@ -588,7 +566,7 @@ const ItemTooltip = ({
                   {item.buildsFrom.slice(0, 6).map((componentId) => (
                     <div
                       key={`${item.id}-component-${componentId}`}
-                      className="rounded-md border border-white/8 bg-white/5 px-2 py-1 font-mono text-[11px] text-[#c8cfdd]"
+                      className={itemTooltipClassNames.componentId}
                     >
                       {componentId}
                     </div>
@@ -597,13 +575,35 @@ const ItemTooltip = ({
               )}
             </div>
           ) : null}
+
+          {hasEffects ? (
+            <div className={useScrollableEffects ? itemTooltipClassNames.scrollableSection : itemTooltipClassNames.staticSection}>
+              <div>
+                <div className="space-y-3">
+                  {effectBlocks.map((block, index) => (
+                    <div
+                      key={`${item.id}-block-${index}`}
+                      className={layoutMode === "compact" ? itemTooltipClassNames.effectCardCompact : itemTooltipClassNames.effectCardDefault}
+                    >
+                      <div className={`flex ${block.icon ? "items-start gap-3" : "block"}`}>
+                        {block.icon ? <div className="pt-0.5"><StatBadge icon={block.icon} /></div> : null}
+                        <div className="min-w-0 flex-1">
+                          {block.title ? (
+                            <p className={itemTooltipClassNames.effectTitle}>{block.title}</p>
+                          ) : null}
+                          <p className={`${itemTooltipClassNames.effectBody} ${layoutMode === "compact" ? "leading-5" : "leading-6"} ${effectBodyClampClass}`}>{block.body}</p>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          ) : null}
         </div>
       </div>
 
-      {placement === "top" ? <div className="absolute left-1/2 top-[calc(100%-7px)] h-3.5 w-3.5 -translate-x-1/2 rotate-45 border-b border-r border-[#8b6a24]/40 bg-[#0d1320]/96" /> : null}
-      {placement === "bottom" ? <div className="absolute bottom-[calc(100%-7px)] left-1/2 h-3.5 w-3.5 -translate-x-1/2 rotate-45 border-l border-t border-[#8b6a24]/40 bg-[#0d1320]/96" /> : null}
-      {placement === "left" ? <div className="absolute left-[calc(100%-7px)] top-1/2 h-3.5 w-3.5 -translate-y-1/2 rotate-45 border-r border-t border-[#8b6a24]/40 bg-[#0d1320]/96" /> : null}
-      {placement === "right" ? <div className="absolute right-[calc(100%-7px)] top-1/2 h-3.5 w-3.5 -translate-y-1/2 rotate-45 border-b border-l border-[#8b6a24]/40 bg-[#0d1320]/96" /> : null}
+      <div className={itemTooltipArrowClass[placement]} />
     </motion.div>
   );
 };

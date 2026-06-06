@@ -7,7 +7,7 @@ from pathlib import Path
 import pandas as pd
 from fastapi.testclient import TestClient
 
-from features.analytics import build_analytic_dataset, _gold_before_purchase_from_frame_events
+from features.analytics import _gold_before_purchase_from_frame_events, build_analytic_dataset
 from features.catalogs import CatalogBundle
 from inference.api import app
 from inference.config import (
@@ -190,12 +190,13 @@ def make_raw_export(tmp_path: Path) -> AppConfig:
         },
     }
     write_json(config.paths.export_manifest_path, manifest)
+    catalog_patch_dir = config.paths.raw_data_dir / "catalogs" / "26.1"
     write_json(
-        tmp_path / "raw" / "catalogs" / "26.1" / "item_catalog.json",
+        catalog_patch_dir / "item_catalog.json",
         json.loads(config.paths.item_catalog_path.read_text(encoding="utf-8")),
     )
     write_json(
-        tmp_path / "raw" / "catalogs" / "26.1" / "champion_catalog.json",
+        catalog_patch_dir / "champion_catalog.json",
         json.loads(config.paths.champion_catalog_path.read_text(encoding="utf-8")),
     )
 
@@ -399,7 +400,11 @@ def test_build_analytic_dataset_creates_snapshots(tmp_path: Path) -> None:
     assert dataset["actual_item_in_candidate_pool"].tolist() == [True, True]
     ranking_dataset = pd.read_parquet(config.paths.ranking_dataset_path)
     assert "snapshot_id" in ranking_dataset.columns
-    assert set(ranking_dataset["candidate_item_slug"].tolist()) == {"boots", "long-sword", "kraken-slayer"}
+    assert set(ranking_dataset["candidate_item_slug"].tolist()) == {
+        "boots",
+        "long-sword",
+        "kraken-slayer",
+    }
     assert "item_cost" in ranking_dataset.columns
     assert "label" in ranking_dataset.columns
     report = json.loads(config.paths.dataset_report_path.read_text(encoding="utf-8"))

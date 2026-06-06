@@ -5,7 +5,6 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-
 RestrictionReason = str
 BASIC_BOOTS_RIOT_ITEM_ID = 1001
 
@@ -32,7 +31,11 @@ def _safe_int(value: Any) -> int:
 
 
 def _item_groups(item: dict[str, Any]) -> set[str]:
-    groups = {str(value).strip().lower() for value in item.get("itemGroups", []) if str(value).strip()}
+    groups = {
+        str(value).strip().lower()
+        for value in item.get("itemGroups", [])
+        if str(value).strip()
+    }
     if item.get("isBoots"):
         groups.add("boots")
     builds_from = {_safe_int(value) for value in item.get("buildsFrom", [])}
@@ -64,9 +67,15 @@ def _is_tier3_boots(item: dict[str, Any], item_meta_by_slug: dict[str, dict[str,
         if meta.get("isBoots"):
             return True
         parent_ids = [_safe_int(value) for value in meta.get("buildsFrom", [])]
-        return any(parent_id > 0 and _is_boot_lineage(parent_id, next_seen) for parent_id in parent_ids)
+        return any(
+            parent_id > 0 and _is_boot_lineage(parent_id, next_seen)
+            for parent_id in parent_ids
+        )
 
-    return any(riot_item_id > 0 and _is_boot_lineage(riot_item_id, set()) for riot_item_id in builds_from)
+    return any(
+        riot_item_id > 0 and _is_boot_lineage(riot_item_id, set())
+        for riot_item_id in builds_from
+    )
 
 
 @lru_cache(maxsize=1)

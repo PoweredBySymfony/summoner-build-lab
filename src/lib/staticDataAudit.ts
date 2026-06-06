@@ -88,7 +88,8 @@ function getLatestPatch(values: string[]) {
   if (patchSet.length === 0) {
     return null;
   }
-  return patchSet.sort(comparePatch).at(-1) ?? null;
+  const sortedPatches = [...patchSet].sort(comparePatch);
+  return sortedPatches.at(-1) ?? null;
 }
 
 function pushIssue(issues: StaticDataAuditIssue[], issue: StaticDataAuditIssue) {

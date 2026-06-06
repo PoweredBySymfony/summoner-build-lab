@@ -13,6 +13,8 @@ const rootDir = process.cwd();
 const rawDir = path.join(rootDir, "ml", "data", "raw");
 const catalogsDir = path.join(rawDir, "catalogs");
 
+const compareText = (left: string, right: string) => left.localeCompare(right);
+
 type DataDragonChampionSummary = Awaited<ReturnType<typeof dataDragonClient.getChampionSummary>>;
 type DataDragonItemSummary = Awaited<ReturnType<typeof dataDragonClient.getItemSummary>>;
 
@@ -232,7 +234,8 @@ async function main() {
     };
   });
 
-  const patches = [...new Set(canonicalizedMatches.map((entry) => String(entry.patch ?? "").trim()).filter(Boolean))].sort();
+  const patches = [...new Set(canonicalizedMatches.map((entry) => String(entry.patch ?? "").trim()).filter(Boolean))]
+    .sort(compareText);
   const versions = await dataDragonClient.getVersions();
   const latestVersion = versions[0];
 

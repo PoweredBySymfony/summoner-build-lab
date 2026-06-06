@@ -37,7 +37,7 @@ app.use(rateLimit({
 app.use(cookieParser());
 app.use(express.json({ limit: "1mb" }));
 app.use((request, _response, next) => {
-  console.log(`[api] ${request.method} ${request.originalUrl}`);
+  console.log("[api] request received", { method: request.method });
   next();
 });
 app.use("/api", appRoutes);

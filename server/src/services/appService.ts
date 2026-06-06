@@ -46,7 +46,8 @@ export const appService = {
     return {
       champions: champions.map(mapChampionView),
       items: items.map(mapItemView),
-      patches: Array.from(new Set([...champions.map((entry) => entry.patch), ...items.map((entry) => entry.patch)])).sort().reverse(),
+      patches: Array.from(new Set([...champions.map((entry) => entry.patch), ...items.map((entry) => entry.patch)]))
+        .sort((left, right) => right.localeCompare(left)),
     };
   },
 

@@ -20,8 +20,8 @@ const useDebouncedValue = <T,>(value: T, delayMs: number) => {
   const [debouncedValue, setDebouncedValue] = useState(value);
 
   useEffect(() => {
-    const timeout = window.setTimeout(() => setDebouncedValue(value), delayMs);
-    return () => window.clearTimeout(timeout);
+    const timeout = globalThis.setTimeout(() => setDebouncedValue(value), delayMs);
+    return () => globalThis.clearTimeout(timeout);
   }, [value, delayMs]);
 
   return debouncedValue;
@@ -112,8 +112,8 @@ export const RiotIdSearch = ({ defaultValue = "", compact = false }: RiotIdSearc
         return;
       }
 
-      const viewportWidth = window.innerWidth;
-      const viewportHeight = window.innerHeight;
+      const viewportWidth = globalThis.innerWidth;
+      const viewportHeight = globalThis.innerHeight;
       const gutter = 16;
       const preferredGap = 10;
       const desiredWidth = rect.width;
@@ -136,12 +136,12 @@ export const RiotIdSearch = ({ defaultValue = "", compact = false }: RiotIdSearc
     };
 
     updatePanelPosition();
-    window.addEventListener("resize", updatePanelPosition);
-    window.addEventListener("scroll", updatePanelPosition, true);
+    globalThis.addEventListener("resize", updatePanelPosition);
+    globalThis.addEventListener("scroll", updatePanelPosition, true);
 
     return () => {
-      window.removeEventListener("resize", updatePanelPosition);
-      window.removeEventListener("scroll", updatePanelPosition, true);
+      globalThis.removeEventListener("resize", updatePanelPosition);
+      globalThis.removeEventListener("scroll", updatePanelPosition, true);
     };
   }, [isOpen]);
 
