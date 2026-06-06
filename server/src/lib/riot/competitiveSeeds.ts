@@ -262,82 +262,138 @@ async function buildEliteSeedFromEntry(input: {
   });
 }
 
+function createEliteFailureRecorder(input: {
+  platform: RiotPlatform;
+  maxConsecutiveFailures: number;
+}) {
+  let consecutiveFailures = 0;
+
+  return {
+    reset() {
+      consecutiveFailures = 0;
+    },
+    record(context: string, error: unknown) {
+      consecutiveFailures += 1;
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn(
+        "[competitive-seeds] elite-request-failed",
+        JSON.stringify({
+          platform: input.platform,
+          context,
+          consecutiveFailures,
+          message,
+        }),
+      );
+      if (consecutiveFailures >= input.maxConsecutiveFailures) {
+        throw new Error(
+          `Elite seed discovery stopped after ${consecutiveFailures} consecutive failures on ${input.platform}.`,
+        );
+      }
+    },
+  };
+}
+
+async function fetchEliteTierEntries(input: {
+  platform: RiotPlatform;
+  options: EliteSeedDiscoveryOptions;
+  tier: EliteSeedDiscoveryOptions["tiers"][number];
+  failureRecorder: ReturnType<typeof createEliteFailureRecorder>;
+}) {
+  try {
+    const response = await riotApiClient.getLeagueEntriesByQueueOnPlatform(
+      input.platform,
+      input.options.queue,
+      input.tier,
+    );
+    input.failureRecorder.reset();
+    return sortEliteEntries(response.entries).slice(0, input.options.maxEntriesPerTier);
+  } catch (error) {
+    input.failureRecorder.record(`tier:${input.tier}`, error);
+    const message = error instanceof Error ? error.message : String(error);
+    if (isEliteAuthFailure(message)) {
+      throw error;
+    }
+    return [];
+  }
+}
+
+async function buildEliteSeedsForTier(input: {
+  platform: RiotPlatform;
+  cluster: RiotRegion;
+  options: EliteSeedDiscoveryOptions;
+  tier: EliteSeedDiscoveryOptions["tiers"][number];
+  entries: RiotLeagueEntry[];
+  failureRecorder: ReturnType<typeof createEliteFailureRecorder>;
+}) {
+  const seeds: CompetitiveSeed[] = [];
+
+  for (const [index, entry] of input.entries.entries()) {
+    try {
+      const seed = await buildEliteSeedFromEntry({
+        entry,
+        index,
+        tier: input.tier,
+        platform: input.platform,
+        cluster: input.cluster,
+        options: input.options,
+      });
+      if (!seed) {
+        continue;
+      }
+
+      input.failureRecorder.reset();
+      seeds.push(seed);
+    } catch (error) {
+      input.failureRecorder.record(
+        `tier:${input.tier}:entry:${index}`,
+        error,
+      );
+      console.warn(
+        "[competitive-seeds] elite-seed-resolution-failed",
+        JSON.stringify({
+          platform: input.platform,
+          tier: input.tier,
+          summonerId: entry.summonerId ?? null,
+          puuid: entry.puuid ?? null,
+          message: error instanceof Error ? error.message : String(error),
+        }),
+      );
+    }
+  }
+
+  return seeds;
+}
+
 async function fetchEliteSeedsForPlatform(
   platform: RiotPlatform,
   options: EliteSeedDiscoveryOptions,
 ): Promise<CompetitiveSeed[]> {
   const cluster = PLATFORM_TO_REGION[platform];
   const seeds: CompetitiveSeed[] = [];
-  let consecutiveFailures = 0;
-
-  const recordFailure = (context: string, error: unknown) => {
-    consecutiveFailures += 1;
-    const message = error instanceof Error ? error.message : String(error);
-    console.warn(
-      "[competitive-seeds] elite-request-failed",
-      JSON.stringify({
-        platform,
-        context,
-        consecutiveFailures,
-        message,
-      }),
-    );
-    if (consecutiveFailures >= options.maxConsecutiveFailures) {
-      throw new Error(
-        `Elite seed discovery stopped after ${consecutiveFailures} consecutive failures on ${platform}.`,
-      );
-    }
-  };
+  const failureRecorder = createEliteFailureRecorder({
+    platform,
+    maxConsecutiveFailures: options.maxConsecutiveFailures,
+  });
 
   for (const tier of options.tiers) {
-    let response: RiotLeagueListResponse;
-    try {
-      response = await riotApiClient.getLeagueEntriesByQueueOnPlatform(platform, options.queue, tier);
-      consecutiveFailures = 0;
-    } catch (error) {
-      recordFailure(`tier:${tier}`, error);
-      const message = error instanceof Error ? error.message : String(error);
-      if (isEliteAuthFailure(message)) {
-        throw error;
-      }
+    const entries = await fetchEliteTierEntries({
+      platform,
+      options,
+      tier,
+      failureRecorder,
+    });
+    if (entries.length === 0) {
       continue;
     }
-    const entries = sortEliteEntries(response.entries)
-      .slice(0, options.maxEntriesPerTier);
 
-    for (const [index, entry] of entries.entries()) {
-      try {
-        const seed = await buildEliteSeedFromEntry({
-          entry,
-          index,
-          tier,
-          platform,
-          cluster,
-          options,
-        });
-        if (!seed) {
-          continue;
-        }
-
-        consecutiveFailures = 0;
-        seeds.push(seed);
-      } catch (error) {
-        recordFailure(
-          `tier:${tier}:entry:${index}`,
-          error,
-        );
-        console.warn(
-          "[competitive-seeds] elite-seed-resolution-failed",
-          JSON.stringify({
-            platform,
-            tier,
-            summonerId: entry.summonerId ?? null,
-            puuid: entry.puuid ?? null,
-            message: error instanceof Error ? error.message : String(error),
-          }),
-        );
-      }
-    }
+    seeds.push(...await buildEliteSeedsForTier({
+      platform,
+      cluster,
+      options,
+      tier,
+      entries,
+      failureRecorder,
+    }));
   }
 
   return seeds;
