@@ -290,6 +290,52 @@ export async function fetchMatchBundleWithRetry(matchId: string, region: RiotReg
   throw lastError ?? new HttpError(500, "Unable to fetch Riot match bundle.");
 }
 
+async function fetchMatchForImport(matchId: string, region: RiotRegion) {
+  try {
+    const fetched = await fetchMatchBundleWithRetry(matchId, region);
+    return {
+      match: fetched.match,
+      timeline: fetched.timeline,
+      timelineMissingReason: null,
+    };
+  } catch (error) {
+    const timelineMissingReason = error instanceof HttpError ? `timeline-fetch-${error.status}` : "timeline-fetch-error";
+    console.warn(
+      `[riot-sync] timeline fetch failed for ${matchId}, falling back to match-only import`,
+      error,
+    );
+
+    return {
+      match: await riotApiClient.getMatchByIdOnRegion(matchId, region),
+      timeline: null,
+      timelineMissingReason,
+    };
+  }
+}
+
+function buildTargetParticipantMissingDetail(input: {
+  riotMatchId: string;
+  info: RiotMatchInfo;
+  region: RiotRegion;
+  timeline: Record<string, unknown> | null;
+}) {
+  console.warn(`[riot-sync] target participant missing in match ${input.riotMatchId}, skipping`);
+  const gameCreationAt = input.info.gameCreation ? new Date(input.info.gameCreation) : null;
+  const canonicalPatch = canonicalizePatch(input.info.gameVersion, gameCreationAt);
+
+  return buildSkippedMatchDetail({
+    riotMatchId: input.riotMatchId,
+    patch: canonicalPatch.patchCanonical,
+    sourceRegion: input.region,
+    timelineAvailable: Boolean(input.timeline),
+    timelineMissingReason: input.timeline ? null : "target-participant-missing",
+    targetChampionSlug: null,
+    targetRole: null,
+    gameCreationAt,
+    skippedReason: "target-participant-missing",
+  });
+}
+
 export async function importMatchForIdentityInternal(
   identity: ResolvedImportIdentity,
   input: {
@@ -300,22 +346,7 @@ export async function importMatchForIdentityInternal(
     skipExistingWithDifferentTarget?: boolean;
   },
 ): Promise<RiotImportedMatchDetail> {
-  let match: Record<string, unknown>;
-  let timeline: Record<string, unknown> | null = null;
-  let timelineMissingReason: string | null = null;
-
-  try {
-    const fetched = await fetchMatchBundleWithRetry(input.matchId, identity.region);
-    match = fetched.match;
-    timeline = fetched.timeline;
-  } catch (error) {
-    timelineMissingReason = error instanceof HttpError ? `timeline-fetch-${error.status}` : "timeline-fetch-error";
-    console.warn(
-      `[riot-sync] timeline fetch failed for ${input.matchId}, falling back to match-only import`,
-      error,
-    );
-    match = await riotApiClient.getMatchByIdOnRegion(input.matchId, identity.region);
-  }
+  const { match, timeline, timelineMissingReason } = await fetchMatchForImport(input.matchId, identity.region);
 
   const metadata = match.metadata as { matchId?: string; participants?: string[] };
   const info = match.info as RiotMatchInfo;
@@ -323,18 +354,11 @@ export async function importMatchForIdentityInternal(
   const riotMatchId = metadata.matchId ?? input.matchId;
 
   if (!participant) {
-    console.warn(`[riot-sync] target participant missing in match ${riotMatchId}, skipping`);
-    const canonicalPatch = canonicalizePatch(info.gameVersion, info.gameCreation ? new Date(info.gameCreation) : null);
-    return buildSkippedMatchDetail({
+    return buildTargetParticipantMissingDetail({
       riotMatchId,
-      patch: canonicalPatch.patchCanonical,
-      sourceRegion: identity.region,
-      timelineAvailable: Boolean(timeline),
-      timelineMissingReason: timeline ? null : "target-participant-missing",
-      targetChampionSlug: null,
-      targetRole: null,
-      gameCreationAt: info.gameCreation ? new Date(info.gameCreation) : null,
-      skippedReason: "target-participant-missing",
+      info,
+      region: identity.region,
+      timeline,
     });
   }
 
