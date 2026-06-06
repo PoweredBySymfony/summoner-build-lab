@@ -404,52 +404,186 @@ export async function discoverMatchIdsForSeed(
   } satisfies CompetitiveSeedMatchDiscovery;
 }
 
+type DiscoverableSeed = CompetitiveResolvedSeed & {
+  puuid: string;
+  cluster: NonNullable<CompetitiveResolvedSeed["cluster"]>;
+};
+
+type DiscoverSeedsInput = {
+  pageSize: number;
+  maxIdsPerSeed: number;
+  targetIdsPerSeed: number;
+  maxDiscoveredUniqueMatches?: number;
+  queues: number[];
+  startTime: number | null;
+  endTime: number | null;
+  maxConsecutiveFailures?: number;
+  quarantinedSeedKeys?: Set<string>;
+  quarantinedRegions?: Set<string>;
+  onProgress?: (snapshot: {
+    processedSeeds: number;
+    totalActiveSeeds: number;
+    discoveries: CompetitiveSeedMatchDiscovery[];
+    seed: DiscoverableSeed;
+  }) => Promise<void> | void;
+};
+
+type DiscoveryFailureState = {
+  consecutiveFailureSignature: string | null;
+  consecutiveFailures: number;
+  lastFailureSeedKey: string | null;
+  lastFailureRegion: string | null;
+  lastFailureReason: string | null;
+};
+
+function isDiscoverableSeed(seed: CompetitiveResolvedSeed): seed is DiscoverableSeed {
+  return seed.resolutionStatus === "resolved" && Boolean(seed.puuid) && Boolean(seed.cluster);
+}
+
+function getUniqueDiscoveredMatchCount(discoveries: CompetitiveSeedMatchDiscovery[]) {
+  return new Set(discoveries.flatMap((entry) => entry.matchIds)).size;
+}
+
+function getUniqueDiscoveryStopReason(
+  discoveries: CompetitiveSeedMatchDiscovery[],
+  maxDiscoveredUniqueMatches: number | undefined,
+) {
+  if (typeof maxDiscoveredUniqueMatches !== "number") {
+    return null;
+  }
+
+  const currentUniqueCount = getUniqueDiscoveredMatchCount(discoveries);
+  return currentUniqueCount >= maxDiscoveredUniqueMatches
+    ? `discovery-unique-budget:${currentUniqueCount}`
+    : null;
+}
+
+function isCachedDiscoveryComplete(
+  cached: CompetitiveSeedMatchDiscovery | undefined,
+  input: DiscoverSeedsInput,
+) {
+  if (cached?.querySignature !== buildDiscoveryQuerySignature(input)) {
+    return false;
+  }
+
+  const scanStates = Object.values(cached.scanStateByQueue ?? {});
+  return cached.matchIds.length >= input.targetIdsPerSeed
+    || (scanStates.length > 0 && scanStates.every((state) => state.exhausted));
+}
+
+async function notifyDiscoveryProgress(input: {
+  onProgress: DiscoverSeedsInput["onProgress"];
+  processedSeeds: number;
+  totalActiveSeeds: number;
+  discoveries: CompetitiveSeedMatchDiscovery[];
+  seed: DiscoverableSeed;
+}) {
+  await input.onProgress?.({
+    processedSeeds: input.processedSeeds,
+    totalActiveSeeds: input.totalActiveSeeds,
+    discoveries: input.discoveries,
+    seed: input.seed,
+  });
+}
+
+function buildEmptyDiscovery(seed: DiscoverableSeed, input: DiscoverSeedsInput, cached?: CompetitiveSeedMatchDiscovery) {
+  return {
+    seedKey: buildCompetitiveSeedKey(seed),
+    playerName: seed.playerName,
+    team: seed.team,
+    league: seed.league,
+    competition: seed.competition,
+    role: seed.role,
+    priorityTier: seed.priorityTier,
+    priorityScore: seed.priorityScore,
+    puuid: seed.puuid,
+    region: seed.cluster,
+    matchIds: [],
+    querySignature: buildDiscoveryQuerySignature(input),
+    appliedFilters: {
+      queues: [...new Set(input.queues)],
+      startTime: input.startTime,
+      endTime: input.endTime,
+      pageSize: input.pageSize,
+      maxIdsPerSeed: input.maxIdsPerSeed,
+    },
+    scanStateByQueue: cached?.scanStateByQueue ?? {},
+  } satisfies CompetitiveSeedMatchDiscovery;
+}
+
+function recordDiscoveryFailure(input: {
+  error: unknown;
+  seed: DiscoverableSeed;
+  seedKey: string;
+  cached?: CompetitiveSeedMatchDiscovery;
+  state: DiscoveryFailureState;
+  authFailureCountsBySeedKey: Map<string, number>;
+  authFailureCountsByRegion: Map<string, number>;
+  maxConsecutiveFailures: number;
+}) {
+  const message = input.error instanceof Error ? input.error.message : String(input.error);
+  const failureSignature = message.toLowerCase().trim();
+  input.state.lastFailureSeedKey = input.seedKey;
+  input.state.lastFailureRegion = input.seed.cluster;
+  input.state.lastFailureReason = failureSignature;
+
+  if (failureSignature.includes("authentication failed")) {
+    input.authFailureCountsBySeedKey.set(
+      input.seedKey,
+      (input.authFailureCountsBySeedKey.get(input.seedKey) ?? 0) + 1,
+    );
+    input.authFailureCountsByRegion.set(
+      input.seed.cluster,
+      (input.authFailureCountsByRegion.get(input.seed.cluster) ?? 0) + 1,
+    );
+  }
+
+  input.state.consecutiveFailures = input.state.consecutiveFailureSignature === failureSignature
+    ? input.state.consecutiveFailures + 1
+    : 1;
+  input.state.consecutiveFailureSignature = failureSignature;
+
+  console.warn(
+    "[competitive-ingestion] discover-seed-failed",
+    JSON.stringify({
+      seed: input.seed.playerName,
+      matchIdsCached: input.cached?.matchIds.length ?? 0,
+      message,
+      consecutiveFailures: input.state.consecutiveFailures,
+      maxConsecutiveFailures: input.maxConsecutiveFailures,
+    }),
+  );
+
+  return input.state.consecutiveFailures >= input.maxConsecutiveFailures
+    ? `discovery-failure-budget:${input.state.consecutiveFailures}`
+    : null;
+}
+
 export async function discoverSeeds(
   seeds: CompetitiveResolvedSeed[],
   discoveryCache: Map<string, CompetitiveSeedMatchDiscovery>,
-  input: {
-    pageSize: number;
-    maxIdsPerSeed: number;
-    targetIdsPerSeed: number;
-    maxDiscoveredUniqueMatches?: number;
-    queues: number[];
-    startTime: number | null;
-    endTime: number | null;
-    maxConsecutiveFailures?: number;
-    quarantinedSeedKeys?: Set<string>;
-    quarantinedRegions?: Set<string>;
-    onProgress?: (snapshot: {
-      processedSeeds: number;
-      totalActiveSeeds: number;
-      discoveries: CompetitiveSeedMatchDiscovery[];
-      seed: CompetitiveResolvedSeed & { puuid: string; cluster: NonNullable<CompetitiveResolvedSeed["cluster"]> };
-    }) => Promise<void> | void;
-  },
+  input: DiscoverSeedsInput,
 ) {
-  const activeSeeds = seeds.filter(
-    (seed): seed is CompetitiveResolvedSeed & { puuid: string; cluster: NonNullable<CompetitiveResolvedSeed["cluster"]> } =>
-      seed.resolutionStatus === "resolved" && Boolean(seed.puuid) && Boolean(seed.cluster),
-  );
+  const activeSeeds = seeds.filter(isDiscoverableSeed);
 
   const discoveries: CompetitiveSeedMatchDiscovery[] = [];
   let processedSeeds = 0;
-  let consecutiveFailureSignature: string | null = null;
-  let consecutiveFailures = 0;
+  const failureState: DiscoveryFailureState = {
+    consecutiveFailureSignature: null,
+    consecutiveFailures: 0,
+    lastFailureSeedKey: null,
+    lastFailureRegion: null,
+    lastFailureReason: null,
+  };
   const maxConsecutiveFailures = input.maxConsecutiveFailures ?? 2;
   let stopReason: string | null = null;
   const authFailureCountsBySeedKey = new Map<string, number>();
   const authFailureCountsByRegion = new Map<string, number>();
-  let lastFailureSeedKey: string | null = null;
-  let lastFailureRegion: string | null = null;
-  let lastFailureReason: string | null = null;
   for (const seed of activeSeeds) {
     processedSeeds += 1;
-    if (typeof input.maxDiscoveredUniqueMatches === "number") {
-      const currentUniqueCount = new Set(discoveries.flatMap((entry) => entry.matchIds)).size;
-      if (currentUniqueCount >= input.maxDiscoveredUniqueMatches) {
-        stopReason = `discovery-unique-budget:${currentUniqueCount}`;
-        break;
-      }
+    stopReason = getUniqueDiscoveryStopReason(discoveries, input.maxDiscoveredUniqueMatches);
+    if (stopReason) {
+      break;
     }
 
     const seedKey = buildCompetitiveSeedKey(seed);
@@ -457,7 +591,8 @@ export async function discoverSeeds(
       console.info(
         `[competitive-ingestion] discover-seed-skipped quarantined seed=${seed.playerName} region=${seed.cluster}`,
       );
-      await input.onProgress?.({
+      await notifyDiscoveryProgress({
+        onProgress: input.onProgress,
         processedSeeds,
         totalActiveSeeds: activeSeeds.length,
         discoveries,
@@ -467,16 +602,13 @@ export async function discoverSeeds(
     }
 
     const cached = discoveryCache.get(seedKey);
-    const hasCachedScanState = Object.keys(cached?.scanStateByQueue ?? {}).length > 0;
-    if (
-      cached?.querySignature === buildDiscoveryQuerySignature(input)
-      && (cached.matchIds.length >= input.targetIdsPerSeed || (hasCachedScanState && Object.values(cached.scanStateByQueue ?? {}).every((state) => state.exhausted)))
-    ) {
+    if (isCachedDiscoveryComplete(cached, input)) {
       discoveries.push(cached);
       console.info(
         `[competitive-ingestion] discover-seed-progress processed=${discoveries.length}/${activeSeeds.length} seed=${seed.playerName} cached=yes matchIds=${cached.matchIds.length}`,
       );
-      await input.onProgress?.({
+      await notifyDiscoveryProgress({
+        onProgress: input.onProgress,
         processedSeeds,
         totalActiveSeeds: activeSeeds.length,
         discoveries,
@@ -495,65 +627,31 @@ export async function discoverSeeds(
         endTime: input.endTime,
         cached,
       }));
-      consecutiveFailures = 0;
+      failureState.consecutiveFailures = 0;
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      const failureSignature = message.toLowerCase().trim();
-      lastFailureSeedKey = seedKey;
-      lastFailureRegion = seed.cluster;
-      lastFailureReason = failureSignature;
-      if (failureSignature.includes("authentication failed")) {
-        authFailureCountsBySeedKey.set(seedKey, (authFailureCountsBySeedKey.get(seedKey) ?? 0) + 1);
-        authFailureCountsByRegion.set(seed.cluster, (authFailureCountsByRegion.get(seed.cluster) ?? 0) + 1);
-      }
-      consecutiveFailures = consecutiveFailureSignature === failureSignature
-        ? consecutiveFailures + 1
-        : 1;
-      consecutiveFailureSignature = failureSignature;
-      console.warn(
-        "[competitive-ingestion] discover-seed-failed",
-        JSON.stringify({
-          seed: seed.playerName,
-          matchIdsCached: cached?.matchIds.length ?? 0,
-          message,
-          consecutiveFailures,
-          maxConsecutiveFailures,
-        }),
-      );
-      if (consecutiveFailures >= maxConsecutiveFailures) {
-        stopReason = `discovery-failure-budget:${consecutiveFailures}`;
+      stopReason = recordDiscoveryFailure({
+        error,
+        seed,
+        seedKey,
+        cached,
+        state: failureState,
+        authFailureCountsBySeedKey,
+        authFailureCountsByRegion,
+        maxConsecutiveFailures,
+      });
+      if (stopReason) {
         console.warn(
           `[competitive-ingestion] discovery-stopped stopReason=${stopReason} lastSeed=${seed.playerName}`,
         );
         break;
       }
-      discoveries.push(cached ?? {
-        seedKey,
-        playerName: seed.playerName,
-        team: seed.team,
-        league: seed.league,
-        competition: seed.competition,
-        role: seed.role,
-        priorityTier: seed.priorityTier,
-        priorityScore: seed.priorityScore,
-        puuid: seed.puuid,
-        region: seed.cluster,
-        matchIds: [],
-        querySignature: buildDiscoveryQuerySignature(input),
-        appliedFilters: {
-          queues: [...new Set(input.queues)],
-          startTime: input.startTime,
-          endTime: input.endTime,
-          pageSize: input.pageSize,
-          maxIdsPerSeed: input.maxIdsPerSeed,
-        },
-        scanStateByQueue: cached?.scanStateByQueue ?? {},
-      });
+      discoveries.push(cached ?? buildEmptyDiscovery(seed, input, cached));
     }
     console.info(
       `[competitive-ingestion] discover-seed-progress processed=${discoveries.length}/${activeSeeds.length} seed=${seed.playerName} cached=no matchIds=${discoveries[discoveries.length - 1]?.matchIds.length ?? 0}`,
     );
-    await input.onProgress?.({
+    await notifyDiscoveryProgress({
+      onProgress: input.onProgress,
       processedSeeds,
       totalActiveSeeds: activeSeeds.length,
       discoveries,
@@ -566,8 +664,8 @@ export async function discoverSeeds(
     stopReason,
     authFailureCountsBySeedKey,
     authFailureCountsByRegion,
-    lastFailureSeedKey,
-    lastFailureRegion,
-    lastFailureReason,
+    lastFailureSeedKey: failureState.lastFailureSeedKey,
+    lastFailureRegion: failureState.lastFailureRegion,
+    lastFailureReason: failureState.lastFailureReason,
   };
 }
