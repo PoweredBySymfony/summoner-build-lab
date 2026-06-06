@@ -866,8 +866,7 @@ function getCompetitiveRunStopReason(input: {
   return null;
 }
 
-async function main() {
-  const options = applyTranchePreset(parseArgs(process.argv.slice(2)));
+async function loadCompetitiveImportSetup(options: CliOptions) {
   const { absolutePath: seedAbsolutePath, manifest } = await loadManifest(options.seedPath);
   const policyConfig = withPolicyOverrides(
     await loadCompetitiveIngestionPolicy(path.resolve(options.policyPath)),
@@ -913,6 +912,61 @@ async function main() {
     refreshDiscovery: options.refreshDiscovery,
     hasActiveQuarantine: quarantinedSeedKeys.size > 0,
   });
+
+  return {
+    seedAbsolutePath,
+    manifest,
+    policy,
+    checkpointPath,
+    reportPath,
+    markdownReportPath,
+    startTime,
+    endTime,
+    ownerUserId,
+    baselineTotalMatchesBefore,
+    baselineCompetitiveMatchesBefore,
+    existingCompetitiveMatchIds,
+    remainingTargetMatches,
+    classificationBudget,
+    checkpoint,
+    resolvedSeedCache,
+    discoveryCache,
+    matchMetadataCache,
+    discoveryQuarantinePath,
+    quarantinedSeedKeys,
+    quarantinedRegions,
+    canReuseResolvedSeeds,
+    canReuseDiscoveryCheckpoint,
+  };
+}
+
+async function main() {
+  const options = applyTranchePreset(parseArgs(process.argv.slice(2)));
+  const {
+    seedAbsolutePath,
+    manifest,
+    policy,
+    checkpointPath,
+    reportPath,
+    markdownReportPath,
+    startTime,
+    endTime,
+    ownerUserId,
+    baselineTotalMatchesBefore,
+    baselineCompetitiveMatchesBefore,
+    existingCompetitiveMatchIds,
+    remainingTargetMatches,
+    classificationBudget,
+    checkpoint,
+    resolvedSeedCache,
+    discoveryCache,
+    matchMetadataCache,
+    discoveryQuarantinePath,
+    quarantinedSeedKeys,
+    quarantinedRegions,
+    canReuseResolvedSeeds,
+    canReuseDiscoveryCheckpoint,
+  } = await loadCompetitiveImportSetup(options);
 
   console.info(
     `[competitive-ingestion] resolving ${manifest.players.length} seeds from ${seedAbsolutePath} mode=${policy.mode}`,
