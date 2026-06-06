@@ -43,15 +43,28 @@ const normalizeText = (value?: string | null) =>
 const hasDescriptionKeyword = (item: ItemGroupInput, keyword: RegExp) =>
   keyword.test(normalizeText(item.fullDescription));
 
+const buildsFromItemId = (item: ItemGroupInput, riotItemId: number) =>
+  Array.isArray(item.buildsFrom) && item.buildsFrom.some((entry) => Number(entry) === riotItemId);
+
+const isBootsRelatedItem = (item: ItemGroupInput) =>
+  item.isBoots
+  || BOOTS_RELATED_ITEM_IDS.has(item.riotItemId)
+  || (Array.isArray(item.buildsFrom) && item.buildsFrom.some((entry) => BOOTS_RELATED_ITEM_IDS.has(Number(entry))));
+
+const isHydraItem = (item: ItemGroupInput) =>
+  HYDRA_ITEM_IDS.has(item.riotItemId) || buildsFromItemId(item, 3077);
+
+const isEternityItem = (item: ItemGroupInput, normalizedName: string) =>
+  hasDescriptionKeyword(item, /\beternite\b/i) || normalizedName.includes("eternite");
+
+const isLastWhisperItem = (item: ItemGroupInput) =>
+  LAST_WHISPER_ITEM_IDS.has(item.riotItemId) || buildsFromItemId(item, 3035);
+
 export const getItemGroups = (item: ItemGroupInput): ItemGroupId[] => {
   const groups = new Set<ItemGroupId>();
   const normalizedName = normalizeText(item.name);
 
-  if (
-    item.isBoots
-    || BOOTS_RELATED_ITEM_IDS.has(item.riotItemId)
-    || (Array.isArray(item.buildsFrom) && item.buildsFrom.some((entry) => BOOTS_RELATED_ITEM_IDS.has(Number(entry))))
-  ) {
+  if (isBootsRelatedItem(item)) {
     groups.add("Boots");
   }
 
@@ -59,7 +72,7 @@ export const getItemGroups = (item: ItemGroupInput): ItemGroupId[] => {
     groups.add("Fatality");
   }
 
-  if (HYDRA_ITEM_IDS.has(item.riotItemId) || item.buildsFrom && Array.isArray(item.buildsFrom) && item.buildsFrom.some((entry) => Number(entry) === 3077)) {
+  if (isHydraItem(item)) {
     groups.add("Hydra");
   }
 
@@ -83,7 +96,7 @@ export const getItemGroups = (item: ItemGroupInput): ItemGroupId[] => {
     groups.add("Blight");
   }
 
-  if (hasDescriptionKeyword(item, /\beternite\b/i) || normalizedName.includes("eternite")) {
+  if (isEternityItem(item, normalizedName)) {
     groups.add("Eternity");
   }
 
@@ -99,7 +112,7 @@ export const getItemGroups = (item: ItemGroupInput): ItemGroupId[] => {
     groups.add("Stasis");
   }
 
-  if (LAST_WHISPER_ITEM_IDS.has(item.riotItemId) || (Array.isArray(item.buildsFrom) && item.buildsFrom.some((entry) => Number(entry) === 3035))) {
+  if (isLastWhisperItem(item)) {
     groups.add("LastWhisper");
   }
 

@@ -115,20 +115,7 @@ const getCurrentItem = (setup: ItemLabSetup, catalogIndex: Map<string, GameItem>
   return currentItemId ? catalogIndex.get(currentItemId) ?? null : null;
 };
 
-const validateCandidate = ({
-  setup,
-  catalog,
-  targetSlotIndex,
-  item,
-}: ValidationContext & { item: GameItem }): InventoryBlockReason[] => {
-  const indexes = buildIndexes(catalog);
-  const derivedRule = deriveItemRule(item, catalog, indexes);
-  const currentItem = getCurrentItem(setup, indexes.byId, targetSlotIndex);
-  const inventoryWithoutTarget = getInventoryWithoutTargetSlot(setup, targetSlotIndex);
-  const ownedItems = inventoryWithoutTarget.map((itemId) => indexes.byId.get(itemId) ?? null).filter((entry): entry is GameItem => Boolean(entry));
-  const ownedIds = new Set(ownedItems.map((entry) => entry.id));
-  const reasons: InventoryBlockReason[] = [];
-
+const addBasicItemAvailabilityReasons = (item: GameItem, reasons: InventoryBlockReason[]) => {
   if (!item.isActive) {
     reasons.push(makeReason("inactive-item", "Item inactif dans le patch courant."));
   }
@@ -144,6 +131,50 @@ const validateCandidate = ({
   if (item.isTrinket) {
     reasons.push(makeReason("trinket-item", "Les trinkets sont exclus de cette comparaison de build."));
   }
+};
+
+const findExclusiveGroupConflict = (
+  item: GameItem,
+  catalog: GameItem[],
+  indexes: ReturnType<typeof buildIndexes>,
+  ownedItems: GameItem[],
+  derivedRule: DerivedItemRule,
+) => {
+  for (const group of derivedRule.exclusiveGroups) {
+    const conflict = ownedItems.find((ownedItem) => deriveItemRule(ownedItem, catalog, indexes).exclusiveGroups.includes(group));
+    if (conflict) {
+      const reasonCode = group === normalizeGroupKey("Boots") ? "boots-conflict" : "exclusive-group";
+      return makeReason(reasonCode, `${item.name} est bloque car ${conflict.name} occupe deja le groupe ${formatGroupLabel(group)}.`);
+    }
+  }
+
+  return null;
+};
+
+const findUpgradeConflict = (
+  indexes: ReturnType<typeof buildIndexes>,
+  ownedIds: Set<string>,
+  derivedRule: DerivedItemRule,
+) =>
+  derivedRule.upgradeFromItemIds
+    .map((itemId) => indexes.byId.get(itemId) ?? null)
+    .find((entry) => entry && ownedIds.has(entry.id)) ?? null;
+
+const validateCandidate = ({
+  setup,
+  catalog,
+  targetSlotIndex,
+  item,
+}: ValidationContext & { item: GameItem }): InventoryBlockReason[] => {
+  const indexes = buildIndexes(catalog);
+  const derivedRule = deriveItemRule(item, catalog, indexes);
+  const currentItem = getCurrentItem(setup, indexes.byId, targetSlotIndex);
+  const inventoryWithoutTarget = getInventoryWithoutTargetSlot(setup, targetSlotIndex);
+  const ownedItems = inventoryWithoutTarget.map((itemId) => indexes.byId.get(itemId) ?? null).filter((entry): entry is GameItem => Boolean(entry));
+  const ownedIds = new Set(ownedItems.map((entry) => entry.id));
+  const reasons: InventoryBlockReason[] = [];
+
+  addBasicItemAvailabilityReasons(item, reasons);
 
   if (ownedIds.has(item.id) && currentItem?.id !== item.id) {
     reasons.push(makeReason("duplicate-item", "Cet item est deja present dans ce setup."));
@@ -158,18 +189,12 @@ const validateCandidate = ({
     reasons.push(makeReason("slot-boots-only", "Le 7e slot ADC n'accepte que des bottes."));
   }
 
-  for (const group of derivedRule.exclusiveGroups) {
-    const conflict = ownedItems.find((ownedItem) => deriveItemRule(ownedItem, catalog, indexes).exclusiveGroups.includes(group));
-    if (conflict) {
-      const reasonCode = group === normalizeGroupKey("Boots") ? "boots-conflict" : "exclusive-group";
-      reasons.push(makeReason(reasonCode, `${item.name} est bloque car ${conflict.name} occupe deja le groupe ${formatGroupLabel(group)}.`));
-      break;
-    }
+  const exclusiveGroupConflict = findExclusiveGroupConflict(item, catalog, indexes, ownedItems, derivedRule);
+  if (exclusiveGroupConflict) {
+    reasons.push(exclusiveGroupConflict);
   }
 
-  const upgradeConflict = derivedRule.upgradeFromItemIds
-    .map((itemId) => indexes.byId.get(itemId) ?? null)
-    .find((entry) => entry && ownedIds.has(entry.id));
+  const upgradeConflict = findUpgradeConflict(indexes, ownedIds, derivedRule);
   if (upgradeConflict) {
     reasons.push(makeReason("upgrade-slot-locked", `${item.name} doit remplacer ${upgradeConflict.name} dans son slot d'origine.`));
   }

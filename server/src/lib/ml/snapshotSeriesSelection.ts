@@ -58,6 +58,8 @@ export const SNAPSHOT_SEGMENTS: ReadonlyArray<{
   { segment: "late", minInclusive: 23, maxExclusive: 32.01 },
 ];
 
+const compareText = (left: string, right: string) => left.localeCompare(right);
+
 export function buildSnapshotHistoryKey(input: {
   snapshotIndex: number;
   snapshotMinute: number;
@@ -75,7 +77,7 @@ export function buildSnapshotSignature(input: {
     input.role ?? "FLEX",
     input.snapshotMinute.toFixed(2),
     Math.max(0, Math.round(input.goldAvailable)),
-    [...input.currentItems].sort().join("|"),
+    [...input.currentItems].sort(compareText).join("|"),
   ].join("::");
 }
 

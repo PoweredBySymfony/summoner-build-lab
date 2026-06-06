@@ -239,7 +239,17 @@ const SetupColumn = ({
                     return (
                       <Popover key={`${side}-slot-${slotIndex}`} open={activeItemSlot === slotIndex} onOpenChange={(open) => setActiveItemSlot(open ? slotIndex : null)}>
                         <PopoverTrigger asChild>
-                          <div role="button" tabIndex={0} className="group item-slot-lg relative w-full rounded-xl border border-border/60 bg-card/80 transition-colors hover:border-primary/40">
+                          <div
+                            role="button"
+                            tabIndex={0}
+                            onKeyDown={(event) => {
+                              if (event.key === "Enter" || event.key === " ") {
+                                event.preventDefault();
+                                setActiveItemSlot(slotIndex);
+                              }
+                            }}
+                            className="group item-slot-lg relative w-full rounded-xl border border-border/60 bg-card/80 transition-colors hover:border-primary/40"
+                          >
                             {currentItem ? (
                               <>
                                 <ItemIcon item={currentItem} size="lg" showTooltip className="h-full w-full border-0" interactive={false} />
@@ -247,6 +257,13 @@ const SetupColumn = ({
                                   role="button"
                                   tabIndex={0}
                                   className="absolute right-1 top-1 rounded-full bg-background/80 p-1 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100"
+                                  onKeyDown={(event) => {
+                                    if (event.key === "Enter" || event.key === " ") {
+                                      event.preventDefault();
+                                      event.stopPropagation();
+                                      onItemRemove(slotIndex);
+                                    }
+                                  }}
                                   onClick={(event) => {
                                     event.stopPropagation();
                                     onItemRemove(slotIndex);

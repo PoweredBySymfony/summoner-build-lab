@@ -67,7 +67,7 @@ export async function getMongoHealth() {
 }
 
 export async function closeMongoClient() {
-  const client = await clientPromise;
+  const client = clientPromise ? await clientPromise : null;
   clientPromise = null;
   await client?.close();
 }

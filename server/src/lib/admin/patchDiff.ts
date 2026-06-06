@@ -83,7 +83,7 @@ const parseNumericStatValue = (value: unknown) => {
 
 const formatDecimal = (value: number) => {
   const rounded = Math.round(value * 100) / 100;
-  return Number.isInteger(rounded) ? String(rounded) : String(rounded);
+  return String(rounded);
 };
 
 const formatNumber = (value: unknown) => {
@@ -150,6 +150,10 @@ const formatBoolean = (value: boolean) => value ? "Oui" : "Non";
 
 const formatPurchasable = (value: boolean) =>
   value ? "Oui, disponible a l'achat en boutique" : "Non, retire de l'achat direct en boutique";
+
+const compareText = (left: string, right: string) => left.localeCompare(right);
+
+const compareNumericText = (left: string, right: string) => Number(left) - Number(right);
 
 const mapAvailabilityLabels: Record<string, string> = {
   "11": "Faille de l'invocateur",
@@ -317,8 +321,8 @@ const addArrayChange = (
   beforeValue: string[],
   afterValue: string[],
 ) => {
-  const before = formatList([...beforeValue].sort());
-  const after = formatList([...afterValue].sort());
+  const before = formatList([...beforeValue].sort(compareText));
+  const after = formatList([...afterValue].sort(compareText));
   if (before !== after) {
     changes.push({ field, label, before, after });
   }
@@ -334,8 +338,8 @@ const addItemReferenceArrayChange = (
 ) => {
   const beforeIds = new Set(beforeValue);
   const afterIds = new Set(afterValue);
-  const removedIds = beforeValue.filter((itemId) => !afterIds.has(itemId)).sort();
-  const addedIds = afterValue.filter((itemId) => !beforeIds.has(itemId)).sort();
+  const removedIds = beforeValue.filter((itemId) => !afterIds.has(itemId)).sort(compareNumericText);
+  const addedIds = afterValue.filter((itemId) => !beforeIds.has(itemId)).sort(compareNumericText);
 
   if (removedIds.length || addedIds.length) {
     const before = removedIds.length ? `${formatItemReferenceList(removedIds, options)} retires` : "Aucun item retire";

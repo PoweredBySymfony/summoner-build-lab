@@ -62,6 +62,8 @@ const MAX_SNAPSHOT_CANDIDATES = 12;
 const MAX_SNAPSHOT_CANDIDATES_PER_SEGMENT = 4;
 const SHOP_BURST_WINDOW_MS = 45_000;
 
+const compareText = (left: string, right: string) => left.localeCompare(right);
+
 function safeInt(value: unknown) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? Math.trunc(parsed) : 0;
@@ -177,9 +179,9 @@ export function dedupeAndRankSnapshots(candidates: SnapshotCandidate[]) {
   const kept: SnapshotCandidate[] = [];
 
   const isDuplicateOfKept = (candidate: SnapshotCandidate) => {
-    const candidateSignature = [...candidate.snapshot.currentItems].sort().join("|");
+    const candidateSignature = [...candidate.snapshot.currentItems].sort(compareText).join("|");
     return kept.find((existing) => {
-      const existingSignature = [...existing.snapshot.currentItems].sort().join("|");
+      const existingSignature = [...existing.snapshot.currentItems].sort(compareText).join("|");
       return (
         candidateSignature === existingSignature
         && Math.abs(existing.snapshot.timestampMinutes - candidate.snapshot.timestampMinutes) < 3
