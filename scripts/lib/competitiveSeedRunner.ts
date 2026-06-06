@@ -203,6 +203,76 @@ export async function resolveSeeds(
   return resolvedSeeds;
 }
 
+function cloneScanStateByQueue(input: {
+  cached?: CompetitiveSeedMatchDiscovery;
+  canReuseCache: boolean;
+}) {
+  return input.canReuseCache
+    ? Object.fromEntries(
+      Object.entries(input.cached?.scanStateByQueue ?? {}).map(([queue, state]) => [queue, { ...state }]),
+    )
+    : {};
+}
+
+function countRequestedDiscoveryIds(scanStateByQueue: Record<string, CompetitiveDiscoveryQueueState>) {
+  return Object.values(scanStateByQueue).reduce((sum, state) => sum + (state.requests ?? 0), 0);
+}
+
+function getOrCreateQueueScanState(
+  scanStateByQueue: Record<string, CompetitiveDiscoveryQueueState>,
+  queue: number,
+) {
+  const queueKey = String(queue);
+  const state = scanStateByQueue[queueKey] ?? {
+    nextStart: 0,
+    requests: 0,
+    exhausted: false,
+  };
+  scanStateByQueue[queueKey] = state;
+  return state;
+}
+
+function calculateDiscoveryRequestCount(input: {
+  allMatchIdsSize: number;
+  maxIdsPerSeed: number;
+  pageSize: number;
+  scanStateByQueue: Record<string, CompetitiveDiscoveryQueueState>;
+  targetIds: number;
+}) {
+  const refreshedTotalRequested = countRequestedDiscoveryIds(input.scanStateByQueue);
+  const refreshedRemainingBudget = input.maxIdsPerSeed - refreshedTotalRequested;
+  const remainingTarget = input.targetIds - input.allMatchIdsSize;
+  return Math.min(input.pageSize, refreshedRemainingBudget, remainingTarget);
+}
+
+async function discoverMatchIdsForQueue(input: {
+  seed: CompetitiveResolvedSeed & { puuid: string; cluster: NonNullable<CompetitiveResolvedSeed["cluster"]> };
+  queue: number;
+  requestCount: number;
+  state: CompetitiveDiscoveryQueueState;
+  startTime: number | null;
+  endTime: number | null;
+}) {
+  console.info(
+    `[competitive-ingestion] discover-match-ids seed=${input.seed.playerName} queue=${input.queue} start=${input.state.nextStart} count=${input.requestCount} startTime=${input.startTime ?? "none"} endTime=${input.endTime ?? "none"}`,
+  );
+
+  const matchIds = await riotApiClient.getMatchIdsByPuuidOnRegion(input.seed.puuid, input.seed.cluster, input.requestCount, {
+    queue: input.queue,
+    start: input.state.nextStart,
+    startTime: input.startTime ?? undefined,
+    endTime: input.endTime ?? undefined,
+  });
+
+  input.state.nextStart += input.requestCount;
+  input.state.requests += input.requestCount;
+  if (matchIds.length < input.requestCount) {
+    input.state.exhausted = true;
+  }
+
+  return matchIds;
+}
+
 export async function discoverMatchIdsForSeed(
   seed: CompetitiveResolvedSeed & { puuid: string; cluster: NonNullable<CompetitiveResolvedSeed["cluster"]> },
   input: {
@@ -225,57 +295,45 @@ export async function discoverMatchIdsForSeed(
   });
   const canReuseCache = input.cached?.querySignature === querySignature;
   const allMatchIds = new Set<string>(canReuseCache ? input.cached?.matchIds ?? [] : []);
-  const scanStateByQueue: Record<string, CompetitiveDiscoveryQueueState> = canReuseCache
-    ? Object.fromEntries(
-      Object.entries(input.cached?.scanStateByQueue ?? {}).map(([queue, state]) => [queue, { ...state }]),
-    )
-    : {};
+  const scanStateByQueue: Record<string, CompetitiveDiscoveryQueueState> = cloneScanStateByQueue({
+    cached: input.cached,
+    canReuseCache,
+  });
 
   while (allMatchIds.size < input.targetIds) {
     let progressed = false;
-    const totalRequested = Object.values(scanStateByQueue).reduce((sum, state) => sum + (state.requests ?? 0), 0);
+    const totalRequested = countRequestedDiscoveryIds(scanStateByQueue);
     const remainingGlobalBudget = input.maxIdsPerSeed - totalRequested;
     if (remainingGlobalBudget <= 0) {
       break;
     }
 
     for (const queue of uniqueQueues) {
-      const queueKey = String(queue);
-      const state = scanStateByQueue[queueKey] ?? {
-        nextStart: 0,
-        requests: 0,
-        exhausted: false,
-      };
-      scanStateByQueue[queueKey] = state;
+      const state = getOrCreateQueueScanState(scanStateByQueue, queue);
 
       if (state.exhausted) {
         continue;
       }
 
-      const refreshedTotalRequested = Object.values(scanStateByQueue).reduce((sum, entry) => sum + (entry.requests ?? 0), 0);
-      const refreshedRemainingBudget = input.maxIdsPerSeed - refreshedTotalRequested;
-      const remainingTarget = input.targetIds - allMatchIds.size;
-      const requestCount = Math.min(input.pageSize, refreshedRemainingBudget, remainingTarget);
+      const requestCount = calculateDiscoveryRequestCount({
+        allMatchIdsSize: allMatchIds.size,
+        maxIdsPerSeed: input.maxIdsPerSeed,
+        pageSize: input.pageSize,
+        scanStateByQueue,
+        targetIds: input.targetIds,
+      });
       if (requestCount <= 0) {
         break;
       }
 
-      console.info(
-        `[competitive-ingestion] discover-match-ids seed=${seed.playerName} queue=${queue} start=${state.nextStart} count=${requestCount} startTime=${input.startTime ?? "none"} endTime=${input.endTime ?? "none"}`,
-      );
-
-      const matchIds = await riotApiClient.getMatchIdsByPuuidOnRegion(seed.puuid, seed.cluster, requestCount, {
+      const matchIds = await discoverMatchIdsForQueue({
+        seed,
         queue,
-        start: state.nextStart,
-        startTime: input.startTime ?? undefined,
-        endTime: input.endTime ?? undefined,
+        requestCount,
+        state,
+        startTime: input.startTime,
+        endTime: input.endTime,
       });
-
-      state.nextStart += requestCount;
-      state.requests += requestCount;
-      if (matchIds.length < requestCount) {
-        state.exhausted = true;
-      }
 
       for (const matchId of matchIds) {
         allMatchIds.add(matchId);
