@@ -1,0 +1,87 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1180" height="430" viewBox="0 0 1180 430" role="img" aria-labelledby="title desc">
+  <title id="title">Flux du workflow GitHub Actions SonarQube Server</title>
+  <desc id="desc">Etapes du workflow: checkout, node, npm ci, services locaux, prisma, lint, coverage, build, scan SonarQube sur main.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L9,3 z" fill="#16a34a"/>
+    </marker>
+    <style>
+      .bg { fill: #f8fafc; }
+      .step { fill: #ffffff; stroke: #94a3b8; stroke-width: 2; rx: 9; }
+      .scan { fill: #f0fdf4; stroke: #16a34a; stroke-width: 2; rx: 9; }
+      .skip { fill: #fff7ed; stroke: #ea580c; stroke-width: 2; rx: 9; }
+      .title { font: 700 22px Arial, sans-serif; fill: #0f172a; }
+      .label { font: 700 15px Arial, sans-serif; fill: #0f172a; }
+      .small { font: 12px Arial, sans-serif; fill: #475569; }
+      .arrow { stroke: #16a34a; stroke-width: 3; fill: none; marker-end: url(#arrow); }
+    </style>
+  </defs>
+  <rect class="bg" width="1180" height="430"/>
+  <text x="36" y="44" class="title">Workflow CI</text>
+  <g transform="translate(40 90)">
+    <rect class="step" width="120" height="76"/>
+    <text x="22" y="32" class="label">Checkout</text>
+    <text x="16" y="55" class="small">fetch-depth: 0</text>
+  </g>
+  <path d="M160 128 L210 128" class="arrow"/>
+  <g transform="translate(210 90)">
+    <rect class="step" width="120" height="76"/>
+    <text x="22" y="32" class="label">Node 22</text>
+    <text x="25" y="55" class="small">cache npm</text>
+  </g>
+  <path d="M330 128 L380 128" class="arrow"/>
+  <g transform="translate(380 90)">
+    <rect class="step" width="120" height="76"/>
+    <text x="31" y="32" class="label">npm ci</text>
+    <text x="18" y="55" class="small">deps propres</text>
+  </g>
+  <path d="M500 128 L550 128" class="arrow"/>
+  <g transform="translate(550 90)">
+    <rect class="step" width="150" height="76"/>
+    <text x="25" y="32" class="label">Services</text>
+    <text x="17" y="55" class="small">postgres + mongo</text>
+  </g>
+  <path d="M700 128 L750 128" class="arrow"/>
+  <g transform="translate(750 90)">
+    <rect class="step" width="150" height="76"/>
+    <text x="30" y="32" class="label">Prisma</text>
+    <text x="18" y="55" class="small">generate + migrate</text>
+  </g>
+  <path d="M900 128 L950 128" class="arrow"/>
+  <g transform="translate(950 90)">
+    <rect class="step" width="150" height="76"/>
+    <text x="42" y="32" class="label">Seed</text>
+    <text x="22" y="55" class="small">database test</text>
+  </g>
+  <path d="M1025 166 C1025 225, 90 225, 90 260" class="arrow"/>
+  <g transform="translate(40 260)">
+    <rect class="step" width="150" height="76"/>
+    <text x="58" y="32" class="label">Lint</text>
+    <text x="42" y="55" class="small">eslint .</text>
+  </g>
+  <path d="M190 298 L240 298" class="arrow"/>
+  <g transform="translate(240 260)">
+    <rect class="step" width="180" height="76"/>
+    <text x="42" y="32" class="label">Coverage</text>
+    <text x="27" y="55" class="small">vitest run --coverage</text>
+  </g>
+  <path d="M420 298 L470 298" class="arrow"/>
+  <g transform="translate(470 260)">
+    <rect class="step" width="150" height="76"/>
+    <text x="54" y="32" class="label">Build</text>
+    <text x="34" y="55" class="small">vite + tsc</text>
+  </g>
+  <path d="M620 298 L670 298" class="arrow"/>
+  <g transform="translate(670 250)">
+    <rect class="scan" width="220" height="96"/>
+    <text x="38" y="35" class="label">SonarQube scan</text>
+    <text x="26" y="58" class="small">uniquement si ref == main</text>
+    <text x="26" y="78" class="small">publie coverage/lcov.info</text>
+  </g>
+  <g transform="translate(930 250)">
+    <rect class="skip" width="210" height="96"/>
+    <text x="34" y="35" class="label">Branches feature</text>
+    <text x="22" y="58" class="small">lint + tests + build OK</text>
+    <text x="22" y="78" class="small">scan SonarQube ignore</text>
+  </g>
+</svg>

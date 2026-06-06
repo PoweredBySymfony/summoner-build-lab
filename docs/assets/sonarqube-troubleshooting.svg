@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1180" height="540" viewBox="0 0 1180 540" role="img" aria-labelledby="title desc">
+  <title id="title">Erreurs rencontrees et corrections SonarQube local</title>
+  <desc id="desc">Carte de depannage des principales erreurs rencontrees pendant la mise en place.</desc>
+  <style>
+    .bg { fill: #f8fafc; }
+    .error { fill: #fef2f2; stroke: #dc2626; stroke-width: 2; rx: 10; }
+    .fix { fill: #f0fdf4; stroke: #16a34a; stroke-width: 2; rx: 10; }
+    .title { font: 700 22px Arial, sans-serif; fill: #0f172a; }
+    .label { font: 700 15px Arial, sans-serif; fill: #0f172a; }
+    .text { font: 13px Arial, sans-serif; fill: #334155; }
+    .code { font: 12px Consolas, monospace; fill: #334155; }
+  </style>
+  <rect class="bg" width="1180" height="540"/>
+  <text x="36" y="44" class="title">Depannage: erreurs et solutions</text>
+
+  <rect x="40" y="82" width="520" height="82" class="error"/>
+  <text x="62" y="112" class="label">Docker daemon indisponible</text>
+  <text x="62" y="138" class="code">failed to connect to dockerDesktopLinuxEngine</text>
+  <rect x="620" y="82" width="520" height="82" class="fix"/>
+  <text x="642" y="112" class="label">Solution</text>
+  <text x="642" y="138" class="text">Demarrer Docker Desktop, puis attendre que docker info reponde.</text>
+
+  <rect x="40" y="184" width="520" height="82" class="error"/>
+  <text x="62" y="214" class="label">Runner en attente</text>
+  <text x="62" y="240" class="code">Waiting for a runner to pick up this job</text>
+  <rect x="620" y="184" width="520" height="82" class="fix"/>
+  <text x="642" y="214" class="label">Solution</text>
+  <text x="642" y="240" class="text">Autoriser le runner group Default sur le repo et, si repo public, cocher Allow public repositories.</text>
+
+  <rect x="40" y="286" width="520" height="82" class="error"/>
+  <text x="62" y="316" class="label">Permissions runner</text>
+  <text x="62" y="342" class="code">Access to path _work/_tool is denied</text>
+  <rect x="620" y="286" width="520" height="82" class="fix"/>
+  <text x="642" y="316" class="label">Solution</text>
+  <text x="642" y="342" class="text">Persister /home/runner/actions-runner et chown _work + _tool dans entrypoint.sh.</text>
+
+  <rect x="40" y="388" width="520" height="82" class="error"/>
+  <text x="62" y="418" class="label">Docker depuis le runner</text>
+  <text x="62" y="444" class="code">permission denied while trying to connect to docker.sock</text>
+  <rect x="620" y="388" width="520" height="82" class="fix"/>
+  <text x="642" y="418" class="label">Solution</text>
+  <text x="642" y="444" class="text">Monter /var/run/docker.sock et donner l'acces au socket dans le runner local.</text>
+
+  <rect x="40" y="488" width="520" height="34" class="error"/>
+  <text x="62" y="510" class="code">not authorized to analyze this project</text>
+  <rect x="620" y="488" width="520" height="34" class="fix"/>
+  <text x="642" y="510" class="text">Utiliser un User token SonarQube et verifier sonar.projectKey=summoner-build-lab.</text>
+</svg>

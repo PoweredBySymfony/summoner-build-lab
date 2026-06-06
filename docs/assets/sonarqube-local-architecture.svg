@@ -1,0 +1,65 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1180" height="560" viewBox="0 0 1180 560" role="img" aria-labelledby="title desc">
+  <title id="title">Architecture SonarQube local avec GitHub Actions self-hosted runner Docker</title>
+  <desc id="desc">GitHub Actions envoie un job au runner Docker local, qui execute lint, tests, build, Docker Compose, puis publie le rapport vers SonarQube Docker local.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L9,3 z" fill="#2563eb"/>
+    </marker>
+    <style>
+      .bg { fill: #f8fafc; }
+      .box { fill: #ffffff; stroke: #94a3b8; stroke-width: 2; rx: 10; }
+      .accent { fill: #eff6ff; stroke: #2563eb; stroke-width: 2; rx: 10; }
+      .docker { fill: #ecfeff; stroke: #0891b2; stroke-width: 2; rx: 10; }
+      .secret { fill: #fefce8; stroke: #ca8a04; stroke-width: 2; rx: 10; }
+      .title { font: 700 22px Arial, sans-serif; fill: #0f172a; }
+      .label { font: 700 17px Arial, sans-serif; fill: #0f172a; }
+      .text { font: 14px Arial, sans-serif; fill: #334155; }
+      .small { font: 12px Arial, sans-serif; fill: #475569; }
+      .arrow { stroke: #2563eb; stroke-width: 3; fill: none; marker-end: url(#arrow); }
+    </style>
+  </defs>
+  <rect class="bg" width="1180" height="560"/>
+  <text x="36" y="48" class="title">Architecture finale</text>
+
+  <rect x="40" y="92" width="250" height="130" class="accent"/>
+  <text x="70" y="132" class="label">GitHub</text>
+  <text x="70" y="162" class="text">Repo: PoweredBySymfony/summoner-build-lab</text>
+  <text x="70" y="186" class="text">Workflow: SonarQube Server</text>
+  <text x="70" y="210" class="small">Secrets: SONAR_TOKEN, SONAR_HOST_URL</text>
+
+  <rect x="40" y="310" width="250" height="110" class="secret"/>
+  <text x="70" y="350" class="label">GitHub Secrets</text>
+  <text x="70" y="380" class="text">SONAR_TOKEN = token User SonarQube</text>
+  <text x="70" y="404" class="text">SONAR_HOST_URL = host.docker.internal</text>
+
+  <rect x="438" y="72" width="310" height="170" class="docker"/>
+  <text x="468" y="112" class="label">Runner Docker local</text>
+  <text x="468" y="142" class="text">summoner-build-lab-github-runner</text>
+  <text x="468" y="166" class="text">Labels: self-hosted, linux, x64</text>
+  <text x="468" y="190" class="text">Label custom: local-sonarqube</text>
+  <text x="468" y="214" class="small">Monte /var/run/docker.sock</text>
+
+  <rect x="438" y="310" width="310" height="130" class="box"/>
+  <text x="468" y="350" class="label">Services projet</text>
+  <text x="468" y="380" class="text">PostgreSQL: localhost:5433</text>
+  <text x="468" y="404" class="text">MongoDB: localhost:27017</text>
+  <text x="468" y="428" class="small">Demarres par docker compose dans la CI</text>
+
+  <rect x="888" y="92" width="250" height="150" class="docker"/>
+  <text x="918" y="132" class="label">SonarQube Docker</text>
+  <text x="918" y="162" class="text">Image: sonarqube:26.1.0...</text>
+  <text x="918" y="186" class="text">URL navigateur: localhost:9000</text>
+  <text x="918" y="210" class="text">URL runner: host.docker.internal:9000</text>
+
+  <rect x="888" y="318" width="250" height="100" class="box"/>
+  <text x="918" y="358" class="label">Projet analyse</text>
+  <text x="918" y="388" class="text">Project key: summoner-build-lab</text>
+  <text x="918" y="412" class="small">Branche analysee: main</text>
+
+  <path d="M290 155 C350 155, 370 155, 438 155" class="arrow"/>
+  <path d="M290 365 C350 365, 370 210, 438 190" class="arrow"/>
+  <path d="M748 155 C810 155, 824 155, 888 155" class="arrow"/>
+  <path d="M593 242 L593 310" class="arrow"/>
+  <path d="M748 375 C810 375, 824 368, 888 368" class="arrow"/>
+  <path d="M1013 242 L1013 318" class="arrow"/>
+</svg>
