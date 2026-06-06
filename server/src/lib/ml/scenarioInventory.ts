@@ -47,6 +47,40 @@ export function collectTimelineItemIds(frames: TimelineFrame[]) {
   return itemIdsSeen;
 }
 
+function applyInventoryEvent(inventory: number[], event: Record<string, unknown>, upToTimestamp: number): boolean {
+  if (safeInt(event.timestamp) > upToTimestamp) {
+    return false;
+  }
+  const eventType = typeof event.type === "string" ? event.type : "";
+  const itemId = safeInt(event.itemId);
+  if (eventType === "ITEM_PURCHASED" && itemId > 0) {
+    inventory.push(itemId);
+    return true;
+  }
+  if ((eventType === "ITEM_SOLD" || eventType === "ITEM_DESTROYED") && itemId > 0) {
+    removeItemOnce(inventory, itemId);
+    return true;
+  }
+  if (eventType === "ITEM_UNDO") {
+    const beforeId = safeInt(event.beforeId);
+    const afterId = safeInt(event.afterId);
+    if (beforeId > 0) {
+      removeItemOnce(inventory, beforeId);
+    }
+    if (afterId > 0) {
+      inventory.push(afterId);
+    }
+    return true;
+  }
+  return false;
+}
+
+function sortFramesByTimestamp(frames: TimelineFrame[]): TimelineFrame[] {
+  return [...frames]
+    .filter((frame) => typeof frame === "object" && frame !== null)
+    .sort((left, right) => safeInt(left.timestamp) - safeInt(right.timestamp));
+}
+
 export function reconstructInventoriesAtTimestamp(input: {
   frames: TimelineFrame[];
   upToTimestamp: number;
@@ -59,56 +93,23 @@ export function reconstructInventoriesAtTimestamp(input: {
   const participantIdSet = new Set(input.participantIds);
   let eventsApplied = 0;
 
-  const sortedFrames = [...input.frames]
-    .filter((frame) => typeof frame === "object" && frame !== null)
-    .sort((left, right) => safeInt(left.timestamp) - safeInt(right.timestamp));
+  const sortedFrames = sortFramesByTimestamp(input.frames);
 
   for (const frame of sortedFrames) {
-    const frameTimestamp = safeInt(frame.timestamp);
-    if (frameTimestamp > input.upToTimestamp) {
+    if (safeInt(frame.timestamp) > input.upToTimestamp) {
       break;
     }
-
     const events = Array.isArray(frame.events) ? (frame.events as Array<Record<string, unknown>>) : [];
     for (const event of events) {
-      const eventTimestamp = safeInt(event.timestamp);
-      if (eventTimestamp > input.upToTimestamp) {
-        continue;
-      }
-
       const participantId = safeInt(event.participantId);
       if (!participantIdSet.has(participantId)) {
         continue;
       }
-
       const inventory = inventories.get(participantId);
       if (!inventory) {
         continue;
       }
-
-      const eventType = String(event.type ?? "");
-      const itemId = safeInt(event.itemId);
-      if (eventType === "ITEM_PURCHASED" && itemId > 0) {
-        inventory.push(itemId);
-        eventsApplied += 1;
-        continue;
-      }
-
-      if ((eventType === "ITEM_SOLD" || eventType === "ITEM_DESTROYED") && itemId > 0) {
-        removeItemOnce(inventory, itemId);
-        eventsApplied += 1;
-        continue;
-      }
-
-      if (eventType === "ITEM_UNDO") {
-        const beforeId = safeInt(event.beforeId);
-        const afterId = safeInt(event.afterId);
-        if (beforeId > 0) {
-          removeItemOnce(inventory, beforeId);
-        }
-        if (afterId > 0) {
-          inventory.push(afterId);
-        }
+      if (applyInventoryEvent(inventory, event, input.upToTimestamp)) {
         eventsApplied += 1;
       }
     }

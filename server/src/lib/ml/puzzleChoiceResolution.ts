@@ -48,7 +48,7 @@ function normalizePatchPrefix(patch: string) {
 }
 
 function normalizeTags(tags: string[]) {
-  return [...new Set(tags.map((tag) => String(tag)).filter(Boolean))];
+  return [...new Set(tags.map(String).filter(Boolean))];
 }
 
 function normalizeMlItemRef(value: string) {
@@ -109,169 +109,151 @@ function scoreFallbackItem(
   return score;
 }
 
+type DistractorResolutionCtx = {
+  input: MlChoiceResolutionInput;
+  goodAnswer: MlChoiceItem;
+  catalog: MlChoiceItem[];
+  ownedItems: MlChoiceItem[];
+  currentItems: Set<string>;
+  usedIds: Set<string>;
+  resolvedDistractors: MlChoiceItem[];
+  unresolvedItems: string[];
+  duplicateInputs: string[];
+  restrictedItems: Array<{ input: string; reasons: ItemRestrictionReason[] }>;
+  restrictedKeys: Set<string>;
+  fallbackItemsUsed: string[];
+  seenInputKeys: Set<string>;
+};
+
+function resolveTrackedItem(rawValue: string, ctx: DistractorResolutionCtx): MlChoiceItem | null {
+  const ref = normalizeMlItemRef(rawValue);
+  if (!ref.raw) return null;
+  const key = ref.riotItemId ? `riot:${ref.riotItemId}` : `slug:${ref.canonicalSlug}`;
+  if (ctx.seenInputKeys.has(key)) {
+    ctx.duplicateInputs.push(ref.raw);
+  } else {
+    ctx.seenInputKeys.add(key);
+  }
+  return resolveMlChoiceItemRef(rawValue, ctx.input.availableItems);
+}
+
+function trackRestrictedItem(value: string, reasons: ItemRestrictionReason[], ctx: DistractorResolutionCtx): void {
+  const key = `${value}::${reasons.join(",")}`;
+  if (ctx.restrictedKeys.has(key)) return;
+  ctx.restrictedKeys.add(key);
+  ctx.restrictedItems.push({ input: value, reasons });
+}
+
+function fillFromPrimaryDistractors(candidates: string[], ctx: DistractorResolutionCtx): void {
+  for (const rawValue of candidates.filter(Boolean)) {
+    if (ctx.resolvedDistractors.length >= 3) break;
+    const item = resolveTrackedItem(rawValue, ctx);
+    if (!item) {
+      ctx.unresolvedItems.push(rawValue);
+      continue;
+    }
+    if (ctx.usedIds.has(item.id)) {
+      ctx.duplicateInputs.push(rawValue);
+      continue;
+    }
+    const restrictionDecision = getItemRestrictionDecision(item.slug, { patch: ctx.input.patch, role: ctx.input.role });
+    if (!restrictionDecision.allowed) {
+      trackRestrictedItem(rawValue, restrictionDecision.reasons, ctx);
+      continue;
+    }
+    const ruleDecision = getMlCandidateRuleDecision(item, { role: ctx.input.role, catalog: ctx.catalog, ownedItems: ctx.ownedItems });
+    if (!ruleDecision.allowed) continue;
+    if (sharesExclusiveGroup(item, ctx.goodAnswer) || ctx.resolvedDistractors.some((e) => sharesExclusiveGroup(item, e))) continue;
+    ctx.usedIds.add(item.id);
+    ctx.resolvedDistractors.push(item);
+  }
+}
+
+function fillFromFallbackDistractors(ctx: DistractorResolutionCtx): void {
+  const { input, goodAnswer, catalog, ownedItems, currentItems, usedIds, resolvedDistractors } = ctx;
+  const fallbackCandidates = input.fallbackItems
+    .filter((item) => item.isActive && !item.isConsumable && !item.isStarter && !item.isTrinket)
+    .filter((item) => !currentItems.has(item.slug) && !usedIds.has(item.id))
+    .filter((item) => {
+      const rd = getItemRestrictionDecision(item.slug, { patch: input.patch, role: input.role });
+      if (!rd.allowed) { trackRestrictedItem(item.slug, rd.reasons, ctx); return false; }
+      return true;
+    })
+    .filter((item) => getMlCandidateRuleDecision(item, { role: input.role, catalog, ownedItems }).allowed)
+    .filter((item) => !sharesExclusiveGroup(item, goodAnswer))
+    .sort((l, r) => {
+      const diff = scoreFallbackItem(r, goodAnswer, input.patch) - scoreFallbackItem(l, goodAnswer, input.patch);
+      return diff === 0 ? l.slug.localeCompare(r.slug) : diff;
+    });
+
+  for (const item of fallbackCandidates) {
+    if (resolvedDistractors.length >= 3) break;
+    if (resolvedDistractors.some((e) => sharesExclusiveGroup(item, e))) continue;
+    usedIds.add(item.id);
+    resolvedDistractors.push(item);
+    ctx.fallbackItemsUsed.push(item.slug);
+  }
+}
+
 export function resolveMlPuzzleChoices(input: MlChoiceResolutionInput): MlChoiceResolutionResult {
-  const seenInputKeys = new Set<string>();
-  const duplicateInputs: string[] = [];
-
-  const resolveItem = (rawValue: string) => {
-    const ref = normalizeMlItemRef(rawValue);
-    if (!ref.raw) {
-      return null;
-    }
-
-    const key = ref.riotItemId ? `riot:${ref.riotItemId}` : `slug:${ref.canonicalSlug}`;
-    if (seenInputKeys.has(key)) {
-      duplicateInputs.push(ref.raw);
-    } else {
-      seenInputKeys.add(key);
-    }
-
-    return resolveMlChoiceItemRef(rawValue, input.availableItems);
-  };
-
-  const unresolvedItems: string[] = [];
-  const restrictedItems: Array<{ input: string; reasons: ItemRestrictionReason[] }> = [];
-  const restrictedKeys = new Set<string>();
-  const recordRestrictedItem = (value: string, reasons: ItemRestrictionReason[]) => {
-    const key = `${value}::${reasons.join(",")}`;
-    if (restrictedKeys.has(key)) {
-      return;
-    }
-    restrictedKeys.add(key);
-    restrictedItems.push({ input: value, reasons });
-  };
-  const goodAnswer = input.goodAnswer ? resolveItem(input.goodAnswer) : null;
-  if (!goodAnswer) {
-    if (input.goodAnswer) {
-      unresolvedItems.push(input.goodAnswer);
-    }
-    throw new Error("good-answer-unresolved");
-  }
-  const goodAnswerRestriction = getItemRestrictionDecision(goodAnswer.slug, {
-    patch: input.patch,
-    role: input.role,
-  });
-  if (!goodAnswerRestriction.allowed) {
-    recordRestrictedItem(input.goodAnswer ?? goodAnswer.slug, goodAnswerRestriction.reasons);
-    throw new Error(`good-answer-${goodAnswerRestriction.reasons.join("+")}`);
-  }
   const catalog = input.availableItems;
   const availableBySlug = new Map(catalog.map((item) => [item.slug, item]));
   const ownedItems = input.currentItemSlugs
     .map((slug) => availableBySlug.get(resolveItemSlug(slug)) ?? null)
     .filter((item): item is MlChoiceItem => Boolean(item));
-  const goodAnswerRuleDecision = getMlCandidateRuleDecision(goodAnswer, {
-    role: input.role,
+
+  const ctx: DistractorResolutionCtx = {
+    input,
+    goodAnswer: null as unknown as MlChoiceItem,
     catalog,
     ownedItems,
-  });
+    currentItems: new Set(input.currentItemSlugs.map((slug) => resolveItemSlug(slug))),
+    usedIds: new Set<string>(),
+    resolvedDistractors: [],
+    unresolvedItems: [],
+    duplicateInputs: [],
+    restrictedItems: [],
+    restrictedKeys: new Set<string>(),
+    fallbackItemsUsed: [],
+    seenInputKeys: new Set<string>(),
+  };
+
+  const goodAnswer = input.goodAnswer ? resolveTrackedItem(input.goodAnswer, ctx) : null;
+  if (!goodAnswer) {
+    if (input.goodAnswer) ctx.unresolvedItems.push(input.goodAnswer);
+    throw new Error("good-answer-unresolved");
+  }
+  ctx.goodAnswer = goodAnswer;
+  ctx.usedIds.add(goodAnswer.id);
+
+  const goodAnswerRestriction = getItemRestrictionDecision(goodAnswer.slug, { patch: input.patch, role: input.role });
+  if (!goodAnswerRestriction.allowed) {
+    trackRestrictedItem(input.goodAnswer ?? goodAnswer.slug, goodAnswerRestriction.reasons, ctx);
+    throw new Error(`good-answer-${goodAnswerRestriction.reasons.join("+")}`);
+  }
+  const goodAnswerRuleDecision = getMlCandidateRuleDecision(goodAnswer, { role: input.role, catalog, ownedItems });
   if (!goodAnswerRuleDecision.allowed) {
     throw new Error(`good-answer-${goodAnswerRuleDecision.reasons.join("+")}`);
   }
 
-  const currentItems = new Set(input.currentItemSlugs.map((slug) => resolveItemSlug(slug)));
-  const resolvedDistractors: MlChoiceItem[] = [];
-  const usedIds = new Set<string>([goodAnswer.id]);
-  const distractorCandidates = [
-    ...input.distractors,
-    ...(input.rankedItemSlugs ?? []),
-  ];
-
-  for (const rawValue of distractorCandidates) {
-    const item = resolveItem(rawValue);
-    if (!item) {
-      if (String(rawValue).trim()) {
-        unresolvedItems.push(String(rawValue));
-      }
-      continue;
-    }
-    if (usedIds.has(item.id)) {
-      duplicateInputs.push(String(rawValue));
-      continue;
-    }
-    const restrictionDecision = getItemRestrictionDecision(item.slug, {
-      patch: input.patch,
-      role: input.role,
-    });
-    if (!restrictionDecision.allowed) {
-      recordRestrictedItem(String(rawValue), restrictionDecision.reasons);
-      continue;
-    }
-    const candidateRuleDecision = getMlCandidateRuleDecision(item, {
-      role: input.role,
-      catalog,
-      ownedItems,
-    });
-    if (!candidateRuleDecision.allowed) {
-      continue;
-    }
-    if (sharesExclusiveGroup(item, goodAnswer) || resolvedDistractors.some((entry) => sharesExclusiveGroup(item, entry))) {
-      continue;
-    }
-    usedIds.add(item.id);
-    resolvedDistractors.push(item);
-    if (resolvedDistractors.length >= 3) {
-      break;
-    }
+  const distractorCandidates = [...input.distractors, ...(input.rankedItemSlugs ?? [])];
+  fillFromPrimaryDistractors(distractorCandidates, ctx);
+  if (ctx.resolvedDistractors.length < 3) {
+    fillFromFallbackDistractors(ctx);
   }
 
-  const fallbackItemsUsed: string[] = [];
-  if (resolvedDistractors.length < 3) {
-    const fallbackCandidates = input.fallbackItems
-      .filter((item) => item.isActive)
-      .filter((item) => !item.isConsumable && !item.isStarter && !item.isTrinket)
-      .filter((item) => !currentItems.has(item.slug))
-      .filter((item) => !usedIds.has(item.id))
-      .filter((item) => {
-        const restrictionDecision = getItemRestrictionDecision(item.slug, {
-          patch: input.patch,
-          role: input.role,
-        });
-        if (!restrictionDecision.allowed) {
-          recordRestrictedItem(item.slug, restrictionDecision.reasons);
-          return false;
-        }
-        return true;
-      })
-      .filter((item) => getMlCandidateRuleDecision(item, {
-        role: input.role,
-        catalog,
-        ownedItems,
-      }).allowed)
-      .filter((item) => !sharesExclusiveGroup(item, goodAnswer))
-      .sort((left, right) => {
-        const scoreDiff = scoreFallbackItem(right, goodAnswer, input.patch) - scoreFallbackItem(left, goodAnswer, input.patch);
-        if (scoreDiff !== 0) {
-          return scoreDiff;
-        }
-        return left.slug.localeCompare(right.slug);
-      });
-
-    for (const item of fallbackCandidates) {
-      if (resolvedDistractors.some((entry) => sharesExclusiveGroup(item, entry))) {
-        continue;
-      }
-      usedIds.add(item.id);
-      resolvedDistractors.push(item);
-      fallbackItemsUsed.push(item.slug);
-      if (resolvedDistractors.length >= 3) {
-        break;
-      }
-    }
-  }
-
-  if (resolvedDistractors.length < 3) {
+  if (ctx.resolvedDistractors.length < 3) {
     throw new Error("insufficient-distractors");
   }
 
   return {
     goodAnswer,
-    distractors: resolvedDistractors.slice(0, 3),
-    resolvedItems: [goodAnswer, ...resolvedDistractors.slice(0, 3)],
-    unresolvedItems,
-    fallbackItemsUsed,
-    duplicateInputs: [...new Set(duplicateInputs)],
-    restrictedItems,
+    distractors: ctx.resolvedDistractors.slice(0, 3),
+    resolvedItems: [goodAnswer, ...ctx.resolvedDistractors.slice(0, 3)],
+    unresolvedItems: ctx.unresolvedItems,
+    fallbackItemsUsed: ctx.fallbackItemsUsed,
+    duplicateInputs: [...new Set(ctx.duplicateInputs)],
+    restrictedItems: ctx.restrictedItems,
   };
 }
 

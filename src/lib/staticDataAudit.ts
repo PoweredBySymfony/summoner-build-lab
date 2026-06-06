@@ -96,16 +96,99 @@ function pushIssue(issues: StaticDataAuditIssue[], issue: StaticDataAuditIssue) 
   issues.push(issue);
 }
 
+type BaseIssue = Omit<StaticDataAuditIssue, "severity" | "code" | "detail">;
+type ItemStatLineSet = ReturnType<typeof getItemStatLines>;
+type ItemRawStatLineSet = ReturnType<typeof getRawItemStatLines>;
+
+function auditItemDisplayStats(
+  displayStatLines: ItemStatLineSet,
+  seenSignatures: Set<string>,
+  seenLabels: Set<string>,
+  baseIssue: BaseIssue,
+): StaticDataAuditIssue[] {
+  const issues: StaticDataAuditIssue[] = [];
+  for (const statLine of displayStatLines) {
+    const labelKey = normalizeText(statLine.label);
+    const signature = `${labelKey}::${statLine.value}`;
+    if (seenSignatures.has(signature)) {
+      issues.push({ ...baseIssue, severity: "error", code: "duplicate-display-stat", detail: `${statLine.label} ${statLine.value}` });
+    }
+    seenSignatures.add(signature);
+    if (seenLabels.has(labelKey)) {
+      issues.push({ ...baseIssue, severity: "warning", code: "duplicate-display-label", detail: statLine.label });
+    }
+    seenLabels.add(labelKey);
+    if (statLine.icon === "default") {
+      issues.push({ ...baseIssue, severity: "warning", code: "missing-display-icon", detail: `${statLine.label} ${statLine.value}` });
+    }
+    const hasPercent = statLine.value.includes("%");
+    if (hasPercent && flatLabels.has(labelKey)) {
+      issues.push({ ...baseIssue, severity: "error", code: "percent-on-flat-label", detail: `${statLine.label} ${statLine.value}` });
+    }
+    if (!hasPercent && percentLabels.has(labelKey)) {
+      issues.push({ ...baseIssue, severity: "warning", code: "missing-percent-on-percent-label", detail: `${statLine.label} ${statLine.value}` });
+    }
+  }
+  return issues;
+}
+
+function auditItemRawStats(
+  rawStatLines: ItemRawStatLineSet,
+  displayStatLines: ItemStatLineSet,
+  baseIssue: BaseIssue,
+): StaticDataAuditIssue[] {
+  const issues: StaticDataAuditIssue[] = [];
+  const rawByLabel = new Map(rawStatLines.map((line) => [normalizeText(line.label), line]));
+  for (const rawLine of rawStatLines) {
+    const displayLine = rawByLabel.get(normalizeText(rawLine.label));
+    const present = displayStatLines.some((entry) => normalizeText(entry.label) === normalizeText(rawLine.label) && entry.value === rawLine.value);
+    if (!present) {
+      issues.push({ ...baseIssue, severity: "error", code: "raw-stat-missing-from-display", detail: `${rawLine.label} ${rawLine.value}` });
+    }
+    if (!displayLine) {
+      issues.push({ ...baseIssue, severity: "error", code: "raw-stat-label-missing-from-display", detail: rawLine.label });
+    }
+  }
+  return issues;
+}
+
+type ItemEffectBlock = ReturnType<typeof getItemEffectBlocks>[number];
+
+function auditItemEffects(
+  effectBlocks: ItemEffectBlock[],
+  displayStatLines: ItemStatLineSet,
+  baseIssue: BaseIssue,
+): StaticDataAuditIssue[] {
+  const issues: StaticDataAuditIssue[] = [];
+  for (const effectBlock of effectBlocks) {
+    const effectText = [effectBlock.title, effectBlock.body].filter(Boolean).join(" ");
+    for (const statLine of displayStatLines) {
+      if (startsWithStatLeak(effectText, statLine.label, statLine.value)) {
+        issues.push({ ...baseIssue, severity: "error", code: "base-stat-leaked-into-effects", detail: `${statLine.label} ${statLine.value}` });
+      }
+    }
+  }
+  const normalizedEffects = effectBlocks.map((block) => ({
+    text: normalizeText([block.title, block.body].filter(Boolean).join(" ")),
+    icon: block.icon,
+  }));
+  const hasCritDamageEffect = normalizedEffects.some((block) => block.text.includes("degats de coup critique"));
+  if (hasCritDamageEffect && !normalizedEffects.some((block) => block.icon === "crit")) {
+    issues.push({ ...baseIssue, severity: "error", code: "missing-crit-damage-icon", detail: "effet de degats critiques sans icone crit" });
+  }
+  if (hasCritDamageEffect && displayStatLines.some((line) => normalizeText(line.label) === "chances de coup critique" && line.value.includes("30%"))) {
+    issues.push({ ...baseIssue, severity: "error", code: "crit-damage-mislabeled-as-crit-chance", detail: "30% critique detecte sur un libelle de chance critique" });
+  }
+  return issues;
+}
+
 function auditItem(item: GameItem, latestPatch: string | null) {
   const issues: StaticDataAuditIssue[] = [];
   const displayStatLines = getItemStatLines(item);
   const rawStatLines = getRawItemStatLines(item);
   const effectBlocks = getItemEffectBlocks(item);
-  const seenSignatures = new Set<string>();
-  const seenLabels = new Set<string>();
-  const rawByLabel = new Map(rawStatLines.map((line) => [normalizeText(line.label), line]));
 
-  const baseIssue = {
+  const baseIssue: BaseIssue = {
     entityType: "item" as const,
     name: item.name,
     slug: item.slug,
@@ -114,148 +197,23 @@ function auditItem(item: GameItem, latestPatch: string | null) {
   };
 
   if (!item.name.trim() || !item.slug.trim() || !item.image.trim()) {
-    pushIssue(issues, {
-      ...baseIssue,
-      severity: "error",
-      code: "missing-required-field",
-      detail: "name / slug / image manquant",
-    });
+    pushIssue(issues, { ...baseIssue, severity: "error", code: "missing-required-field", detail: "name / slug / image manquant" });
   }
 
   if (!isPatchLike(item.patch)) {
-    pushIssue(issues, {
-      ...baseIssue,
-      severity: "error",
-      code: "invalid-patch-format",
-      detail: item.patch || "(empty)",
-    });
+    pushIssue(issues, { ...baseIssue, severity: "error", code: "invalid-patch-format", detail: item.patch || "(empty)" });
   } else if (latestPatch && item.patch !== latestPatch) {
-    pushIssue(issues, {
-      ...baseIssue,
-      severity: "warning",
-      code: "patch-not-latest",
-      detail: `patch=${item.patch}, latest=${latestPatch}`,
-    });
+    pushIssue(issues, { ...baseIssue, severity: "warning", code: "patch-not-latest", detail: `patch=${item.patch}, latest=${latestPatch}` });
   }
 
-  for (const statLine of displayStatLines) {
-    const labelKey = normalizeText(statLine.label);
-    const signature = `${labelKey}::${statLine.value}`;
-    if (seenSignatures.has(signature)) {
-      pushIssue(issues, {
-        ...baseIssue,
-        severity: "error",
-        code: "duplicate-display-stat",
-        detail: `${statLine.label} ${statLine.value}`,
-      });
-    }
-    seenSignatures.add(signature);
-
-    if (seenLabels.has(labelKey)) {
-      pushIssue(issues, {
-        ...baseIssue,
-        severity: "warning",
-        code: "duplicate-display-label",
-        detail: statLine.label,
-      });
-    }
-    seenLabels.add(labelKey);
-
-    if (statLine.icon === "default") {
-      pushIssue(issues, {
-        ...baseIssue,
-        severity: "warning",
-        code: "missing-display-icon",
-        detail: `${statLine.label} ${statLine.value}`,
-      });
-    }
-
-    const hasPercent = statLine.value.includes("%");
-    if (hasPercent && flatLabels.has(labelKey)) {
-      pushIssue(issues, {
-        ...baseIssue,
-        severity: "error",
-        code: "percent-on-flat-label",
-        detail: `${statLine.label} ${statLine.value}`,
-      });
-    }
-    if (!hasPercent && percentLabels.has(labelKey)) {
-      pushIssue(issues, {
-        ...baseIssue,
-        severity: "warning",
-        code: "missing-percent-on-percent-label",
-        detail: `${statLine.label} ${statLine.value}`,
-      });
-    }
-  }
-
-  for (const rawLine of rawStatLines) {
-    const displayLine = rawByLabel.get(normalizeText(rawLine.label));
-    const present = displayStatLines.some((entry) => normalizeText(entry.label) === normalizeText(rawLine.label) && entry.value === rawLine.value);
-    if (!present) {
-      pushIssue(issues, {
-        ...baseIssue,
-        severity: "error",
-        code: "raw-stat-missing-from-display",
-        detail: `${rawLine.label} ${rawLine.value}`,
-      });
-    }
-    if (!displayLine) {
-      pushIssue(issues, {
-        ...baseIssue,
-        severity: "error",
-        code: "raw-stat-label-missing-from-display",
-        detail: rawLine.label,
-      });
-    }
-  }
-
-  for (const effectBlock of effectBlocks) {
-    const effectText = [effectBlock.title, effectBlock.body].filter(Boolean).join(" ");
-    for (const statLine of displayStatLines) {
-      if (startsWithStatLeak(effectText, statLine.label, statLine.value)) {
-        pushIssue(issues, {
-          ...baseIssue,
-          severity: "error",
-          code: "base-stat-leaked-into-effects",
-          detail: `${statLine.label} ${statLine.value}`,
-        });
-      }
-    }
-  }
-
-  const normalizedEffects = effectBlocks.map((block) => ({
-    text: normalizeText([block.title, block.body].filter(Boolean).join(" ")),
-    icon: block.icon,
-  }));
-  if (
-    normalizedEffects.some((block) => block.text.includes("degats de coup critique"))
-    && !normalizedEffects.some((block) => block.icon === "crit")
-  ) {
-    pushIssue(issues, {
-      ...baseIssue,
-      severity: "error",
-      code: "missing-crit-damage-icon",
-      detail: "effet de degats critiques sans icone crit",
-    });
-  }
-
-  if (
-    normalizedEffects.some((block) => block.text.includes("degats de coup critique"))
-    && displayStatLines.some((line) => normalizeText(line.label) === "chances de coup critique" && line.value.includes("30%"))
-  ) {
-    pushIssue(issues, {
-      ...baseIssue,
-      severity: "error",
-      code: "crit-damage-mislabeled-as-crit-chance",
-      detail: "30% critique detecte sur un libelle de chance critique",
-    });
-  }
+  const seenSignatures = new Set<string>();
+  const seenLabels = new Set<string>();
+  issues.push(...auditItemDisplayStats(displayStatLines, seenSignatures, seenLabels, baseIssue));
+  issues.push(...auditItemRawStats(rawStatLines, displayStatLines, baseIssue));
+  issues.push(...auditItemEffects(effectBlocks, displayStatLines, baseIssue));
 
   return issues;
 }
-
-type BaseIssue = Omit<StaticDataAuditIssue, "severity" | "code" | "detail">;
 
 function auditChampionStats(stats: unknown, baseIssue: BaseIssue): StaticDataAuditIssue[] {
   if (!stats || typeof stats !== "object" || Array.isArray(stats)) {
