@@ -81,6 +81,33 @@ function sortFramesByTimestamp(frames: TimelineFrame[]): TimelineFrame[] {
     .sort((left, right) => safeInt(left.timestamp) - safeInt(right.timestamp));
 }
 
+function getTimelineFrameEvents(frame: TimelineFrame): Array<Record<string, unknown>> {
+  return Array.isArray(frame.events) ? (frame.events as Array<Record<string, unknown>>) : [];
+}
+
+function applyParticipantInventoryEvents(input: {
+  events: Array<Record<string, unknown>>;
+  inventories: Map<number, number[]>;
+  participantIdSet: Set<number>;
+  upToTimestamp: number;
+}) {
+  let eventsApplied = 0;
+
+  for (const event of input.events) {
+    const participantId = safeInt(event.participantId);
+    if (!input.participantIdSet.has(participantId)) {
+      continue;
+    }
+
+    const inventory = input.inventories.get(participantId);
+    if (inventory && applyInventoryEvent(inventory, event, input.upToTimestamp)) {
+      eventsApplied += 1;
+    }
+  }
+
+  return eventsApplied;
+}
+
 export function reconstructInventoriesAtTimestamp(input: {
   frames: TimelineFrame[];
   upToTimestamp: number;
@@ -99,20 +126,12 @@ export function reconstructInventoriesAtTimestamp(input: {
     if (safeInt(frame.timestamp) > input.upToTimestamp) {
       break;
     }
-    const events = Array.isArray(frame.events) ? (frame.events as Array<Record<string, unknown>>) : [];
-    for (const event of events) {
-      const participantId = safeInt(event.participantId);
-      if (!participantIdSet.has(participantId)) {
-        continue;
-      }
-      const inventory = inventories.get(participantId);
-      if (!inventory) {
-        continue;
-      }
-      if (applyInventoryEvent(inventory, event, input.upToTimestamp)) {
-        eventsApplied += 1;
-      }
-    }
+    eventsApplied += applyParticipantInventoryEvents({
+      events: getTimelineFrameEvents(frame),
+      inventories,
+      participantIdSet,
+      upToTimestamp: input.upToTimestamp,
+    });
   }
 
   return {

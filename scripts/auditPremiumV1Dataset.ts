@@ -25,6 +25,26 @@ type AuditMatchRow = {
   sourceRegion: string | null;
 };
 
+type ValueOptionHandler = (options: CliOptions, next: string | undefined) => void;
+
+const valueOptionHandlers: Record<string, ValueOptionHandler> = {
+  "--dataset-report-path": (options, next) => {
+    if (next) options.datasetReportPath = next;
+  },
+  "--output-json": (options, next) => {
+    if (next) options.outputJsonPath = next;
+  },
+  "--output-markdown": (options, next) => {
+    if (next) options.outputMarkdownPath = next;
+  },
+  "--training-config-path": (options, next) => {
+    if (next) options.trainingConfigPath = next;
+  },
+  "--checkpoint-report-path": (options, next) => {
+    if (next) options.checkpointReportPath = next;
+  },
+};
+
 function parseArgs(argv: string[]): CliOptions {
   const options: CliOptions = {
     datasetReportPath: path.join("ml", "artifacts", "reports", "dataset-report.json"),
@@ -38,39 +58,10 @@ function parseArgs(argv: string[]): CliOptions {
     const arg = argv[index];
     const next = argv[index + 1];
 
-    switch (arg) {
-      case "--dataset-report-path":
-        if (next) {
-          options.datasetReportPath = next;
-        }
-        index += 1;
-        break;
-      case "--output-json":
-        if (next) {
-          options.outputJsonPath = next;
-        }
-        index += 1;
-        break;
-      case "--output-markdown":
-        if (next) {
-          options.outputMarkdownPath = next;
-        }
-        index += 1;
-        break;
-      case "--training-config-path":
-        if (next) {
-          options.trainingConfigPath = next;
-        }
-        index += 1;
-        break;
-      case "--checkpoint-report-path":
-        if (next) {
-          options.checkpointReportPath = next;
-        }
-        index += 1;
-        break;
-      default:
-        break;
+    const valueHandler = valueOptionHandlers[arg];
+    if (valueHandler) {
+      valueHandler(options, next);
+      index += 1;
     }
   }
 
