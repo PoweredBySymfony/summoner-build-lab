@@ -420,6 +420,43 @@ async function getPreviousChoiceSignatures(input: {
     .map((slugs) => [...slugs].sort((left, right) => left.localeCompare(right)).join("|"));
 }
 
+function extractSnapshotEntriesFromParameters(parameters: unknown, createdAt: Date): SnapshotHistoryEntry[] {
+  if (!parameters || typeof parameters !== "object" || Array.isArray(parameters)) {
+    return [];
+  }
+  const objectParameters = parameters as Record<string, unknown>;
+  const selectedSnapshots = Array.isArray(objectParameters.selectedSnapshots)
+    ? objectParameters.selectedSnapshots
+    : objectParameters.selectedSnapshot
+      ? [objectParameters.selectedSnapshot]
+      : [];
+
+  const entries: SnapshotHistoryEntry[] = [];
+  for (const snapshotEntry of selectedSnapshots) {
+    if (!snapshotEntry || typeof snapshotEntry !== "object" || Array.isArray(snapshotEntry)) {
+      continue;
+    }
+    const snapshotObject = snapshotEntry as Record<string, unknown>;
+    const snapshotIndex = Number(snapshotObject.snapshotIndex);
+    const snapshotMinute = Number(snapshotObject.snapshotMinute);
+    if (!Number.isFinite(snapshotIndex) || !Number.isFinite(snapshotMinute)) {
+      continue;
+    }
+    const key = buildSnapshotHistoryKey({ snapshotIndex, snapshotMinute });
+    entries.push({
+      snapshotIndex,
+      snapshotMinute,
+      key,
+      signature:
+        typeof snapshotObject.snapshotSignature === "string" && snapshotObject.snapshotSignature.length > 0
+          ? snapshotObject.snapshotSignature
+          : key,
+      createdAt,
+    });
+  }
+  return entries;
+}
+
 async function getPreviousServedSnapshots(input: {
   importedMatchId: string;
   userId: string;
@@ -430,56 +467,12 @@ async function getPreviousServedSnapshots(input: {
       userId: input.userId,
       status: GeneratedPuzzleRequestStatus.COMPLETED,
     },
-    select: {
-      parameters: true,
-      createdAt: true,
-    },
+    select: { parameters: true, createdAt: true },
   });
 
-  const entries: SnapshotHistoryEntry[] = [];
-  for (const request of requests) {
-    const parameters = request.parameters;
-    if (!parameters || typeof parameters !== "object" || Array.isArray(parameters)) {
-      continue;
-    }
-
-    const objectParameters = parameters as Record<string, unknown>;
-    const selectedSnapshots = Array.isArray(objectParameters.selectedSnapshots)
-      ? objectParameters.selectedSnapshots
-      : objectParameters.selectedSnapshot
-        ? [objectParameters.selectedSnapshot]
-        : [];
-
-    for (const snapshotEntry of selectedSnapshots) {
-      if (!snapshotEntry || typeof snapshotEntry !== "object" || Array.isArray(snapshotEntry)) {
-        continue;
-      }
-      const snapshotObject = snapshotEntry as Record<string, unknown>;
-      const snapshotIndex = Number(snapshotObject.snapshotIndex);
-      const snapshotMinute = Number(snapshotObject.snapshotMinute);
-      if (!Number.isFinite(snapshotIndex) || !Number.isFinite(snapshotMinute)) {
-        continue;
-      }
-      entries.push({
-        snapshotIndex,
-        snapshotMinute,
-        key: buildSnapshotHistoryKey({
-          snapshotIndex,
-          snapshotMinute,
-        }),
-        signature:
-          typeof snapshotObject.snapshotSignature === "string" && snapshotObject.snapshotSignature.length > 0
-            ? snapshotObject.snapshotSignature
-            : buildSnapshotHistoryKey({
-              snapshotIndex,
-              snapshotMinute,
-            }),
-        createdAt: request.createdAt,
-      });
-    }
-  }
-
-  return entries;
+  return requests.flatMap((request) =>
+    extractSnapshotEntriesFromParameters(request.parameters, request.createdAt),
+  );
 }
 
 async function buildSnapshotCandidatesFromImportedMatch(
