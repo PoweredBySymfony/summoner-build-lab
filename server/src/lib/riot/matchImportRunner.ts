@@ -33,6 +33,13 @@ export type RiotImportedMatchDetail = {
   skippedReason: string | null;
 };
 
+type RiotMatchInfo = {
+  gameVersion?: string;
+  gameCreation?: number;
+  gameDuration?: number;
+  participants?: Array<Record<string, unknown>>;
+};
+
 function clampNumber(value: unknown) {
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
 }
@@ -80,6 +87,62 @@ function resolveParticipantRole(participant: Record<string, unknown> | undefined
     normalizeParticipantRole(participant?.individualPosition) ??
     normalizeParticipantRole(participant?.role) ??
     normalizeParticipantRole(participant?.lane)
+  );
+}
+
+function buildSkippedMatchDetail(input: {
+  riotMatchId: string;
+  patch: string | null;
+  sourceRegion: RiotRegion;
+  timelineAvailable: boolean;
+  timelineMissingReason: string | null;
+  targetChampionSlug: string | null;
+  targetRole: Role | null;
+  gameCreationAt: Date | null;
+  skippedReason: string;
+}): RiotImportedMatchDetail {
+  return {
+    riotMatchId: input.riotMatchId,
+    patch: input.patch,
+    sourceRegion: input.sourceRegion,
+    timelineAvailable: input.timelineAvailable,
+    timelineMissingReason: input.timelineMissingReason,
+    targetChampionSlug: input.targetChampionSlug,
+    targetRole: input.targetRole,
+    gameCreationAt: input.gameCreationAt,
+    created: false,
+    skippedReason: input.skippedReason,
+  };
+}
+
+function hasDifferentExistingTarget(input: {
+  skipExistingWithDifferentTarget?: boolean;
+  existingMatch: { targetPuuid: string | null } | null;
+  targetPuuid: string;
+}) {
+  return Boolean(
+    input.skipExistingWithDifferentTarget
+    && input.existingMatch?.targetPuuid
+    && input.existingMatch.targetPuuid !== input.targetPuuid,
+  );
+}
+
+async function upsertIndexedParticipants(participants: Array<Record<string, unknown>> | undefined) {
+  await Promise.all(
+    (participants ?? [])
+      .filter(
+        (entry) =>
+          typeof entry.puuid === "string" &&
+          typeof entry.riotIdGameName === "string" &&
+          typeof entry.riotIdTagline === "string",
+      )
+      .map((entry) =>
+        upsertIndexedAccount({
+          puuid: String(entry.puuid),
+          gameName: String(entry.riotIdGameName),
+          tagLine: String(entry.riotIdTagline),
+        }),
+      ),
   );
 }
 
@@ -146,6 +209,58 @@ export function buildImportedMatchMetadata(input: {
   } satisfies Prisma.InputJsonObject;
 }
 
+function buildMatchPayload(input: {
+  hasMongoPrimaryStorage: boolean;
+  match: Record<string, unknown>;
+  matchMetadata: Prisma.InputJsonObject;
+}): Prisma.InputJsonObject {
+  if (input.hasMongoPrimaryStorage) {
+    return {
+      storage: "mongo-primary",
+      metadata: input.matchMetadata,
+    };
+  }
+
+  return {
+    raw: input.match as Prisma.InputJsonObject,
+    metadata: input.matchMetadata,
+  };
+}
+
+function countTimelineFrames(timeline: Record<string, unknown>) {
+  const info = timeline.info;
+  if (typeof info !== "object" || !info) {
+    return 0;
+  }
+
+  const frames = (info as { frames?: unknown[] }).frames;
+  return Array.isArray(frames) ? frames.length : 0;
+}
+
+function buildTimelinePayload(input: {
+  hasMongoPrimaryStorage: boolean;
+  riotMatchId: string;
+  timeline: Record<string, unknown> | null;
+}): Prisma.InputJsonObject | null {
+  if (!input.timeline) {
+    return null;
+  }
+
+  if (input.hasMongoPrimaryStorage) {
+    return {
+      storage: "mongo-primary",
+      metadata: {
+        riotMatchId: input.riotMatchId,
+        frameCount: countTimelineFrames(input.timeline),
+      } satisfies Prisma.InputJsonObject,
+    };
+  }
+
+  return {
+    raw: input.timeline as Prisma.InputJsonObject,
+  };
+}
+
 export async function fetchMatchBundleWithRetry(matchId: string, region: RiotRegion, maxAttempts = 3) {
   let lastError: unknown = null;
 
@@ -203,19 +318,14 @@ export async function importMatchForIdentityInternal(
   }
 
   const metadata = match.metadata as { matchId?: string; participants?: string[] };
-  const info = match.info as {
-    gameVersion?: string;
-    gameCreation?: number;
-    gameDuration?: number;
-    participants?: Array<Record<string, unknown>>;
-  };
+  const info = match.info as RiotMatchInfo;
   const participant = info.participants?.find((entry) => entry.puuid === identity.puuid);
   const riotMatchId = metadata.matchId ?? input.matchId;
 
   if (!participant) {
     console.warn(`[riot-sync] target participant missing in match ${riotMatchId}, skipping`);
     const canonicalPatch = canonicalizePatch(info.gameVersion, info.gameCreation ? new Date(info.gameCreation) : null);
-    return {
+    return buildSkippedMatchDetail({
       riotMatchId,
       patch: canonicalPatch.patchCanonical,
       sourceRegion: identity.region,
@@ -224,27 +334,11 @@ export async function importMatchForIdentityInternal(
       targetChampionSlug: null,
       targetRole: null,
       gameCreationAt: info.gameCreation ? new Date(info.gameCreation) : null,
-      created: false,
       skippedReason: "target-participant-missing",
-    };
+    });
   }
 
-  await Promise.all(
-    (info.participants ?? [])
-      .filter(
-        (entry) =>
-          typeof entry.puuid === "string" &&
-          typeof entry.riotIdGameName === "string" &&
-          typeof entry.riotIdTagline === "string",
-      )
-      .map((entry) =>
-        upsertIndexedAccount({
-          puuid: String(entry.puuid),
-          gameName: String(entry.riotIdGameName),
-          tagLine: String(entry.riotIdTagline),
-        }),
-      ),
-  );
+  await upsertIndexedParticipants(info.participants);
 
   const championSlug = await resolveChampionSlugFromParticipant(participant);
   const targetRole = resolveParticipantRole(participant);
@@ -257,16 +351,15 @@ export async function importMatchForIdentityInternal(
     where: { riotMatchId },
     select: { id: true, targetPuuid: true, sourceKind: true },
   });
-  if (
-    input.skipExistingWithDifferentTarget &&
-    existingMatch &&
-    existingMatch.targetPuuid &&
-    existingMatch.targetPuuid !== identity.puuid
-  ) {
+  if (hasDifferentExistingTarget({
+    skipExistingWithDifferentTarget: input.skipExistingWithDifferentTarget,
+    existingMatch,
+    targetPuuid: identity.puuid,
+  })) {
     console.warn(
       `[riot-sync] skipping ${riotMatchId} because it already exists for target ${existingMatch.targetPuuid}`,
     );
-    return {
+    return buildSkippedMatchDetail({
       riotMatchId,
       patch: patch ?? null,
       sourceRegion: identity.region,
@@ -275,9 +368,8 @@ export async function importMatchForIdentityInternal(
       targetChampionSlug: championSlug,
       targetRole,
       gameCreationAt,
-      created: false,
       skippedReason: "existing-match-different-target",
-    };
+    });
   }
   const matchMetadata = buildImportedMatchMetadata({
     riotMatchId,
@@ -310,33 +402,16 @@ export async function importMatchForIdentityInternal(
     gameCreationAt,
   });
   const hasMongoPrimaryStorage = Boolean(mongoRefs.mongoMatchImportRef);
-  const matchPayload: Prisma.InputJsonObject = hasMongoPrimaryStorage
-    ? {
-      storage: "mongo-primary",
-      metadata: matchMetadata,
-    }
-    : {
-      raw: match as Prisma.InputJsonObject,
-      metadata: matchMetadata,
-    };
-  const timelinePayload = timeline
-    ? (
-      hasMongoPrimaryStorage
-        ? {
-          storage: "mongo-primary",
-          metadata: {
-            riotMatchId,
-            frameCount:
-              typeof timeline.info === "object" && timeline.info && Array.isArray((timeline.info as { frames?: unknown[] }).frames)
-                ? (timeline.info as { frames: unknown[] }).frames.length
-                : 0,
-          } satisfies Prisma.InputJsonObject,
-        }
-        : {
-          raw: timeline as Prisma.InputJsonObject,
-        }
-    ) as Prisma.InputJsonObject
-    : null;
+  const matchPayload = buildMatchPayload({
+    hasMongoPrimaryStorage,
+    match,
+    matchMetadata,
+  });
+  const timelinePayload = buildTimelinePayload({
+    hasMongoPrimaryStorage,
+    riotMatchId,
+    timeline,
+  });
 
   await prisma.importedMatch.upsert({
     where: { riotMatchId },
