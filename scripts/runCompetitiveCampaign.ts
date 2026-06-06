@@ -62,6 +62,30 @@ type CampaignSummary = {
   stoppedReason: string | null;
 };
 
+type ArgHandler = (options: CampaignOptions, next: string | undefined) => boolean;
+
+const campaignArgHandlers: Record<string, ArgHandler> = {
+  "--seed-path": (o, v) => { if (v) o.seedPath = v; return true; },
+  "--policy-path": (o, v) => { if (v) o.policyPath = v; return true; },
+  "--checkpoint-path": (o, v) => { if (v) o.checkpointPath = v; return true; },
+  "--quarantine-path": (o, v) => { if (v) o.quarantinePath = v; return true; },
+  "--report-dir": (o, v) => { if (v) o.reportDir = v; return true; },
+  "--owner-user-id": (o, v) => { o.ownerUserId = v; return true; },
+  "--owner-email": (o, v) => { o.ownerEmail = v; return true; },
+  "--target-matches": (o, v) => { o.targetMatches = Number(v ?? "2000"); return true; },
+  "--stage-size": (o, v) => { o.stageSize = Number(v ?? "50"); return true; },
+  "--count-per-seed": (o, v) => { o.countPerSeed = Number(v ?? "40"); return true; },
+  "--max-ids-per-seed": (o, v) => { o.maxIdsPerSeed = Number(v ?? "400"); return true; },
+  "--max-stages": (o, v) => { o.maxStages = Number(v ?? "1"); return true; },
+  "--audit-sample-size": (o, v) => { o.auditSampleSize = Number(v ?? "20"); return true; },
+  "--max-seed-discovery-failures": (o, v) => { o.maxSeedDiscoveryFailures = Number(v ?? "2"); return true; },
+  "--min-completed-rate": (o, v) => { o.minCompletedRate = Number(v ?? "0.9"); return true; },
+  "--max-no-viable-rate": (o, v) => { o.maxNoViableRate = Number(v ?? "0.1"); return true; },
+  "--dry-run": (o) => { o.dryRun = true; return false; },
+  "--reset-checkpoint": (o) => { o.resetCheckpoint = true; return false; },
+  "--refresh-discovery": (o) => { o.refreshDiscovery = true; return false; },
+};
+
 function parseArgs(argv: string[]): CampaignOptions {
   const options: CampaignOptions = {
     seedPath: path.join("data", "seeds", "competitive-seeds-2026.json"),
@@ -84,84 +108,9 @@ function parseArgs(argv: string[]): CampaignOptions {
   };
 
   for (let index = 0; index < argv.length; index += 1) {
-    const arg = argv[index];
-    const next = argv[index + 1];
-    switch (arg) {
-      case "--seed-path":
-        if (next) options.seedPath = next;
-        index += 1;
-        break;
-      case "--policy-path":
-        if (next) options.policyPath = next;
-        index += 1;
-        break;
-      case "--checkpoint-path":
-        if (next) options.checkpointPath = next;
-        index += 1;
-        break;
-      case "--quarantine-path":
-        if (next) options.quarantinePath = next;
-        index += 1;
-        break;
-      case "--target-matches":
-        options.targetMatches = Number(next ?? "2000");
-        index += 1;
-        break;
-      case "--stage-size":
-        options.stageSize = Number(next ?? "50");
-        index += 1;
-        break;
-      case "--count-per-seed":
-        options.countPerSeed = Number(next ?? "40");
-        index += 1;
-        break;
-      case "--max-ids-per-seed":
-        options.maxIdsPerSeed = Number(next ?? "400");
-        index += 1;
-        break;
-      case "--max-stages":
-        options.maxStages = Number(next ?? "1");
-        index += 1;
-        break;
-      case "--audit-sample-size":
-        options.auditSampleSize = Number(next ?? "20");
-        index += 1;
-        break;
-      case "--report-dir":
-        if (next) options.reportDir = next;
-        index += 1;
-        break;
-      case "--owner-user-id":
-        options.ownerUserId = next;
-        index += 1;
-        break;
-      case "--owner-email":
-        options.ownerEmail = next;
-        index += 1;
-        break;
-      case "--dry-run":
-        options.dryRun = true;
-        break;
-      case "--reset-checkpoint":
-        options.resetCheckpoint = true;
-        break;
-      case "--max-seed-discovery-failures":
-        options.maxSeedDiscoveryFailures = Number(next ?? "2");
-        index += 1;
-        break;
-      case "--refresh-discovery":
-        options.refreshDiscovery = true;
-        break;
-      case "--min-completed-rate":
-        options.minCompletedRate = Number(next ?? "0.9");
-        index += 1;
-        break;
-      case "--max-no-viable-rate":
-        options.maxNoViableRate = Number(next ?? "0.1");
-        index += 1;
-        break;
-      default:
-        break;
+    const handler = campaignArgHandlers[argv[index]];
+    if (handler?.(options, argv[index + 1])) {
+      index += 1;
     }
   }
 

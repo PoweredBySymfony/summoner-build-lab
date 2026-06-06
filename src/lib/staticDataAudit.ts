@@ -255,9 +255,28 @@ function auditItem(item: GameItem, latestPatch: string | null) {
   return issues;
 }
 
+type BaseIssue = Omit<StaticDataAuditIssue, "severity" | "code" | "detail">;
+
+function auditChampionStats(stats: unknown, baseIssue: BaseIssue): StaticDataAuditIssue[] {
+  if (!stats || typeof stats !== "object" || Array.isArray(stats)) {
+    return [{ ...baseIssue, severity: "error", code: "invalid-stats-shape", detail: "stats doit etre un objet" }];
+  }
+  const issues: StaticDataAuditIssue[] = [];
+  for (const [key, value] of Object.entries(stats)) {
+    if (value === null || value === undefined) {
+      pushIssue(issues, { ...baseIssue, severity: "warning", code: "null-stat-value", detail: key });
+      continue;
+    }
+    if (typeof value !== "number" || !Number.isFinite(value)) {
+      pushIssue(issues, { ...baseIssue, severity: "error", code: "non-numeric-stat-value", detail: `${key}=${String(value)}` });
+    }
+  }
+  return issues;
+}
+
 function auditChampion(champion: ChampionView, latestPatch: string | null) {
   const issues: StaticDataAuditIssue[] = [];
-  const baseIssue = {
+  const baseIssue: BaseIssue = {
     entityType: "champion" as const,
     name: champion.name,
     slug: champion.slug,
@@ -268,12 +287,7 @@ function auditChampion(champion: ChampionView, latestPatch: string | null) {
   for (const field of championRequiredFields) {
     const value = champion[field];
     if (typeof value !== "string" || !value.trim()) {
-      pushIssue(issues, {
-        ...baseIssue,
-        severity: "error",
-        code: "missing-required-field",
-        detail: String(field),
-      });
+      pushIssue(issues, { ...baseIssue, severity: "error", code: "missing-required-field", detail: String(field) });
     }
   }
 
@@ -287,58 +301,15 @@ function auditChampion(champion: ChampionView, latestPatch: string | null) {
   }
 
   if (!Array.isArray(champion.tags) || champion.tags.length === 0) {
-    pushIssue(issues, {
-      ...baseIssue,
-      severity: "warning",
-      code: "missing-tags",
-      detail: "tags vides",
-    });
+    pushIssue(issues, { ...baseIssue, severity: "warning", code: "missing-tags", detail: "tags vides" });
   }
 
-  if (!champion.stats || typeof champion.stats !== "object" || Array.isArray(champion.stats)) {
-    pushIssue(issues, {
-      ...baseIssue,
-      severity: "error",
-      code: "invalid-stats-shape",
-      detail: "stats doit etre un objet",
-    });
-  } else {
-    for (const [key, value] of Object.entries(champion.stats)) {
-      if (value === null || value === undefined) {
-        pushIssue(issues, {
-          ...baseIssue,
-          severity: "warning",
-          code: "null-stat-value",
-          detail: key,
-        });
-        continue;
-      }
-
-      if (typeof value !== "number" || !Number.isFinite(value)) {
-        pushIssue(issues, {
-          ...baseIssue,
-          severity: "error",
-          code: "non-numeric-stat-value",
-          detail: `${key}=${String(value)}`,
-        });
-      }
-    }
-  }
+  issues.push(...auditChampionStats(champion.stats, baseIssue));
 
   if (!isPatchLike(champion.patch)) {
-    pushIssue(issues, {
-      ...baseIssue,
-      severity: "error",
-      code: "invalid-patch-format",
-      detail: champion.patch || "(empty)",
-    });
+    pushIssue(issues, { ...baseIssue, severity: "error", code: "invalid-patch-format", detail: champion.patch || "(empty)" });
   } else if (latestPatch && champion.patch !== latestPatch) {
-    pushIssue(issues, {
-      ...baseIssue,
-      severity: "warning",
-      code: "patch-not-latest",
-      detail: `patch=${champion.patch}, latest=${latestPatch}`,
-    });
+    pushIssue(issues, { ...baseIssue, severity: "warning", code: "patch-not-latest", detail: `patch=${champion.patch}, latest=${latestPatch}` });
   }
 
   return issues;
