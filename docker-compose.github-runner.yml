@@ -15,7 +15,7 @@ services:
       - "host.docker.internal:host-gateway"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - github-runner-work:/home/runner/actions-runner/_work
+      - github-runner-data:/home/runner/actions-runner
 
 volumes:
-  github-runner-work:
+  github-runner-data:

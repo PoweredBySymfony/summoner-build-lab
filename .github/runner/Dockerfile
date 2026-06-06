@@ -28,18 +28,20 @@ RUN useradd -m -s /bin/bash runner \
   && usermod -aG sudo runner \
   && echo "runner ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/runner
 
-WORKDIR /home/runner/actions-runner
+WORKDIR /opt/actions-runner
 
 RUN curl -fsSL -o actions-runner-linux-x64-${RUNNER_VERSION}.tar.gz \
     https://github.com/actions/runner/releases/download/v${RUNNER_VERSION}/actions-runner-linux-x64-${RUNNER_VERSION}.tar.gz \
   && tar xzf actions-runner-linux-x64-${RUNNER_VERSION}.tar.gz \
   && rm actions-runner-linux-x64-${RUNNER_VERSION}.tar.gz \
   && ./bin/installdependencies.sh \
-  && chown -R runner:runner /home/runner/actions-runner
+  && chown -R runner:runner /opt/actions-runner
 
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
 USER runner
+
+WORKDIR /home/runner/actions-runner
 
 ENTRYPOINT ["/entrypoint.sh"]
