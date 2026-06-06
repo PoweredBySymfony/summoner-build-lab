@@ -63,15 +63,15 @@ type EvaluationRow = {
 type ValidationArgHandler = (options: CliOptions, next: string | undefined) => boolean;
 
 const validationArgHandlers: Record<string, ValidationArgHandler> = {
-  "--sample-size": (o, v) => { if (v) o.sampleSize = Number(v); return true; },
-  "--strict-patch-prefix": (o, v) => { if (v) o.strictPatchPrefix = v; return true; },
-  "--output-json": (o, v) => { if (v) o.outputJsonPath = v; return true; },
-  "--report-path": (o, v) => { if (v) o.outputJsonPath = v; return true; },
-  "--output-markdown": (o, v) => { if (v) o.outputMarkdownPath = v; return true; },
-  "--markdown-report-path": (o, v) => { if (v) o.outputMarkdownPath = v; return true; },
-  "--user-email": (o, v) => { if (v) o.userEmail = v; return true; },
-  "--imported-match-ids": (o, v) => { if (v) o.importedMatchIds = v.split(",").map((e) => e.trim()).filter(Boolean); return true; },
-  "--baseline-report": (o, v) => { if (v) o.baselineReportPath = v; return true; },
+  "--sample-size": (o, v) => { if (v) { o.sampleSize = Number(v); } return true; },
+  "--strict-patch-prefix": (o, v) => { if (v) { o.strictPatchPrefix = v; } return true; },
+  "--output-json": (o, v) => { if (v) { o.outputJsonPath = v; } return true; },
+  "--report-path": (o, v) => { if (v) { o.outputJsonPath = v; } return true; },
+  "--output-markdown": (o, v) => { if (v) { o.outputMarkdownPath = v; } return true; },
+  "--markdown-report-path": (o, v) => { if (v) { o.outputMarkdownPath = v; } return true; },
+  "--user-email": (o, v) => { if (v) { o.userEmail = v; } return true; },
+  "--imported-match-ids": (o, v) => { if (v) { o.importedMatchIds = v.split(",").map((e) => e.trim()).filter(Boolean); } return true; },
+  "--baseline-report": (o, v) => { if (v) { o.baselineReportPath = v; } return true; },
 };
 
 function parseArgs(argv: string[]): CliOptions {
@@ -238,6 +238,86 @@ function buildMarkdown(input: {
   ].join("\n");
 }
 
+type MatchForEvaluation = {
+  id: string;
+  patch: string;
+  sourceKind: string;
+  sourceMetadata: unknown;
+  targetChampionSlug: string | null;
+  targetRole: string | null;
+};
+
+async function buildEvaluationRow(index: number, match: MatchForEvaluation, userId: string, isAdmin: boolean): Promise<EvaluationRow> {
+  const response = await puzzleGenerationService.generateMatchBasedPuzzle(match.id, userId, { actorIsAdmin: isAdmin });
+  const requestRecord = await prisma.generatedPuzzleRequest.findUnique({
+    where: { id: response.requestId },
+    select: { parameters: true },
+  });
+  const parameters = asObject(requestRecord?.parameters) ?? {};
+  const attemptsSummary = asObject(parameters.attemptsSummary);
+  const attempts = asArray(attemptsSummary?.attempts)
+    .map(toAttemptSummary)
+    .filter((entry): entry is AttemptSummary => entry !== null);
+  const selectedSnapshot = asObject(parameters.selectedSnapshot);
+  const selectedSnapshots = asArray(parameters.selectedSnapshots).map(asObject).filter((entry): entry is JsonRecord => entry !== null);
+  const primarySelectedSnapshot = selectedSnapshot ?? selectedSnapshots[0] ?? null;
+  const primarySelectedSnapshotWithHistory = selectedSnapshots[0] ?? selectedSnapshot ?? null;
+  const selectedSnapshotIndex = asNumber(primarySelectedSnapshot?.snapshotIndex);
+  const selectedAttempt = selectedSnapshotIndex === null
+    ? null
+    : attempts.find((attempt) => attempt.snapshotIndex === selectedSnapshotIndex) ?? null;
+  const failureAttempt = selectFailureAttempt(attempts);
+  const isFailureStatus = response.generationStatus === "no_viable_snapshot_found" || response.generationStatus === "no_publishable_snapshot_found";
+  const failureReason = isFailureStatus ? (failureAttempt?.rejectionReasons.join(", ") ?? "no-accepted-snapshot") : null;
+  const effectiveAttempt = selectedAttempt ?? failureAttempt;
+  return {
+    index: index + 1,
+    importedMatchId: match.id,
+    requestId: response.requestId,
+    patch: match.patch,
+    sourceKind: match.sourceKind,
+    sourceTier: resolveSourceTier(match.sourceMetadata),
+    championSlug: match.targetChampionSlug,
+    role: match.targetRole,
+    generationStatus: response.generationStatus,
+    selectedSnapshotIndex,
+    minute: effectiveAttempt?.snapshotMinute ?? asNumber(primarySelectedSnapshot?.snapshotMinute),
+    gold: effectiveAttempt?.goldAvailable ?? null,
+    candidatePoolSize: effectiveAttempt?.filteredCandidatePoolSize ?? null,
+    qualityScore: effectiveAttempt?.qualityScore ?? asNumber(primarySelectedSnapshot?.qualityScore),
+    failureReason,
+    rejectionReasons: failureAttempt?.rejectionReasons ?? [],
+    observedRejectionReasons: attempts.flatMap((attempt) => attempt.rejectionReasons),
+    attemptsEvaluated: asNumber(attemptsSummary?.snapshotsEvaluated) ?? attempts.length,
+    successfulSnapshots: asNumber(attemptsSummary?.successfulSnapshots) ?? attempts.filter((attempt) => attempt.rejectionReasons.length === 0).length,
+    selectedSnapshotHistoryKey: asString(primarySelectedSnapshotWithHistory?.historyKey),
+    selectedSnapshotSignature: asString(primarySelectedSnapshotWithHistory?.snapshotSignature) ?? selectedAttempt?.snapshotSignature ?? null,
+    selectedSnapshotSegment: asString(primarySelectedSnapshotWithHistory?.segment),
+    lowConfidence: "lowConfidence" in response ? response.lowConfidence : null,
+    draft: "draft" in response ? response.draft : null,
+    resultSlug: response.slug,
+  };
+}
+
+function countRequestsByMatchId(requests: Array<{ importedMatchId: string | null }>): Record<string, number> {
+  const counts: Record<string, number> = {};
+  for (const req of requests) {
+    if (req.importedMatchId) {
+      counts[req.importedMatchId] = (counts[req.importedMatchId] ?? 0) + 1;
+    }
+  }
+  return counts;
+}
+
+function compareMatchByRequestCount(
+  requestCountByMatchId: Record<string, number>,
+): (left: { id: string; createdAt: Date }, right: { id: string; createdAt: Date }) => number {
+  return (left, right) => {
+    const diff = (requestCountByMatchId[left.id] ?? 0) - (requestCountByMatchId[right.id] ?? 0);
+    return diff === 0 ? right.createdAt.getTime() - left.createdAt.getTime() : diff;
+  };
+}
+
 async function main() {
   const options = parseArgs(process.argv.slice(2));
   let patchCatalogFallbackOccurrences = 0;
@@ -324,94 +404,20 @@ async function main() {
     },
   });
 
-  const requestCountByMatchId = priorRequests.reduce<Record<string, number>>((accumulator, request) => {
-    if (request.importedMatchId) {
-      accumulator[request.importedMatchId] = (accumulator[request.importedMatchId] ?? 0) + 1;
-    }
-    return accumulator;
-  }, {});
+  const requestCountByMatchId = countRequestsByMatchId(priorRequests);
 
   const matches = forcedImportedMatchIds.length > 0
     ? forcedImportedMatchIds
       .map((matchId) => candidateMatches.find((match) => match.id === matchId) ?? null)
       .filter((entry): entry is (typeof candidateMatches)[number] => entry !== null)
     : [...candidateMatches]
-      .sort((left, right) => {
-        const leftCount = requestCountByMatchId[left.id] ?? 0;
-        const rightCount = requestCountByMatchId[right.id] ?? 0;
-        if (leftCount !== rightCount) {
-          return leftCount - rightCount;
-        }
-        return right.createdAt.getTime() - left.createdAt.getTime();
-      })
+      .sort(compareMatchByRequestCount(requestCountByMatchId))
       .slice(0, options.sampleSize);
 
   const generations: EvaluationRow[] = [];
 
   for (const [index, match] of matches.entries()) {
-    const response = await puzzleGenerationService.generateMatchBasedPuzzle(match.id, evaluationUser.id, {
-      actorIsAdmin: evaluationUser.isAdmin,
-    });
-
-    const requestRecord = await prisma.generatedPuzzleRequest.findUnique({
-      where: { id: response.requestId },
-      select: {
-        parameters: true,
-      },
-    });
-
-    const parameters = asObject(requestRecord?.parameters) ?? {};
-    const attemptsSummary = asObject(parameters.attemptsSummary);
-    const attempts = asArray(attemptsSummary?.attempts)
-      .map(toAttemptSummary)
-      .filter((entry): entry is AttemptSummary => entry !== null);
-    const selectedSnapshot = asObject(parameters.selectedSnapshot);
-    const selectedSnapshots = asArray(parameters.selectedSnapshots).map(asObject).filter((entry): entry is JsonRecord => entry !== null);
-    const primarySelectedSnapshot = selectedSnapshot ?? selectedSnapshots[0] ?? null;
-    const primarySelectedSnapshotWithHistory = selectedSnapshots[0] ?? selectedSnapshot ?? null;
-    const selectedSnapshotIndex = asNumber(primarySelectedSnapshot?.snapshotIndex);
-    const selectedAttempt = selectedSnapshotIndex === null
-      ? null
-      : attempts.find((attempt) => attempt.snapshotIndex === selectedSnapshotIndex) ?? null;
-    const failureAttempt = selectFailureAttempt(attempts);
-    const failureReason = (
-      response.generationStatus === "no_viable_snapshot_found"
-      || response.generationStatus === "no_publishable_snapshot_found"
-    )
-      ? failureAttempt?.rejectionReasons.join(", ") ?? "no-accepted-snapshot"
-      : null;
-    const effectiveAttempt = selectedAttempt ?? failureAttempt;
-
-    generations.push({
-      index: index + 1,
-      importedMatchId: match.id,
-      requestId: response.requestId,
-      patch: match.patch,
-      sourceKind: match.sourceKind,
-      sourceTier: resolveSourceTier(match.sourceMetadata),
-      championSlug: match.targetChampionSlug,
-      role: match.targetRole,
-      generationStatus: response.generationStatus,
-      selectedSnapshotIndex,
-      minute: effectiveAttempt?.snapshotMinute ?? asNumber(primarySelectedSnapshot?.snapshotMinute),
-      gold: effectiveAttempt?.goldAvailable ?? null,
-      candidatePoolSize: effectiveAttempt?.filteredCandidatePoolSize ?? null,
-      qualityScore: effectiveAttempt?.qualityScore ?? asNumber(primarySelectedSnapshot?.qualityScore),
-      failureReason,
-      rejectionReasons: failureAttempt?.rejectionReasons ?? [],
-      observedRejectionReasons: attempts.flatMap((attempt) => attempt.rejectionReasons),
-      attemptsEvaluated: asNumber(attemptsSummary?.snapshotsEvaluated) ?? attempts.length,
-      successfulSnapshots: asNumber(attemptsSummary?.successfulSnapshots) ?? attempts.filter((attempt) => attempt.rejectionReasons.length === 0).length,
-      selectedSnapshotHistoryKey: asString(primarySelectedSnapshotWithHistory?.historyKey),
-      selectedSnapshotSignature:
-        asString(primarySelectedSnapshotWithHistory?.snapshotSignature)
-        ?? selectedAttempt?.snapshotSignature
-        ?? null,
-      selectedSnapshotSegment: asString(primarySelectedSnapshotWithHistory?.segment),
-      lowConfidence: "lowConfidence" in response ? response.lowConfidence : null,
-      draft: "draft" in response ? response.draft : null,
-      resultSlug: response.slug,
-    });
+    generations.push(await buildEvaluationRow(index, match, evaluationUser.id, evaluationUser.isAdmin));
   }
 
   const completedCount = generations.filter((row) => row.generationStatus === "completed").length;

@@ -30,6 +30,11 @@ interface SetupColumnProps {
   onItemRemove: (slotIndex: number) => void;
 }
 
+function matchesItemQuery(item: GameItem, query: string): boolean {
+  if (!query) return true;
+  return item.name.toLowerCase().includes(query) || item.tags.some((tag) => tag.toLowerCase().includes(query));
+}
+
 const accentClass = {
   gold: "from-primary/15 via-primary/5 to-transparent border-primary/20",
   cyan: "from-cyan-500/15 via-cyan-500/5 to-transparent border-cyan-400/20",
@@ -75,13 +80,9 @@ const SetupColumn = ({
   );
   const activeSlotValidation = activeItemSlot !== null ? slotValidations[activeItemSlot] : null;
   const itemOptions = useMemo(() => {
-    if (!activeSlotValidation) {
-      return [];
-    }
+    if (!activeSlotValidation) return [];
     const query = itemSearch.trim().toLowerCase();
-    return activeSlotValidation.allowedItems.filter(
-      (item) => !query || item.name.toLowerCase().includes(query) || item.tags.some((tag) => tag.toLowerCase().includes(query)),
-    );
+    return activeSlotValidation.allowedItems.filter((item) => matchesItemQuery(item, query));
   }, [activeSlotValidation, itemSearch]);
   const buildValidation = useMemo(
     () =>
