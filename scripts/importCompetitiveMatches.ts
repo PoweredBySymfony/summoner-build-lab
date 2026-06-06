@@ -72,6 +72,8 @@ type ImportAttemptResult = {
   importedMatchId?: string;
   failure?: CompetitiveIngestionAttemptSummary;
 };
+type ResolutionProgressSnapshot = Parameters<NonNullable<NonNullable<Parameters<typeof resolveSeeds>[2]>["onProgress"]>>[0];
+type DiscoveryProgressSnapshot = Parameters<NonNullable<Parameters<typeof discoverSeeds>[2]["onProgress"]>>[0];
 
 function toUnixSeconds(timestampMs: number | null) {
   return timestampMs === null ? null : Math.floor(timestampMs / 1000);
@@ -463,6 +465,142 @@ function getNextTargetIdsPerSeed(input: {
   );
 }
 
+function refreshPersistedCounts(input: {
+  attemptedMatchIds: Set<string>;
+  createdCandidates: CompetitiveDiscoveredMatch[];
+  persistedCounts: {
+    lastPersistedAttemptCount: number;
+    lastPersistedCreatedCount: number;
+  };
+}) {
+  input.persistedCounts.lastPersistedAttemptCount = input.attemptedMatchIds.size;
+  input.persistedCounts.lastPersistedCreatedCount = input.createdCandidates.length;
+}
+
+function shouldStopImportQueue(input: {
+  getStopReason: () => string | null;
+  createdCandidates: CompetitiveDiscoveredMatch[];
+  remainingTargetMatches: number;
+}) {
+  return Boolean(input.getStopReason()) || input.createdCandidates.length >= input.remainingTargetMatches;
+}
+
+function recordSuccessfulImport(input: {
+  candidate: CompetitiveQueueCandidate;
+  attemptedMatchIds: Set<string>;
+  importedMatchIds: Set<string>;
+  createdCandidates: CompetitiveDiscoveredMatch[];
+  remainingTargetMatches: number;
+  importedMatchId?: string;
+}) {
+  input.importedMatchIds.add(input.importedMatchId ?? input.candidate.matchId);
+  input.createdCandidates.push(input.candidate);
+  if (input.createdCandidates.length % PROGRESS_PERSIST_CREATED_INTERVAL === 0) {
+    console.info(
+      `[competitive-ingestion] created-progress created=${input.createdCandidates.length}/${input.remainingTargetMatches} attempted=${input.attemptedMatchIds.size} latest=${input.candidate.matchId} tier=${input.candidate.priorityTier} patch=${input.candidate.patch ?? "unknown"} queue=${input.candidate.queueId ?? "unknown"}`,
+    );
+  }
+}
+
+function recordImportFailure(input: {
+  candidate: CompetitiveQueueCandidate;
+  failure: CompetitiveIngestionAttemptSummary;
+  failedMatches: CompetitiveIngestionAttemptSummary[];
+  authFailureCountsBySeedKey: Map<string, number>;
+  authFailureCountsByRegion: Map<string, number>;
+}) {
+  if (isAuthenticationFailure(input.failure.failureReason ?? "")) {
+    input.authFailureCountsBySeedKey.set(
+      input.candidate.seedKey,
+      (input.authFailureCountsBySeedKey.get(input.candidate.seedKey) ?? 0) + 1,
+    );
+    input.authFailureCountsByRegion.set(
+      input.candidate.cluster,
+      (input.authFailureCountsByRegion.get(input.candidate.cluster) ?? 0) + 1,
+    );
+  }
+  input.failedMatches.push(input.failure);
+}
+
+function recordImportAttempt(input: {
+  candidate: CompetitiveQueueCandidate;
+  importResult: ImportAttemptResult;
+  attemptedMatchIds: Set<string>;
+  importedMatchIds: Set<string>;
+  failedMatches: CompetitiveIngestionAttemptSummary[];
+  createdCandidates: CompetitiveDiscoveredMatch[];
+  remainingTargetMatches: number;
+  authFailureCountsBySeedKey: Map<string, number>;
+  authFailureCountsByRegion: Map<string, number>;
+}) {
+  if (input.importResult.created) {
+    recordSuccessfulImport({
+      candidate: input.candidate,
+      attemptedMatchIds: input.attemptedMatchIds,
+      importedMatchIds: input.importedMatchIds,
+      createdCandidates: input.createdCandidates,
+      remainingTargetMatches: input.remainingTargetMatches,
+      importedMatchId: input.importResult.importedMatchId,
+    });
+  }
+
+  if (input.importResult.failure) {
+    recordImportFailure({
+      candidate: input.candidate,
+      failure: input.importResult.failure,
+      failedMatches: input.failedMatches,
+      authFailureCountsBySeedKey: input.authFailureCountsBySeedKey,
+      authFailureCountsByRegion: input.authFailureCountsByRegion,
+    });
+  }
+
+  return {
+    created: input.importResult.created ? 1 : 0,
+    duplicateLike: input.importResult.duplicateLike ? 1 : 0,
+  };
+}
+
+async function persistQueueProgressIfNeeded(input: {
+  attemptedMatchIds: Set<string>;
+  createdCandidates: CompetitiveDiscoveredMatch[];
+  persistedCounts: {
+    lastPersistedAttemptCount: number;
+    lastPersistedCreatedCount: number;
+  };
+  persistIntermediateProgress: (stage: string) => Promise<void>;
+}) {
+  if (!shouldPersistMidPass({
+    attemptedMatchIds: input.attemptedMatchIds,
+    createdCandidates: input.createdCandidates,
+    lastPersistedAttemptCount: input.persistedCounts.lastPersistedAttemptCount,
+    lastPersistedCreatedCount: input.persistedCounts.lastPersistedCreatedCount,
+  })) {
+    return;
+  }
+
+  await input.persistIntermediateProgress("import-mid-pass");
+  refreshPersistedCounts(input);
+}
+
+async function persistQueueStopIfRequested(input: {
+  getStopReason: () => string | null;
+  attemptedMatchIds: Set<string>;
+  createdCandidates: CompetitiveDiscoveredMatch[];
+  persistedCounts: {
+    lastPersistedAttemptCount: number;
+    lastPersistedCreatedCount: number;
+  };
+  persistIntermediateProgress: (stage: string) => Promise<void>;
+}) {
+  if (!input.getStopReason()) {
+    return false;
+  }
+
+  await input.persistIntermediateProgress("run-bounded-stop");
+  refreshPersistedCounts(input);
+  return true;
+}
+
 async function processCompetitiveImportQueue(input: {
   queue: CompetitiveQueueCandidate[];
   ownerUserId: string | null;
@@ -487,7 +625,7 @@ async function processCompetitiveImportQueue(input: {
   let passDuplicateLike = 0;
 
   for (const candidate of input.queue) {
-    if (input.getStopReason() || input.createdCandidates.length >= input.remainingTargetMatches) {
+    if (shouldStopImportQueue(input)) {
       break;
     }
     if (input.attemptedMatchIds.has(candidate.matchId)) {
@@ -508,42 +646,23 @@ async function processCompetitiveImportQueue(input: {
       duplicateLikeReasons: input.duplicateLikeReasons,
     });
 
-    if (importResult.created) {
-      input.importedMatchIds.add(importResult.importedMatchId ?? candidate.matchId);
-      input.createdCandidates.push(candidate);
-      passCreated += 1;
-      if (input.createdCandidates.length % PROGRESS_PERSIST_CREATED_INTERVAL === 0) {
-        console.info(
-          `[competitive-ingestion] created-progress created=${input.createdCandidates.length}/${input.remainingTargetMatches} attempted=${input.attemptedMatchIds.size} latest=${candidate.matchId} tier=${candidate.priorityTier} patch=${candidate.patch ?? "unknown"} queue=${candidate.queueId ?? "unknown"}`,
-        );
-      }
-    } else if (importResult.duplicateLike) {
-      passDuplicateLike += 1;
-    }
-
-    if (importResult.failure) {
-      if (isAuthenticationFailure(importResult.failure.failureReason ?? "")) {
-        input.authFailureCountsBySeedKey.set(candidate.seedKey, (input.authFailureCountsBySeedKey.get(candidate.seedKey) ?? 0) + 1);
-        input.authFailureCountsByRegion.set(candidate.cluster, (input.authFailureCountsByRegion.get(candidate.cluster) ?? 0) + 1);
-      }
-      input.failedMatches.push(importResult.failure);
-    }
-
-    if (shouldPersistMidPass({
+    const attemptCounts = recordImportAttempt({
+      candidate,
+      importResult,
       attemptedMatchIds: input.attemptedMatchIds,
+      importedMatchIds: input.importedMatchIds,
+      failedMatches: input.failedMatches,
       createdCandidates: input.createdCandidates,
-      lastPersistedAttemptCount: input.persistedCounts.lastPersistedAttemptCount,
-      lastPersistedCreatedCount: input.persistedCounts.lastPersistedCreatedCount,
-    })) {
-      await input.persistIntermediateProgress("import-mid-pass");
-      input.persistedCounts.lastPersistedAttemptCount = input.attemptedMatchIds.size;
-      input.persistedCounts.lastPersistedCreatedCount = input.createdCandidates.length;
-    }
+      remainingTargetMatches: input.remainingTargetMatches,
+      authFailureCountsBySeedKey: input.authFailureCountsBySeedKey,
+      authFailureCountsByRegion: input.authFailureCountsByRegion,
+    });
+    passCreated += attemptCounts.created;
+    passDuplicateLike += attemptCounts.duplicateLike;
 
-    if (input.getStopReason()) {
-      await input.persistIntermediateProgress("run-bounded-stop");
-      input.persistedCounts.lastPersistedAttemptCount = input.attemptedMatchIds.size;
-      input.persistedCounts.lastPersistedCreatedCount = input.createdCandidates.length;
+    await persistQueueProgressIfNeeded(input);
+
+    if (await persistQueueStopIfRequested(input)) {
       break;
     }
   }
@@ -665,6 +784,88 @@ async function runCompetitiveImportPasses(input: {
   }
 }
 
+function shouldPersistSeedProgress(input: {
+  processedSeeds: number;
+  totalSeeds: number;
+}) {
+  return input.processedSeeds % 10 === 0 || input.processedSeeds === input.totalSeeds;
+}
+
+async function persistResolutionSnapshot(input: {
+  snapshot: ResolutionProgressSnapshot;
+  persistResolutionProgress: (progress: {
+    processedSeeds: number;
+    totalSeeds: number;
+    resolvedSeeds: CompetitiveResolvedSeed[];
+    seedName: string;
+  }) => Promise<void>;
+}) {
+  if (!shouldPersistSeedProgress(input.snapshot)) {
+    return;
+  }
+
+  await input.persistResolutionProgress({
+    processedSeeds: input.snapshot.processedSeeds,
+    totalSeeds: input.snapshot.totalSeeds,
+    resolvedSeeds: input.snapshot.resolvedSeeds,
+    seedName: input.snapshot.seed.playerName,
+  });
+}
+
+async function persistDiscoverySnapshot(input: {
+  snapshot: DiscoveryProgressSnapshot;
+  persistDiscoveryProgress: (progress: {
+    processedSeeds: number;
+    totalActiveSeeds: number;
+    discoveries: CompetitiveSeedMatchDiscovery[];
+    seedName: string;
+  }) => Promise<void>;
+}) {
+  if (!shouldPersistSeedProgress({
+    processedSeeds: input.snapshot.processedSeeds,
+    totalSeeds: input.snapshot.totalActiveSeeds,
+  })) {
+    return;
+  }
+
+  await input.persistDiscoveryProgress({
+    processedSeeds: input.snapshot.processedSeeds,
+    totalActiveSeeds: input.snapshot.totalActiveSeeds,
+    discoveries: input.snapshot.discoveries,
+    seedName: input.snapshot.seed.playerName,
+  });
+}
+
+function getCompetitiveRunStopReason(input: {
+  options: CliOptions;
+  runAttemptCount: number;
+  runCreatedCount: number;
+  runAuthFailureCount: number;
+}) {
+  if (
+    typeof input.options.maxAttemptsPerRun === "number"
+    && input.options.maxAttemptsPerRun > 0
+    && input.runAttemptCount >= input.options.maxAttemptsPerRun
+  ) {
+    return `max-attempts-per-run:${input.options.maxAttemptsPerRun}`;
+  }
+  if (
+    typeof input.options.maxCreatedPerRun === "number"
+    && input.options.maxCreatedPerRun > 0
+    && input.runCreatedCount >= input.options.maxCreatedPerRun
+  ) {
+    return `max-created-per-run:${input.options.maxCreatedPerRun}`;
+  }
+  if (
+    typeof input.options.maxAuthFailuresPerRun === "number"
+    && input.options.maxAuthFailuresPerRun > 0
+    && input.runAuthFailureCount >= input.options.maxAuthFailuresPerRun
+  ) {
+    return `max-auth-failures-per-run:${input.options.maxAuthFailuresPerRun}`;
+  }
+  return null;
+}
+
 async function main() {
   const options = applyTranchePreset(parseArgs(process.argv.slice(2)));
   const { absolutePath: seedAbsolutePath, manifest } = await loadManifest(options.seedPath);
@@ -759,15 +960,7 @@ async function main() {
     ? checkpoint.resolvedSeeds
     : await resolveSeeds(workingSeeds, resolvedSeedCache, {
       onProgress: async (snapshot) => {
-        if (snapshot.processedSeeds % 10 !== 0 && snapshot.processedSeeds !== snapshot.totalSeeds) {
-          return;
-        }
-        await persistResolutionProgress({
-          processedSeeds: snapshot.processedSeeds,
-          totalSeeds: snapshot.totalSeeds,
-          resolvedSeeds: snapshot.resolvedSeeds,
-          seedName: snapshot.seed.playerName,
-        });
+        await persistResolutionSnapshot({ snapshot, persistResolutionProgress });
       },
     });
   let discoveries: CompetitiveSeedMatchDiscovery[] = canReuseDiscoveryCheckpoint ? checkpoint.discoveredMatches : [];
@@ -879,15 +1072,7 @@ async function main() {
         quarantinedSeedKeys,
         quarantinedRegions,
         onProgress: async (snapshot) => {
-          if (snapshot.processedSeeds % 10 !== 0 && snapshot.processedSeeds !== snapshot.totalActiveSeeds) {
-            return;
-          }
-          await persistDiscoveryProgress({
-            processedSeeds: snapshot.processedSeeds,
-            totalActiveSeeds: snapshot.totalActiveSeeds,
-            discoveries: snapshot.discoveries,
-            seedName: snapshot.seed.playerName,
-          });
+          await persistDiscoverySnapshot({ snapshot, persistDiscoveryProgress });
         },
       },
     );
@@ -955,15 +1140,7 @@ async function main() {
   if (workingSeeds.length !== manifest.players.length) {
     resolvedSeeds = await resolveSeeds(workingSeeds, resolvedSeedCache, {
       onProgress: async (snapshot) => {
-        if (snapshot.processedSeeds % 10 !== 0 && snapshot.processedSeeds !== snapshot.totalSeeds) {
-          return;
-        }
-        await persistResolutionProgress({
-          processedSeeds: snapshot.processedSeeds,
-          totalSeeds: snapshot.totalSeeds,
-          resolvedSeeds: snapshot.resolvedSeeds,
-          seedName: snapshot.seed.playerName,
-        });
+        await persistResolutionSnapshot({ snapshot, persistResolutionProgress });
       },
     });
     await refreshDiscoveryState();
@@ -996,31 +1173,13 @@ async function main() {
     if (stopReason) {
       return stopReason;
     }
-    if (
-      typeof options.maxAttemptsPerRun === "number"
-      && options.maxAttemptsPerRun > 0
-      && getRunAttemptCount() >= options.maxAttemptsPerRun
-    ) {
-      stopReason = `max-attempts-per-run:${options.maxAttemptsPerRun}`;
-      return stopReason;
-    }
-    if (
-      typeof options.maxCreatedPerRun === "number"
-      && options.maxCreatedPerRun > 0
-      && createdCandidates.length >= options.maxCreatedPerRun
-    ) {
-      stopReason = `max-created-per-run:${options.maxCreatedPerRun}`;
-      return stopReason;
-    }
-    if (
-      typeof options.maxAuthFailuresPerRun === "number"
-      && options.maxAuthFailuresPerRun > 0
-      && getRunAuthFailureCount() >= options.maxAuthFailuresPerRun
-    ) {
-      stopReason = `max-auth-failures-per-run:${options.maxAuthFailuresPerRun}`;
-      return stopReason;
-    }
-    return null;
+    stopReason = getCompetitiveRunStopReason({
+      options,
+      runAttemptCount: getRunAttemptCount(),
+      runCreatedCount: createdCandidates.length,
+      runAuthFailureCount: getRunAuthFailureCount(),
+    });
+    return stopReason;
   };
 
   const persistIntermediateProgress = async (progressStage: string) => {
