@@ -45,6 +45,59 @@ const profileBarClass = {
   cyan: "from-cyan-500/70 to-cyan-300",
 };
 
+interface ChampionRoleBadgesProps {
+  side: SetupColumnProps["side"];
+  roles: ChampionView["roles"];
+}
+
+function ChampionRoleBadges({ side, roles }: ChampionRoleBadgesProps) {
+  const visibleRoles = roles.length > 0 ? roles : ["Flex"];
+
+  return (
+    <div className="mt-3 flex flex-wrap items-center gap-2">
+      {visibleRoles.map((role) => (
+        <Badge key={`${side}-${role}`} variant="secondary" className="bg-secondary/80 text-foreground">
+          {role}
+        </Badge>
+      ))}
+    </div>
+  );
+}
+
+interface RoleSelectorProps {
+  side: SetupColumnProps["side"];
+  selectedRole: LabRoleKey;
+  roleOptions: LabRoleKey[];
+  disabled: boolean;
+  onRoleChange: (role: LabRoleKey) => void;
+}
+
+function RoleSelector({ side, selectedRole, roleOptions, disabled, onRoleChange }: RoleSelectorProps) {
+  if (roleOptions.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      {roleOptions.map((role) => (
+        <button
+          key={`${side}-role-${role}`}
+          type="button"
+          disabled={disabled}
+          onClick={() => onRoleChange(role)}
+          className={`rounded-full border px-3 py-1.5 text-xs transition-colors ${
+            selectedRole === role
+              ? "border-primary/40 bg-primary/10 text-primary"
+              : "border-border/60 bg-card/60 text-muted-foreground hover:border-primary/30"
+          }`}
+        >
+          {role}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 const SetupColumn = ({
   side,
   accent,
@@ -105,13 +158,7 @@ const SetupColumn = ({
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.25em] text-primary">{title}</p>
             <h2 className="mt-2 font-heading text-3xl font-bold text-foreground">{analysis.champion.name}</h2>
-            <div className="mt-3 flex flex-wrap items-center gap-2">
-              {(analysis.champion.roles.length > 0 ? analysis.champion.roles : ["Flex"]).map((role) => (
-                <Badge key={`${side}-${role}`} variant="secondary" className="bg-secondary/80 text-foreground">
-                  {role}
-                </Badge>
-              ))}
-            </div>
+            <ChampionRoleBadges side={side} roles={analysis.champion.roles} />
           </div>
           <ChampionPortrait champion={analysis.champion} size="lg" />
         </div>
@@ -160,25 +207,7 @@ const SetupColumn = ({
                   </Popover>
                 </div>
 
-                {roleOptions.length > 0 ? (
-                  <div className="flex flex-wrap items-center gap-2">
-                    {roleOptions.map((role) => (
-                      <button
-                        key={`${side}-role-${role}`}
-                        type="button"
-                        disabled={disableChampionSelection}
-                        onClick={() => onRoleChange(role)}
-                        className={`rounded-full border px-3 py-1.5 text-xs transition-colors ${
-                          setup.role === role
-                            ? "border-primary/40 bg-primary/10 text-primary"
-                            : "border-border/60 bg-card/60 text-muted-foreground hover:border-primary/30"
-                        }`}
-                      >
-                        {role}
-                      </button>
-                    ))}
-                  </div>
-                ) : null}
+                <RoleSelector side={side} selectedRole={setup.role} roleOptions={roleOptions} disabled={disableChampionSelection} onRoleChange={onRoleChange} />
 
                 <div className="rounded-2xl border border-border/60 bg-card/70 p-4">
                   <div className="mb-3 flex items-center justify-between gap-3">

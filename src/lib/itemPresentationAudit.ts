@@ -25,63 +25,100 @@ function startsWithStatLeak(effectText: string, label: string, value: string) {
   return normalizedEffect.startsWith(`${normalizedValue} ${normalizedLabel}`) || normalizedEffect.startsWith(`${normalizedLabel} ${normalizedValue}`);
 }
 
+function addDuplicateBaseStatIssues(
+  item: GameItem,
+  statLines: ReturnType<typeof getItemStatLines>,
+  issues: ItemPresentationAuditIssue[],
+) {
+  const seen = new Set<string>();
+
+  for (const statLine of statLines) {
+    const signature = `${normalizeText(statLine.label)}::${statLine.value}`;
+    if (seen.has(signature)) {
+      issues.push({
+        riotItemId: item.riotItemId,
+        name: item.name,
+        kind: "duplicate-base-stat",
+        detail: `${statLine.label} ${statLine.value}`,
+      });
+    }
+    seen.add(signature);
+  }
+}
+
+function addMissingBaseStatIconIssues(
+  item: GameItem,
+  statLines: ReturnType<typeof getItemStatLines>,
+  issues: ItemPresentationAuditIssue[],
+) {
+  for (const statLine of statLines) {
+    if (statLine.icon !== "default") {
+      continue;
+    }
+
+    issues.push({
+      riotItemId: item.riotItemId,
+      name: item.name,
+      kind: "missing-base-stat-icon",
+      detail: `${statLine.label} ${statLine.value}`,
+    });
+  }
+}
+
+function addBaseStatLeakIssues(
+  item: GameItem,
+  statLines: ReturnType<typeof getItemStatLines>,
+  effectBlocks: ReturnType<typeof getItemEffectBlocks>,
+  issues: ItemPresentationAuditIssue[],
+) {
+  for (const block of effectBlocks) {
+    const leadingText = [block.title, block.body].filter(Boolean).join(" ");
+    for (const statLine of statLines) {
+      if (!startsWithStatLeak(leadingText, statLine.label, statLine.value)) {
+        continue;
+      }
+
+      issues.push({
+        riotItemId: item.riotItemId,
+        name: item.name,
+        kind: "base-stat-leaked-into-effects",
+        detail: `${statLine.label} ${statLine.value}`,
+      });
+    }
+  }
+}
+
+function addMissingCritDamageIconIssue(
+  item: GameItem,
+  effectBlocks: ReturnType<typeof getItemEffectBlocks>,
+  issues: ItemPresentationAuditIssue[],
+) {
+  const hasCritDamageText = effectBlocks.some((block) => normalizeText(block.body).includes("degats de coup critique"));
+  const hasCritIcon = effectBlocks.some((block) => block.icon === "crit");
+
+  if (!hasCritDamageText || hasCritIcon) {
+    return;
+  }
+
+  issues.push({
+    riotItemId: item.riotItemId,
+    name: item.name,
+    kind: "missing-crit-damage-icon",
+    detail: "Effet de degats critiques sans icone",
+  });
+}
+
 export function auditItems(items: GameItem[]) {
   const issues: ItemPresentationAuditIssue[] = [];
 
   for (const item of items) {
     const statLines = getItemStatLines(item);
     const effectBlocks = getItemEffectBlocks(item);
-    const seen = new Set<string>();
 
-    for (const statLine of statLines) {
-      const signature = `${normalizeText(statLine.label)}::${statLine.value}`;
-      if (seen.has(signature)) {
-        issues.push({
-          riotItemId: item.riotItemId,
-          name: item.name,
-          kind: "duplicate-base-stat",
-          detail: `${statLine.label} ${statLine.value}`,
-        });
-      }
-      seen.add(signature);
-    }
-
-    for (const statLine of statLines) {
-      if (statLine.icon === "default") {
-        issues.push({
-          riotItemId: item.riotItemId,
-          name: item.name,
-          kind: "missing-base-stat-icon",
-          detail: `${statLine.label} ${statLine.value}`,
-        });
-      }
-    }
-
-    for (const block of effectBlocks) {
-      const leadingText = [block.title, block.body].filter(Boolean).join(" ");
-      for (const statLine of statLines) {
-        if (startsWithStatLeak(leadingText, statLine.label, statLine.value)) {
-          issues.push({
-            riotItemId: item.riotItemId,
-            name: item.name,
-            kind: "base-stat-leaked-into-effects",
-            detail: `${statLine.label} ${statLine.value}`,
-          });
-        }
-      }
-    }
-
-    if (
-      effectBlocks.some((block) => normalizeText(block.body).includes("degats de coup critique")) &&
-      !effectBlocks.some((block) => block.icon === "crit")
-    ) {
-      issues.push({
-        riotItemId: item.riotItemId,
-        name: item.name,
-        kind: "missing-crit-damage-icon",
-        detail: "Effet de degats critiques sans icone",
-      });
-    }
+    addDuplicateBaseStatIssues(item, statLines, issues);
+    addMissingBaseStatIconIssues(item, statLines, issues);
+    addBaseStatLeakIssues(item, statLines, effectBlocks, issues);
+    addMissingCritDamageIconIssue(item, effectBlocks, issues);
   }
 
   return issues;
