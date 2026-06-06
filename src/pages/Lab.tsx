@@ -71,6 +71,42 @@ const resolveSetupItems = (setup: ItemLabSetup, itemIndex: Map<string, GameItem>
     .map((itemId) => (itemId ? itemIndex.get(itemId) ?? null : null))
     .filter(Boolean);
 
+const buildSetupAnalysis = ({
+  setup,
+  champion,
+  items,
+  previousSetup,
+  previousChampion,
+  previousItems,
+}: {
+  setup: ItemLabSetup;
+  champion: ChampionView | undefined;
+  items: GameItem[];
+  previousSetup: ItemLabSetup | null;
+  previousChampion: ChampionView | null;
+  previousItems: GameItem[];
+}) => {
+  if (!champion) {
+    return null;
+  }
+
+  const previousStats = previousSetup && previousChampion
+    ? analyzeSetup({ setup: previousSetup, champion: previousChampion, items: previousItems }).stats
+    : null;
+
+  return analyzeSetup({ setup, champion, items, previousStats });
+};
+
+const restoreExperimentSetup = (
+  setup: ItemLabSetup,
+  championIndex: Map<string, ChampionView>,
+) => setup.role
+  ? setup
+  : {
+      ...setup,
+      role: getDefaultChampionRole(championIndex.get(setup.championId) ?? null),
+    };
+
 const Lab = () => {
   const { data: catalog, isLoading } = useCatalog();
   const [mode, setMode] = useState<LabMode>("mirror");
@@ -131,22 +167,22 @@ const Lab = () => {
   const previousItemsA = previousResolvedA ? resolveSetupItems(previousResolvedA, itemIndex) : [];
   const previousItemsB = previousResolvedB ? resolveSetupItems(previousResolvedB, itemIndex) : [];
 
-  const analysisA = championA
-    ? analyzeSetup({
-        setup: resolvedSetupA,
-        champion: championA,
-        items: itemsA,
-        previousStats: previousResolvedA && previousChampionA ? analyzeSetup({ setup: previousResolvedA, champion: previousChampionA, items: previousItemsA }).stats : null,
-      })
-    : null;
-  const analysisB = championB
-    ? analyzeSetup({
-        setup: resolvedSetupB,
-        champion: championB,
-        items: itemsB,
-        previousStats: previousResolvedB && previousChampionB ? analyzeSetup({ setup: previousResolvedB, champion: previousChampionB, items: previousItemsB }).stats : null,
-      })
-    : null;
+  const analysisA = buildSetupAnalysis({
+    setup: resolvedSetupA,
+    champion: championA,
+    items: itemsA,
+    previousSetup: previousResolvedA,
+    previousChampion: previousChampionA,
+    previousItems: previousItemsA,
+  });
+  const analysisB = buildSetupAnalysis({
+    setup: resolvedSetupB,
+    champion: championB,
+    items: itemsB,
+    previousSetup: previousResolvedB,
+    previousChampion: previousChampionB,
+    previousItems: previousItemsB,
+  });
 
   const normalizeNextSetup = (next: ItemLabSetup) =>
     normalizeSetupForRole({ setup: next, champion: resolveSetupChampion(next, championIndex) });
@@ -268,8 +304,8 @@ const Lab = () => {
     setExperimentName(experiment.name);
     setPreviousA(resolvedSetupA);
     setPreviousB(resolvedSetupB);
-    setSetupA(normalizeNextSetup(experiment.setupA.role ? experiment.setupA : { ...experiment.setupA, role: getDefaultChampionRole(championIndex.get(experiment.setupA.championId) ?? null) }));
-    setSetupB(normalizeNextSetup(experiment.setupB.role ? experiment.setupB : { ...experiment.setupB, role: getDefaultChampionRole(championIndex.get(experiment.setupB.championId) ?? null) }));
+    setSetupA(normalizeNextSetup(restoreExperimentSetup(experiment.setupA, championIndex)));
+    setSetupB(normalizeNextSetup(restoreExperimentSetup(experiment.setupB, championIndex)));
   };
 
   if (isLoading || !catalog || !analysisA || !analysisB) {

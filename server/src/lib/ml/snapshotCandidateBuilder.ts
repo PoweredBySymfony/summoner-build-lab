@@ -130,6 +130,37 @@ function resolveItemGoldValue(
   };
 }
 
+function replayGoldEvent(input: {
+  event: Record<string, unknown>;
+  index: number;
+  purchaseEventIndex: number;
+  workingGold: number;
+  itemGoldIndex: Map<number, ItemGoldValue>;
+}) {
+  const eventType = String(input.event.type ?? "");
+  const itemId = safeInt(input.event.itemId);
+
+  if (eventType === "ITEM_PURCHASED" && itemId > 0) {
+    const updatedGold = input.workingGold + resolveItemGoldValue(input.itemGoldIndex, itemId).goldTotal;
+    return {
+      workingGold: updatedGold,
+      shouldStop: input.index === input.purchaseEventIndex,
+    };
+  }
+
+  if (eventType === "ITEM_SOLD" && itemId > 0) {
+    return {
+      workingGold: input.workingGold - resolveItemGoldValue(input.itemGoldIndex, itemId).goldSell,
+      shouldStop: false,
+    };
+  }
+
+  return {
+    workingGold: input.workingGold,
+    shouldStop: eventType === "ITEM_UNDO" && input.index === input.purchaseEventIndex,
+  };
+}
+
 export function calculateGoldBeforePurchaseFromFrame(input: {
   events: Array<Record<string, unknown>>;
   participantId: number;
@@ -145,32 +176,24 @@ export function calculateGoldBeforePurchaseFromFrame(input: {
       continue;
     }
 
-    const eventType = String(event.type ?? "");
-    const itemId = safeInt(event.itemId);
-
-    if (eventType === "ITEM_PURCHASED" && itemId > 0) {
-      workingGold += resolveItemGoldValue(input.itemGoldIndex, itemId).goldTotal;
-      if (index === input.purchaseEventIndex) {
-        return workingGold;
-      }
-      continue;
-    }
-
-    if (eventType === "ITEM_SOLD" && itemId > 0) {
-      workingGold -= resolveItemGoldValue(input.itemGoldIndex, itemId).goldSell;
-      continue;
-    }
-
-    if (eventType === "ITEM_UNDO") {
-      if (index === input.purchaseEventIndex) {
-        return workingGold;
-      }
-      continue;
+    const replay = replayGoldEvent({
+      event,
+      index,
+      purchaseEventIndex: input.purchaseEventIndex,
+      workingGold,
+      itemGoldIndex: input.itemGoldIndex,
+    });
+    workingGold = replay.workingGold;
+    if (replay.shouldStop) {
+      return workingGold;
     }
   }
 
   return workingGold;
 }
+
+const buildCurrentItemsSignature = (currentItems: string[]) =>
+  [...currentItems].sort(compareText).join("|");
 
 export function dedupeAndRankSnapshots(candidates: SnapshotCandidate[]) {
   const sorted = [...candidates]
@@ -179,9 +202,9 @@ export function dedupeAndRankSnapshots(candidates: SnapshotCandidate[]) {
   const kept: SnapshotCandidate[] = [];
 
   const isDuplicateOfKept = (candidate: SnapshotCandidate) => {
-    const candidateSignature = [...candidate.snapshot.currentItems].sort(compareText).join("|");
+    const candidateSignature = buildCurrentItemsSignature(candidate.snapshot.currentItems);
     return kept.find((existing) => {
-      const existingSignature = [...existing.snapshot.currentItems].sort(compareText).join("|");
+      const existingSignature = buildCurrentItemsSignature(existing.snapshot.currentItems);
       return (
         candidateSignature === existingSignature
         && Math.abs(existing.snapshot.timestampMinutes - candidate.snapshot.timestampMinutes) < 3

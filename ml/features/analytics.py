@@ -345,6 +345,29 @@ def _item_gold_values(catalog: Any, item_id: int) -> tuple[int, int]:
     return total, sell
 
 
+def _replay_gold_event(
+    *,
+    event: dict[str, Any],
+    index: int,
+    purchase_event_index: int,
+    working_gold: int,
+    catalog: Any,
+) -> tuple[int, bool]:
+    event_type = str(event.get("type") or "")
+    item_id = safe_int(event.get("itemId"))
+
+    if event_type == "ITEM_PURCHASED" and item_id > 0:
+        item_cost, _ = _item_gold_values(catalog, item_id)
+        updated_gold = working_gold + item_cost
+        return updated_gold, index == purchase_event_index
+
+    if event_type == "ITEM_SOLD" and item_id > 0:
+        _, sell_value = _item_gold_values(catalog, item_id)
+        return working_gold - sell_value, False
+
+    return working_gold, event_type == "ITEM_UNDO" and index == purchase_event_index
+
+
 def _gold_before_purchase_from_frame_events(
     *,
     events: list[dict[str, Any]],
@@ -360,22 +383,14 @@ def _gold_before_purchase_from_frame_events(
         if safe_int(event.get("participantId")) != participant_id:
             continue
 
-        event_type = str(event.get("type") or "")
-        item_id = safe_int(event.get("itemId"))
-
-        if event_type == "ITEM_PURCHASED" and item_id > 0:
-            item_cost, _ = _item_gold_values(catalog, item_id)
-            working_gold += item_cost
-            if index == purchase_event_index:
-                return working_gold
-            continue
-
-        if event_type == "ITEM_SOLD" and item_id > 0:
-            _, sell_value = _item_gold_values(catalog, item_id)
-            working_gold -= sell_value
-            continue
-
-        if event_type == "ITEM_UNDO" and index == purchase_event_index:
+        working_gold, should_stop = _replay_gold_event(
+            event=event,
+            index=index,
+            purchase_event_index=purchase_event_index,
+            working_gold=working_gold,
+            catalog=catalog,
+        )
+        if should_stop:
             return working_gold
 
     return working_gold
