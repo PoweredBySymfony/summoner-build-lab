@@ -195,53 +195,67 @@ export function calculateGoldBeforePurchaseFromFrame(input: {
 const buildCurrentItemsSignature = (currentItems: string[]) =>
   [...currentItems].sort(compareText).join("|");
 
+function isSameSnapshotCandidate(left: SnapshotCandidate, right: SnapshotCandidate) {
+  return (
+    buildCurrentItemsSignature(left.snapshot.currentItems) === buildCurrentItemsSignature(right.snapshot.currentItems)
+    && Math.abs(right.snapshot.timestampMinutes - left.snapshot.timestampMinutes) < 3
+  );
+}
+
+function appendUniqueSnapshotCandidate(kept: SnapshotCandidate[], candidate: SnapshotCandidate) {
+  if (kept.find((existing) => isSameSnapshotCandidate(candidate, existing))) {
+    return false;
+  }
+
+  kept.push(candidate);
+  return true;
+}
+
+function fillSnapshotsForSegment(
+  kept: SnapshotCandidate[],
+  sorted: SnapshotCandidate[],
+  segment: ReturnType<typeof getSnapshotSegment>,
+) {
+  let keptForSegment = 0;
+
+  for (const candidate of sorted) {
+    if (getSnapshotSegment(candidate.snapshot.timestampMinutes) !== segment) {
+      continue;
+    }
+    if (!appendUniqueSnapshotCandidate(kept, candidate)) {
+      continue;
+    }
+    keptForSegment += 1;
+    if (kept.length >= MAX_SNAPSHOT_CANDIDATES || keptForSegment >= MAX_SNAPSHOT_CANDIDATES_PER_SEGMENT) {
+      break;
+    }
+  }
+}
+
+function fillRemainingSnapshots(kept: SnapshotCandidate[], sorted: SnapshotCandidate[]) {
+  for (const candidate of sorted) {
+    appendUniqueSnapshotCandidate(kept, candidate);
+    if (kept.length >= MAX_SNAPSHOT_CANDIDATES) {
+      break;
+    }
+  }
+}
+
 export function dedupeAndRankSnapshots(candidates: SnapshotCandidate[]) {
   const sorted = [...candidates]
     .sort((left, right) => right.relevanceScore - left.relevanceScore)
     .filter((candidate) => candidate.relevanceScore >= 0);
   const kept: SnapshotCandidate[] = [];
 
-  const isDuplicateOfKept = (candidate: SnapshotCandidate) => {
-    const candidateSignature = buildCurrentItemsSignature(candidate.snapshot.currentItems);
-    return kept.find((existing) => {
-      const existingSignature = buildCurrentItemsSignature(existing.snapshot.currentItems);
-      return (
-        candidateSignature === existingSignature
-        && Math.abs(existing.snapshot.timestampMinutes - candidate.snapshot.timestampMinutes) < 3
-      );
-    });
-  };
-
   for (const segmentConfig of SNAPSHOT_SEGMENTS) {
-    let keptForSegment = 0;
-    for (const candidate of sorted) {
-      if (getSnapshotSegment(candidate.snapshot.timestampMinutes) !== segmentConfig.segment) {
-        continue;
-      }
-      if (isDuplicateOfKept(candidate)) {
-        continue;
-      }
-      kept.push(candidate);
-      keptForSegment += 1;
-      if (kept.length >= MAX_SNAPSHOT_CANDIDATES || keptForSegment >= MAX_SNAPSHOT_CANDIDATES_PER_SEGMENT) {
-        break;
-      }
-    }
+    fillSnapshotsForSegment(kept, sorted, segmentConfig.segment);
     if (kept.length >= MAX_SNAPSHOT_CANDIDATES) {
       break;
     }
   }
 
   if (kept.length < MAX_SNAPSHOT_CANDIDATES) {
-    for (const candidate of sorted) {
-      if (isDuplicateOfKept(candidate)) {
-        continue;
-      }
-      kept.push(candidate);
-      if (kept.length >= MAX_SNAPSHOT_CANDIDATES) {
-        break;
-      }
-    }
+    fillRemainingSnapshots(kept, sorted);
   }
 
   return [...new Map(kept.map((candidate) => [candidate.snapshotIndex, candidate])).values()]
@@ -250,6 +264,57 @@ export function dedupeAndRankSnapshots(candidates: SnapshotCandidate[]) {
 
 export function collectSnapshotBuilderItemIds(frames: Array<Record<string, unknown>>) {
   return collectTimelineItemIds(frames);
+}
+
+function updateCombatStats(
+  event: Record<string, unknown>,
+  participantId: number,
+  current: { kills: number; deaths: number; assists: number },
+) {
+  if (String(event.type ?? "") !== "CHAMPION_KILL") {
+    return current;
+  }
+
+  return {
+    kills: current.kills + Number(safeInt(event.killerId) === participantId),
+    deaths: current.deaths + Number(safeInt(event.victimId) === participantId),
+    assists: current.assists + Number(
+      Array.isArray(event.assistingParticipantIds)
+      && event.assistingParticipantIds.map((value) => safeInt(value)).includes(participantId),
+    ),
+  };
+}
+
+function applyInventoryEvent(inventory: number[], event: Record<string, unknown>) {
+  const eventType = String(event.type ?? "");
+  const itemId = safeInt(event.itemId);
+
+  if ((eventType === "ITEM_SOLD" || eventType === "ITEM_DESTROYED") && itemId > 0) {
+    removeItemOnce(inventory, itemId);
+  }
+  if (eventType === "ITEM_UNDO") {
+    removeItemOnce(inventory, safeInt(event.beforeId));
+    if (safeInt(event.afterId) > 0) {
+      inventory.push(safeInt(event.afterId));
+    }
+  }
+}
+
+function buildScenarioTeams(input: {
+  allyTeamDraft: ScenarioMemberDraft[];
+  enemyTeamDraft: ScenarioMemberDraft[];
+  inventories: Map<number, string[]>;
+}) {
+  return {
+    allyTeam: input.allyTeamDraft.map(({ participantId: _participantId, ...member }) => ({
+      ...member,
+      items: input.inventories.get(_participantId) ?? [],
+    })),
+    enemyTeam: input.enemyTeamDraft.map(({ participantId: _participantId, ...member }) => ({
+      ...member,
+      items: input.inventories.get(_participantId) ?? [],
+    })),
+  };
 }
 
 export function buildSnapshotCandidates(input: {
@@ -323,9 +388,11 @@ export function buildSnapshotCandidates(input: {
     .filter((frame) => typeof frame === "object" && frame !== null)
     .sort((left, right) => safeInt(left.timestamp) - safeInt(right.timestamp));
   const inventory: number[] = [];
-  let kills = 0;
-  let deaths = 0;
-  let assists = 0;
+  let combatStats = {
+    kills: 0,
+    deaths: 0,
+    assists: 0,
+  };
   const rawCandidates: SnapshotCandidate[] = [];
   let lastPurchaseTimestamp = Number.NEGATIVE_INFINITY;
   let burstPurchaseIndex = 0;
@@ -339,20 +406,7 @@ export function buildSnapshotCandidates(input: {
       const eventType = String(event.type ?? "");
       const eventParticipantId = safeInt(event.participantId);
 
-      if (eventType === "CHAMPION_KILL") {
-        if (safeInt(event.killerId) === participantId) {
-          kills += 1;
-        }
-        if (safeInt(event.victimId) === participantId) {
-          deaths += 1;
-        }
-        if (
-          Array.isArray(event.assistingParticipantIds) &&
-          event.assistingParticipantIds.map((value) => safeInt(value)).includes(participantId)
-        ) {
-          assists += 1;
-        }
-      }
+      combatStats = updateCombatStats(event, participantId, combatStats);
 
       if (eventParticipantId !== participantId) {
         continue;
@@ -388,23 +442,18 @@ export function buildSnapshotCandidates(input: {
         console.info(
           `[ml-puzzle] reconstructed team inventories snapshotMinute=${(safeInt(event.timestamp) / 60000).toFixed(2)} participants=${reconstructedInventories.participantsCovered} eventsApplied=${reconstructedInventories.eventsApplied}`,
         );
-        const allyTeam = allyTeamDraft.map(({ participantId: _participantId, ...member }) => ({
-          ...member,
-          items: reconstructedInventories.inventories.get(_participantId) ?? [],
-        }));
-        const enemyTeam = enemyTeamDraft.map(({ participantId: _participantId, ...member }) => ({
-          ...member,
-          items: reconstructedInventories.inventories.get(_participantId) ?? [],
-        }));
+        const { allyTeam, enemyTeam } = buildScenarioTeams({
+          allyTeamDraft,
+          enemyTeamDraft,
+          inventories: reconstructedInventories.inventories,
+        });
         const snapshot = {
           patch: input.importedMatch.patch ?? "unknown",
           championSlug: input.importedMatch.targetChampionSlug ?? "",
           role: input.importedMatch.targetRole,
           goldAvailable: goldBeforePurchase,
           level: safeInt(participantFrame.level),
-          kills,
-          deaths,
-          assists,
+          ...combatStats,
           cs: safeInt(participantFrame.minionsKilled) + safeInt(participantFrame.jungleMinionsKilled),
           timestampMinutes: safeInt(event.timestamp) / 60000,
           currentItems: currentBuild,
@@ -447,15 +496,7 @@ export function buildSnapshotCandidates(input: {
         continue;
       }
 
-      if ((eventType === "ITEM_SOLD" || eventType === "ITEM_DESTROYED") && itemId > 0) {
-        removeItemOnce(inventory, itemId);
-      }
-      if (eventType === "ITEM_UNDO") {
-        removeItemOnce(inventory, safeInt(event.beforeId));
-        if (safeInt(event.afterId) > 0) {
-          inventory.push(safeInt(event.afterId));
-        }
-      }
+      applyInventoryEvent(inventory, event);
     }
   }
 

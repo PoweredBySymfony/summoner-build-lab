@@ -82,6 +82,8 @@ export type RejectedSnapshotAttempt = {
 };
 
 export type SnapshotAttempt = PreparedSnapshotAttempt | RejectedSnapshotAttempt;
+type BusinessRulesResult = ReturnType<typeof buildMlPuzzleBusinessRules>;
+type GoodAnswerSource = "ml-prediction" | "actual-purchase-fallback";
 
 function buildRejectedAttempt(input: {
   candidate: SnapshotCandidate;
@@ -199,6 +201,105 @@ export function prevalidateSnapshotCandidate(input: {
   };
 }
 
+function resolveActualPurchaseFallback(input: {
+  itemSlug: string | null;
+  patchChoiceItems: MlChoiceItem[];
+}) {
+  return input.itemSlug
+    ? resolveMlChoiceItemRef(input.itemSlug, input.patchChoiceItems)
+    : null;
+}
+
+function resolveGoodAnswerCandidate(input: {
+  predictedGoodAnswer: MlChoiceItem | null;
+  actualPurchaseFallback: MlChoiceItem | null;
+  actualPurchaseAllowed: boolean;
+}) {
+  if (input.predictedGoodAnswer) {
+    return {
+      resolvedGoodAnswer: input.predictedGoodAnswer,
+      goodAnswerSource: "ml-prediction" as GoodAnswerSource,
+    };
+  }
+
+  if (input.actualPurchaseFallback && input.actualPurchaseAllowed) {
+    return {
+      resolvedGoodAnswer: input.actualPurchaseFallback,
+      goodAnswerSource: "actual-purchase-fallback" as GoodAnswerSource,
+    };
+  }
+
+  return {
+    resolvedGoodAnswer: null,
+    goodAnswerSource: "ml-prediction" as GoodAnswerSource,
+  };
+}
+
+function shouldFallbackToActualPurchase(input: {
+  goodAnswerSource: GoodAnswerSource;
+  actualPurchaseFallback: MlChoiceItem | null;
+  actualPurchaseAllowed: boolean;
+  businessRules: BusinessRulesResult;
+}) {
+  return (
+    input.goodAnswerSource === "ml-prediction"
+    && input.actualPurchaseFallback
+    && input.actualPurchaseAllowed
+    && input.businessRules.debug.goodAnswerViolations.some((reason) =>
+      reason === "too-cheap" || reason === "too-expensive" || reason === "incoherent-with-champion",
+    )
+  );
+}
+
+function logRestrictedCandidateSamples(
+  snapshot: SnapshotCandidate["snapshot"],
+  businessRules: BusinessRulesResult,
+) {
+  if (businessRules.debug.restrictedCandidateSamples.length === 0) {
+    return;
+  }
+
+  console.info(
+    "[ml-puzzle] restriction-reject",
+    JSON.stringify({
+      scope: "candidate-pool",
+      patch: snapshot.patch,
+      role: snapshot.role,
+      rejected: businessRules.debug.restrictedCandidateSamples,
+      counts: {
+        roleRestricted: businessRules.debug.filterReasonCounts["role-restricted"],
+        patchRestricted: businessRules.debug.filterReasonCounts["patch-restricted"],
+      },
+    }),
+  );
+}
+
+function collectBusinessRuleRejections(businessRules: BusinessRulesResult) {
+  const rejectionReasons = businessRules.debug.goodAnswerViolations.map(
+    (reason) => `good-answer-${reason}`,
+  );
+
+  if (businessRules.debug.candidatePoolSizeAfterFallback < 6) {
+    rejectionReasons.push("candidate-pool-too-small");
+  }
+
+  return rejectionReasons;
+}
+
+function tryResolvePuzzleChoices(input: Parameters<typeof resolveMlPuzzleChoices>[0]) {
+  try {
+    return {
+      resolvedChoices: resolveMlPuzzleChoices(input),
+      rejectionReason: null,
+    };
+  } catch (error) {
+    return {
+      resolvedChoices: null,
+      rejectionReason: `choice-resolution-${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+}
+
 export async function evaluateSnapshotAttempt(input: {
   importedMatchId: string;
   userId: string;
@@ -214,21 +315,21 @@ export async function evaluateSnapshotAttempt(input: {
     const prediction = await input.predictNextItem(payload);
     const seed = buildBackendPuzzleSeed(prediction);
     const predictedGoodAnswer = resolveMlChoiceItemRef(seed.goodAnswer, input.patchChoiceItems);
-    const actualPurchaseFallback = input.candidate.actualPurchase.itemSlug
-      ? resolveMlChoiceItemRef(input.candidate.actualPurchase.itemSlug, input.patchChoiceItems)
-      : null;
+    const actualPurchaseFallback = resolveActualPurchaseFallback({
+      itemSlug: input.candidate.actualPurchase.itemSlug,
+      patchChoiceItems: input.patchChoiceItems,
+    });
     const actualPurchaseVerdict = prevalidateSnapshotCandidate({
       candidate: input.candidate,
       patchChoiceItems: input.patchChoiceItems,
       championTags: input.championTags,
     });
 
-    let resolvedGoodAnswer = predictedGoodAnswer;
-    let goodAnswerSource: "ml-prediction" | "actual-purchase-fallback" = "ml-prediction";
-    if (!resolvedGoodAnswer && actualPurchaseFallback && actualPurchaseVerdict.allowed) {
-      resolvedGoodAnswer = actualPurchaseFallback;
-      goodAnswerSource = "actual-purchase-fallback";
-    }
+    let { resolvedGoodAnswer, goodAnswerSource } = resolveGoodAnswerCandidate({
+      predictedGoodAnswer,
+      actualPurchaseFallback,
+      actualPurchaseAllowed: actualPurchaseVerdict.allowed,
+    });
 
     if (!resolvedGoodAnswer) {
       return buildRejectedAttempt({
@@ -291,49 +392,31 @@ export async function evaluateSnapshotAttempt(input: {
       previousChoiceSignatures: input.previousChoiceSignatures,
       variationSeed,
     });
-    if (
-      goodAnswerSource === "ml-prediction"
-      && actualPurchaseFallback
-      && actualPurchaseVerdict.allowed
-      && businessRules.debug.goodAnswerViolations.some((reason) =>
-        reason === "too-cheap" || reason === "too-expensive" || reason === "incoherent-with-champion",
-      )
-    ) {
-      resolvedGoodAnswer = actualPurchaseFallback;
+    if (shouldFallbackToActualPurchase({
+      goodAnswerSource,
+      actualPurchaseFallback,
+      actualPurchaseAllowed: actualPurchaseVerdict.allowed,
+      businessRules,
+    })) {
+      const fallbackGoodAnswer = actualPurchaseFallback;
+      if (!fallbackGoodAnswer) {
+        throw new HttpError(500, "Actual purchase fallback was expected but unresolved.");
+      }
+      resolvedGoodAnswer = fallbackGoodAnswer;
       goodAnswerSource = "actual-purchase-fallback";
       businessRules = buildMlPuzzleBusinessRules({
         snapshot: input.candidate.snapshot,
         championTags: input.championTags,
-        goodAnswer: resolvedGoodAnswer,
-        rankedCandidates: [resolvedGoodAnswer, ...rankedResolvedItems],
+        goodAnswer: fallbackGoodAnswer,
+        rankedCandidates: [fallbackGoodAnswer, ...rankedResolvedItems],
         availableItems: input.patchChoiceItems,
         previousChoiceSignatures: input.previousChoiceSignatures,
         variationSeed: `${variationSeed}:actual-purchase`,
       });
     }
-    if (businessRules.debug.restrictedCandidateSamples.length > 0) {
-      console.info(
-        "[ml-puzzle] restriction-reject",
-        JSON.stringify({
-          scope: "candidate-pool",
-          patch: input.candidate.snapshot.patch,
-          role: input.candidate.snapshot.role,
-          rejected: businessRules.debug.restrictedCandidateSamples,
-          counts: {
-            roleRestricted: businessRules.debug.filterReasonCounts["role-restricted"],
-            patchRestricted: businessRules.debug.filterReasonCounts["patch-restricted"],
-          },
-        }),
-      );
-    }
+    logRestrictedCandidateSamples(input.candidate.snapshot, businessRules);
 
-    const rejectionReasons: string[] = [];
-    if (businessRules.debug.goodAnswerViolations.length > 0) {
-      rejectionReasons.push(...businessRules.debug.goodAnswerViolations.map((reason) => `good-answer-${reason}`));
-    }
-    if (businessRules.debug.candidatePoolSizeAfterFallback < 6) {
-      rejectionReasons.push("candidate-pool-too-small");
-    }
+    const rejectionReasons = collectBusinessRuleRejections(businessRules);
 
     const choiceResolutionInput = {
       patch: input.candidate.snapshot.patch,
@@ -346,11 +429,10 @@ export async function evaluateSnapshotAttempt(input: {
       fallbackItems: businessRules.distractorCandidates,
     };
 
-    let resolvedChoices: ReturnType<typeof resolveMlPuzzleChoices> | null = null;
-    try {
-      resolvedChoices = resolveMlPuzzleChoices(choiceResolutionInput);
-    } catch (error) {
-      rejectionReasons.push(`choice-resolution-${error instanceof Error ? error.message : String(error)}`);
+    const choiceResolution = tryResolvePuzzleChoices(choiceResolutionInput);
+    const resolvedChoices = choiceResolution.resolvedChoices;
+    if (choiceResolution.rejectionReason) {
+      rejectionReasons.push(choiceResolution.rejectionReason);
     }
 
     if (!resolvedChoices || rejectionReasons.length > 0) {
