@@ -221,6 +221,13 @@ function mapScenarioItemEntry(
   return { id: String(entry), name: String(entry) };
 }
 
+function resolveChampionRefFromEntry(e: Record<string, unknown>, fallback: string): string {
+  if ("championId" in e && e.championId) return String(e.championId);
+  if ("riotChampionId" in e && e.riotChampionId) return String(e.riotChampionId);
+  if ("championKey" in e && e.championKey) return String(e.championKey);
+  return fallback;
+}
+
 function mapScenarioTeamEntry(
   entry: unknown,
   championIndex: Map<string, ReturnType<typeof mapChampionView>>,
@@ -232,15 +239,10 @@ function mapScenarioTeamEntry(
   if (entry && typeof entry === "object" && "championSlug" in entry) {
     const e = entry as Record<string, unknown>;
     const championSlug = String(e.championSlug);
-    const championRef =
-      ("championId" in e && e.championId ? String(e.championId) : null) ??
-      ("riotChampionId" in e && e.riotChampionId ? String(e.riotChampionId) : null) ??
-      ("championKey" in e && e.championKey ? String(e.championKey) : null) ??
-      championSlug;
     return {
       id: championSlug,
       name: championSlug,
-      champion: resolveIndexedChampion(championRef, championIndex),
+      champion: resolveIndexedChampion(resolveChampionRefFromEntry(e, championSlug), championIndex),
       role: "role" in e ? roleLabel[String(e.role) as Role] ?? String(e.role) : null,
       items: Array.isArray(e.items) ? e.items.map((item) => mapScenarioItemEntry(item, itemIndex)) : [],
       note: "note" in e ? String(e.note) : undefined,

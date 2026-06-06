@@ -94,6 +94,10 @@ function hasUnknownTier(row: { sourceKind: string; sourceMetadata: unknown }): b
   return tier === "unknown";
 }
 
+function resolveSourceRegion(seedMetadata: Record<string, unknown>, fallback: string | null): string | null {
+  return (typeof seedMetadata.region === "string" && seedMetadata.region.length > 0 ? seedMetadata.region : fallback) ?? null;
+}
+
 function buildMatchDiscoveryIndex(discoveries: CompetitiveSeedMatchDiscovery[]) {
   const index = new Map<string, CompetitiveSeedMatchDiscovery>();
   for (const discovery of discoveries) {
@@ -185,10 +189,7 @@ async function main() {
       },
       data: {
         sourceKind: row.sourceKind,
-        sourceRegion:
-          (typeof seedMetadata.region === "string" && seedMetadata.region.length > 0
-            ? seedMetadata.region
-            : row.sourceRegion) ?? null,
+        sourceRegion: resolveSourceRegion(seedMetadata, row.sourceRegion),
         sourceMetadata: mergedMetadata,
       },
     });
