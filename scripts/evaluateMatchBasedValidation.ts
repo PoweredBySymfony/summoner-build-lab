@@ -60,6 +60,20 @@ type EvaluationRow = {
   resultSlug: string | null;
 };
 
+type ValidationArgHandler = (options: CliOptions, next: string | undefined) => boolean;
+
+const validationArgHandlers: Record<string, ValidationArgHandler> = {
+  "--sample-size": (o, v) => { if (v) o.sampleSize = Number(v); return true; },
+  "--strict-patch-prefix": (o, v) => { if (v) o.strictPatchPrefix = v; return true; },
+  "--output-json": (o, v) => { if (v) o.outputJsonPath = v; return true; },
+  "--report-path": (o, v) => { if (v) o.outputJsonPath = v; return true; },
+  "--output-markdown": (o, v) => { if (v) o.outputMarkdownPath = v; return true; },
+  "--markdown-report-path": (o, v) => { if (v) o.outputMarkdownPath = v; return true; },
+  "--user-email": (o, v) => { if (v) o.userEmail = v; return true; },
+  "--imported-match-ids": (o, v) => { if (v) o.importedMatchIds = v.split(",").map((e) => e.trim()).filter(Boolean); return true; },
+  "--baseline-report": (o, v) => { if (v) o.baselineReportPath = v; return true; },
+};
+
 function parseArgs(argv: string[]): CliOptions {
   const options: CliOptions = {
     sampleSize: 15,
@@ -72,56 +86,9 @@ function parseArgs(argv: string[]): CliOptions {
   };
 
   for (let index = 0; index < argv.length; index += 1) {
-    const arg = argv[index];
-    const next = argv[index + 1];
-
-    switch (arg) {
-      case "--sample-size":
-        if (next) {
-          options.sampleSize = Number(next);
-        }
-        index += 1;
-        break;
-      case "--strict-patch-prefix":
-        if (next) {
-          options.strictPatchPrefix = next;
-        }
-        index += 1;
-        break;
-      case "--output-json":
-      case "--report-path":
-        if (next) {
-          options.outputJsonPath = next;
-        }
-        index += 1;
-        break;
-      case "--output-markdown":
-      case "--markdown-report-path":
-        if (next) {
-          options.outputMarkdownPath = next;
-        }
-        index += 1;
-        break;
-      case "--user-email":
-        if (next) {
-          options.userEmail = next;
-        }
-        index += 1;
-        break;
-      case "--imported-match-ids":
-        if (next) {
-          options.importedMatchIds = next.split(",").map((entry) => entry.trim()).filter(Boolean);
-        }
-        index += 1;
-        break;
-      case "--baseline-report":
-        if (next) {
-          options.baselineReportPath = next;
-        }
-        index += 1;
-        break;
-      default:
-        break;
+    const handler = validationArgHandlers[argv[index]];
+    if (handler?.(options, argv[index + 1])) {
+      index += 1;
     }
   }
 
