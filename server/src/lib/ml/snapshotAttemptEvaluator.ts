@@ -300,6 +300,83 @@ function tryResolvePuzzleChoices(input: Parameters<typeof resolveMlPuzzleChoices
   }
 }
 
+function buildBusinessRules(input: {
+  snapshot: SnapshotCandidate["snapshot"];
+  championTags: string[];
+  goodAnswer: MlChoiceItem;
+  rankedCandidates: MlChoiceItem[];
+  availableItems: MlChoiceItem[];
+  previousChoiceSignatures: string[];
+  variationSeed: string;
+}) {
+  return buildMlPuzzleBusinessRules({
+    snapshot: input.snapshot,
+    championTags: input.championTags,
+    goodAnswer: input.goodAnswer,
+    rankedCandidates: input.rankedCandidates,
+    availableItems: input.availableItems,
+    previousChoiceSignatures: input.previousChoiceSignatures,
+    variationSeed: input.variationSeed,
+  });
+}
+
+function logGoodAnswerRestriction(input: {
+  snapshot: SnapshotCandidate["snapshot"];
+  slug: string;
+  reasons: string[];
+}) {
+  console.info(
+    "[ml-puzzle] restriction-reject",
+    JSON.stringify({
+      scope: "good-answer",
+      patch: input.snapshot.patch,
+      role: input.snapshot.role,
+      slug: input.slug,
+      reasons: input.reasons,
+    }),
+  );
+}
+
+function applyFallbackBusinessRules(input: {
+  snapshot: SnapshotCandidate["snapshot"];
+  championTags: string[];
+  actualPurchaseFallback: MlChoiceItem | null;
+  actualPurchaseAllowed: boolean;
+  goodAnswerSource: GoodAnswerSource;
+  businessRules: BusinessRulesResult;
+  rankedResolvedItems: MlChoiceItem[];
+  patchChoiceItems: MlChoiceItem[];
+  previousChoiceSignatures: string[];
+  variationSeed: string;
+}) {
+  if (!shouldFallbackToActualPurchase(input)) {
+    return {
+      resolvedGoodAnswer: null,
+      goodAnswerSource: input.goodAnswerSource,
+      businessRules: input.businessRules,
+    };
+  }
+
+  const fallbackGoodAnswer = input.actualPurchaseFallback;
+  if (!fallbackGoodAnswer) {
+    throw new HttpError(500, "Actual purchase fallback was expected but unresolved.");
+  }
+
+  return {
+    resolvedGoodAnswer: fallbackGoodAnswer,
+    goodAnswerSource: "actual-purchase-fallback" as GoodAnswerSource,
+    businessRules: buildBusinessRules({
+      snapshot: input.snapshot,
+      championTags: input.championTags,
+      goodAnswer: fallbackGoodAnswer,
+      rankedCandidates: [fallbackGoodAnswer, ...input.rankedResolvedItems],
+      availableItems: input.patchChoiceItems,
+      previousChoiceSignatures: input.previousChoiceSignatures,
+      variationSeed: `${input.variationSeed}:actual-purchase`,
+    }),
+  };
+}
+
 export async function evaluateSnapshotAttempt(input: {
   importedMatchId: string;
   userId: string;
@@ -353,16 +430,11 @@ export async function evaluateSnapshotAttempt(input: {
       role: input.candidate.snapshot.role,
     });
     if (!goodAnswerRestriction.allowed) {
-      console.info(
-        "[ml-puzzle] restriction-reject",
-        JSON.stringify({
-          scope: "good-answer",
-          patch: input.candidate.snapshot.patch,
-          role: input.candidate.snapshot.role,
-          slug: resolvedGoodAnswer.slug,
-          reasons: goodAnswerRestriction.reasons,
-        }),
-      );
+      logGoodAnswerRestriction({
+        snapshot: input.candidate.snapshot,
+        slug: resolvedGoodAnswer.slug,
+        reasons: goodAnswerRestriction.reasons,
+      });
       return buildRejectedAttempt({
         candidate: input.candidate,
         payload,
@@ -383,7 +455,7 @@ export async function evaluateSnapshotAttempt(input: {
     const rankedResolvedItems = prediction.top_k_predictions
       .map((entry) => resolveMlChoiceItemRef(entry.item_slug, input.patchChoiceItems))
       .filter((item): item is MlChoiceItem => Boolean(item));
-    let businessRules = buildMlPuzzleBusinessRules({
+    let businessRules = buildBusinessRules({
       snapshot: input.candidate.snapshot,
       championTags: input.championTags,
       goodAnswer: resolvedGoodAnswer,
@@ -392,27 +464,22 @@ export async function evaluateSnapshotAttempt(input: {
       previousChoiceSignatures: input.previousChoiceSignatures,
       variationSeed,
     });
-    if (shouldFallbackToActualPurchase({
+    const fallback = applyFallbackBusinessRules({
+      snapshot: input.candidate.snapshot,
+      championTags: input.championTags,
       goodAnswerSource,
       actualPurchaseFallback,
       actualPurchaseAllowed: actualPurchaseVerdict.allowed,
       businessRules,
-    })) {
-      const fallbackGoodAnswer = actualPurchaseFallback;
-      if (!fallbackGoodAnswer) {
-        throw new HttpError(500, "Actual purchase fallback was expected but unresolved.");
-      }
-      resolvedGoodAnswer = fallbackGoodAnswer;
-      goodAnswerSource = "actual-purchase-fallback";
-      businessRules = buildMlPuzzleBusinessRules({
-        snapshot: input.candidate.snapshot,
-        championTags: input.championTags,
-        goodAnswer: fallbackGoodAnswer,
-        rankedCandidates: [fallbackGoodAnswer, ...rankedResolvedItems],
-        availableItems: input.patchChoiceItems,
-        previousChoiceSignatures: input.previousChoiceSignatures,
-        variationSeed: `${variationSeed}:actual-purchase`,
-      });
+      rankedResolvedItems,
+      patchChoiceItems: input.patchChoiceItems,
+      previousChoiceSignatures: input.previousChoiceSignatures,
+      variationSeed,
+    });
+    if (fallback.resolvedGoodAnswer) {
+      resolvedGoodAnswer = fallback.resolvedGoodAnswer;
+      goodAnswerSource = fallback.goodAnswerSource;
+      businessRules = fallback.businessRules;
     }
     logRestrictedCandidateSamples(input.candidate.snapshot, businessRules);
 

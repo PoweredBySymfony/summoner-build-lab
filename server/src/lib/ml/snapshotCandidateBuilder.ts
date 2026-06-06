@@ -25,6 +25,13 @@ type ScenarioMemberDraft = ScenarioMember & {
   participantId: number;
 };
 
+type TeamComposition = {
+  frontlineCount: number;
+  magicDamageCount: number;
+  physicalDamageCount: number;
+  supportCount: number;
+};
+
 export type ScenarioSnapshot = {
   currentBuild: string[];
   allyTeam: ScenarioMember[];
@@ -128,6 +135,25 @@ function resolveItemGoldValue(
     goldTotal: 0,
     goldSell: 0,
   };
+}
+
+function createEmptyTeamComposition(): TeamComposition {
+  return {
+    frontlineCount: 0,
+    magicDamageCount: 0,
+    physicalDamageCount: 0,
+    supportCount: 0,
+  };
+}
+
+function addChampionProfileToComposition(
+  composition: TeamComposition,
+  profile: ReturnType<typeof buildChampionProfile>,
+) {
+  composition.frontlineCount += profile.frontline;
+  composition.magicDamageCount += profile.magic;
+  composition.physicalDamageCount += profile.physical;
+  composition.supportCount += profile.support;
 }
 
 function replayGoldEvent(input: {
@@ -317,6 +343,68 @@ function buildScenarioTeams(input: {
   };
 }
 
+function collectTeamDrafts(input: {
+  participants: Array<Record<string, unknown>>;
+  championIndex: Map<number, SnapshotChampionProfile>;
+  ownTeamId: number;
+}) {
+  const allyTeamDraft: ScenarioMemberDraft[] = [];
+  const enemyTeamDraft: ScenarioMemberDraft[] = [];
+  const allyComposition = createEmptyTeamComposition();
+  const enemyComposition = createEmptyTeamComposition();
+
+  for (const participant of input.participants) {
+    const champion = input.championIndex.get(safeInt(participant.championId));
+    if (!champion) {
+      continue;
+    }
+
+    const profile = buildChampionProfile(champion.tags);
+    const member = {
+      participantId: safeInt(participant.participantId),
+      championSlug: champion.slug,
+      role: resolveParticipantRole(participant),
+      items: [],
+    };
+
+    if (safeInt(participant.teamId) === input.ownTeamId) {
+      allyTeamDraft.push(member);
+      addChampionProfileToComposition(allyComposition, profile);
+    } else {
+      enemyTeamDraft.push(member);
+      addChampionProfileToComposition(enemyComposition, profile);
+    }
+  }
+
+  return {
+    allyTeamDraft,
+    enemyTeamDraft,
+    allyComposition,
+    enemyComposition,
+  };
+}
+
+function buildCandidateRelevanceScore(input: {
+  snapshot: MlPuzzleSnapshot;
+  burstPurchaseIndex: number;
+  actualPurchaseGoldTotal: number | null;
+}) {
+  return (
+    scoreSnapshotCandidate(input.snapshot)
+    - (input.burstPurchaseIndex > 0 ? input.burstPurchaseIndex * 8 : 0)
+    - (
+      (input.actualPurchaseGoldTotal ?? 0) < getPublishabilityFloorGold(input.snapshot.goldAvailable)
+        ? 24
+        : 0
+    )
+    - (
+      input.burstPurchaseIndex > 0 && (input.actualPurchaseGoldTotal ?? 0) < MIN_MEANINGFUL_PURCHASE_GOLD
+        ? 20
+        : 0
+    )
+  );
+}
+
 export function buildSnapshotCandidates(input: {
   importedMatch: {
     patch: string | null;
@@ -344,45 +432,16 @@ export function buildSnapshotCandidates(input: {
 
   const participantId = safeInt(targetParticipant.participantId);
   const ownTeamId = safeInt(targetParticipant.teamId);
-  const allyTeamDraft: ScenarioMemberDraft[] = [];
-  const enemyTeamDraft: ScenarioMemberDraft[] = [];
-  let allyFrontlineCount = 0;
-  let allyMagicDamageCount = 0;
-  let allyPhysicalDamageCount = 0;
-  let allySupportCount = 0;
-  let enemyFrontlineCount = 0;
-  let enemyMagicDamageCount = 0;
-  let enemyPhysicalDamageCount = 0;
-  let enemySupportCount = 0;
-
-  for (const participant of input.participants) {
-    const champion = input.championIndex.get(safeInt(participant.championId));
-    if (!champion) {
-      continue;
-    }
-
-    const profile = buildChampionProfile(champion.tags);
-    const member = {
-      participantId: safeInt(participant.participantId),
-      championSlug: champion.slug,
-      role: resolveParticipantRole(participant),
-      items: [],
-    };
-
-    if (safeInt(participant.teamId) === ownTeamId) {
-      allyTeamDraft.push(member);
-      allyFrontlineCount += profile.frontline;
-      allyMagicDamageCount += profile.magic;
-      allyPhysicalDamageCount += profile.physical;
-      allySupportCount += profile.support;
-    } else {
-      enemyTeamDraft.push(member);
-      enemyFrontlineCount += profile.frontline;
-      enemyMagicDamageCount += profile.magic;
-      enemyPhysicalDamageCount += profile.physical;
-      enemySupportCount += profile.support;
-    }
-  }
+  const {
+    allyTeamDraft,
+    enemyTeamDraft,
+    allyComposition,
+    enemyComposition,
+  } = collectTeamDrafts({
+    participants: input.participants,
+    championIndex: input.championIndex,
+    ownTeamId,
+  });
 
   const sortedFrames = input.frames
     .filter((frame) => typeof frame === "object" && frame !== null)
@@ -457,14 +516,14 @@ export function buildSnapshotCandidates(input: {
           cs: safeInt(participantFrame.minionsKilled) + safeInt(participantFrame.jungleMinionsKilled),
           timestampMinutes: safeInt(event.timestamp) / 60000,
           currentItems: currentBuild,
-          allyFrontlineCount,
-          allyMagicDamageCount,
-          allyPhysicalDamageCount,
-          allySupportCount,
-          enemyFrontlineCount,
-          enemyMagicDamageCount,
-          enemyPhysicalDamageCount,
-          enemySupportCount,
+          allyFrontlineCount: allyComposition.frontlineCount,
+          allyMagicDamageCount: allyComposition.magicDamageCount,
+          allyPhysicalDamageCount: allyComposition.physicalDamageCount,
+          allySupportCount: allyComposition.supportCount,
+          enemyFrontlineCount: enemyComposition.frontlineCount,
+          enemyMagicDamageCount: enemyComposition.magicDamageCount,
+          enemyPhysicalDamageCount: enemyComposition.physicalDamageCount,
+          enemySupportCount: enemyComposition.supportCount,
         } satisfies MlPuzzleSnapshot;
         const actualPurchase = {
           itemSlug: input.itemSlugIndex.get(itemId) ?? null,
@@ -481,15 +540,11 @@ export function buildSnapshotCandidates(input: {
             allyTeam,
             enemyTeam,
           },
-          relevanceScore:
-            scoreSnapshotCandidate(snapshot)
-            - (burstPurchaseIndex > 0 ? burstPurchaseIndex * 8 : 0)
-            - (
-              (actualPurchase.goldTotal ?? 0) < getPublishabilityFloorGold(snapshot.goldAvailable)
-                ? 24
-                : 0
-            )
-            - (burstPurchaseIndex > 0 && (actualPurchase.goldTotal ?? 0) < MIN_MEANINGFUL_PURCHASE_GOLD ? 20 : 0),
+          relevanceScore: buildCandidateRelevanceScore({
+            snapshot,
+            burstPurchaseIndex,
+            actualPurchaseGoldTotal: actualPurchase.goldTotal,
+          }),
           actualPurchase,
         });
         inventory.push(itemId);
