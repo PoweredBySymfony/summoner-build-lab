@@ -45,6 +45,83 @@ export function mergeResolvedSeed(seed: CompetitiveSeed, cached: CompetitiveReso
   };
 }
 
+function buildUnresolvedSeed(input: {
+  seed: CompetitiveSeed;
+  cached: CompetitiveResolvedSeed | undefined;
+  error: unknown;
+  resolutionSource: CompetitiveResolvedSeed["resolutionSource"];
+}): CompetitiveResolvedSeed {
+  return {
+    ...mergeResolvedSeed(input.seed, input.cached),
+    resolutionStatus: "unresolved",
+    resolutionError: input.error instanceof Error ? input.error.message : String(input.error),
+    resolutionSource: input.resolutionSource,
+  };
+}
+
+async function resolveSeedByPuuid(
+  seed: CompetitiveSeed,
+  cached: CompetitiveResolvedSeed | undefined,
+): Promise<CompetitiveResolvedSeed> {
+  try {
+    const resolved = await riotSyncService.resolveImportIdentity({ type: "puuid", puuid: seed.puuid as string });
+    return {
+      ...mergeResolvedSeed(seed, cached),
+      resolutionStatus: "resolved",
+      resolutionError: null,
+      resolutionSource: "seed-puuid",
+      resolvedRiotId:
+        resolved.gameName && resolved.tagLine ? `${resolved.gameName}#${resolved.tagLine}` : (seed.riotId ?? null),
+      puuid: resolved.puuid,
+      platformHint: resolved.platform,
+      cluster: resolved.region,
+    };
+  } catch (error) {
+    return buildUnresolvedSeed({
+      seed,
+      cached,
+      error,
+      resolutionSource: "seed-puuid",
+    });
+  }
+}
+
+function getSeedRiotIdCandidates(seed: CompetitiveSeed) {
+  return [seed.riotId, ...seed.riotIdCandidates].filter((value): value is string => Boolean(value));
+}
+
+function getRiotIdResolutionSource(seed: CompetitiveSeed, index: number) {
+  return index === 0 && seed.riotId ? "seed-riot-id" : "candidate-riot-id";
+}
+
+async function resolveSeedByRiotIdCandidate(input: {
+  seed: CompetitiveSeed;
+  cached: CompetitiveResolvedSeed | undefined;
+  candidate: string;
+  index: number;
+}) {
+  const { gameName, tagLine } = splitRiotId(input.candidate);
+  if (!gameName || !tagLine) {
+    return null;
+  }
+
+  const resolved = await riotSyncService.resolveImportIdentity({
+    type: "riot-id",
+    gameName,
+    tagLine,
+  });
+  return {
+    ...mergeResolvedSeed(input.seed, input.cached),
+    resolutionStatus: "resolved",
+    resolutionError: null,
+    resolutionSource: getRiotIdResolutionSource(input.seed, input.index),
+    resolvedRiotId: `${resolved.gameName ?? gameName}#${resolved.tagLine ?? tagLine}`,
+    puuid: resolved.puuid,
+    platformHint: resolved.platform,
+    cluster: resolved.region,
+  } satisfies CompetitiveResolvedSeed;
+}
+
 export async function resolveSeed(
   seed: CompetitiveSeed,
   cached: CompetitiveResolvedSeed | undefined,
@@ -54,30 +131,10 @@ export async function resolveSeed(
   }
 
   if (seed.puuid) {
-    try {
-      const resolved = await riotSyncService.resolveImportIdentity({ type: "puuid", puuid: seed.puuid });
-      return {
-        ...mergeResolvedSeed(seed, cached),
-        resolutionStatus: "resolved",
-        resolutionError: null,
-        resolutionSource: "seed-puuid",
-        resolvedRiotId:
-          resolved.gameName && resolved.tagLine ? `${resolved.gameName}#${resolved.tagLine}` : (seed.riotId ?? null),
-        puuid: resolved.puuid,
-        platformHint: resolved.platform,
-        cluster: resolved.region,
-      };
-    } catch (error) {
-      return {
-        ...mergeResolvedSeed(seed, cached),
-        resolutionStatus: "unresolved",
-        resolutionError: error instanceof Error ? error.message : String(error),
-        resolutionSource: "seed-puuid",
-      };
-    }
+    return resolveSeedByPuuid(seed, cached);
   }
 
-  const candidateRiotIds = [seed.riotId, ...seed.riotIdCandidates].filter((value): value is string => Boolean(value));
+  const candidateRiotIds = getSeedRiotIdCandidates(seed);
   if (candidateRiotIds.length === 0) {
     return {
       ...mergeResolvedSeed(seed, cached),
@@ -88,35 +145,24 @@ export async function resolveSeed(
   }
 
   for (const [index, candidate] of candidateRiotIds.entries()) {
-    const { gameName, tagLine } = splitRiotId(candidate);
-    if (!gameName || !tagLine) {
-      continue;
-    }
-
     try {
-      const resolved = await riotSyncService.resolveImportIdentity({
-        type: "riot-id",
-        gameName,
-        tagLine,
+      const resolved = await resolveSeedByRiotIdCandidate({
+        seed,
+        cached,
+        candidate,
+        index,
       });
-      return {
-        ...mergeResolvedSeed(seed, cached),
-        resolutionStatus: "resolved",
-        resolutionError: null,
-        resolutionSource: index === 0 && seed.riotId ? "seed-riot-id" : "candidate-riot-id",
-        resolvedRiotId: `${resolved.gameName ?? gameName}#${resolved.tagLine ?? tagLine}`,
-        puuid: resolved.puuid,
-        platformHint: resolved.platform,
-        cluster: resolved.region,
-      };
+      if (resolved) {
+        return resolved;
+      }
     } catch (error) {
       if (index === candidateRiotIds.length - 1) {
-        return {
-          ...mergeResolvedSeed(seed, cached),
-          resolutionStatus: "unresolved",
-          resolutionError: error instanceof Error ? error.message : String(error),
-          resolutionSource: index === 0 && seed.riotId ? "seed-riot-id" : "candidate-riot-id",
-        };
+        return buildUnresolvedSeed({
+          seed,
+          cached,
+          error,
+          resolutionSource: getRiotIdResolutionSource(seed, index),
+        });
       }
     }
   }
