@@ -32,6 +32,18 @@ type TeamComposition = {
   supportCount: number;
 };
 
+type SnapshotBuildState = {
+  inventory: number[];
+  combatStats: {
+    kills: number;
+    deaths: number;
+    assists: number;
+  };
+  lastPurchaseTimestamp: number;
+  burstPurchaseIndex: number;
+  rawCandidates: SnapshotCandidate[];
+};
+
 export type ScenarioSnapshot = {
   currentBuild: string[];
   allyTeam: ScenarioMember[];
@@ -405,6 +417,136 @@ function buildCandidateRelevanceScore(input: {
   );
 }
 
+function appendPurchasedItemSnapshotCandidate(input: {
+  state: SnapshotBuildState;
+  event: Record<string, unknown>;
+  eventIndex: number;
+  events: Array<Record<string, unknown>>;
+  participantId: number;
+  participantFrame: Record<string, unknown>;
+  sortedFrames: Array<Record<string, unknown>>;
+  allyTeamDraft: ScenarioMemberDraft[];
+  enemyTeamDraft: ScenarioMemberDraft[];
+  allyComposition: TeamComposition;
+  enemyComposition: TeamComposition;
+  importedMatch: {
+    patch: string | null;
+    targetChampionSlug: string | null;
+    targetRole: Role | null;
+  };
+  itemSlugIndex: Map<number, string>;
+  itemGoldIndex: Map<number, ItemGoldValue>;
+}) {
+  const itemId = safeInt(input.event.itemId);
+  const purchaseTimestamp = safeInt(input.event.timestamp);
+  input.state.burstPurchaseIndex =
+    purchaseTimestamp - input.state.lastPurchaseTimestamp <= SHOP_BURST_WINDOW_MS
+      ? input.state.burstPurchaseIndex + 1
+      : 0;
+  input.state.lastPurchaseTimestamp = purchaseTimestamp;
+
+  const goldBeforePurchase = calculateGoldBeforePurchaseFromFrame({
+    events: input.events,
+    participantId: input.participantId,
+    purchaseEventIndex: input.eventIndex,
+    endingGold: safeInt(input.participantFrame.currentGold),
+    itemGoldIndex: input.itemGoldIndex,
+  });
+  const currentBuild = input.state.inventory
+    .map((value) => input.itemSlugIndex.get(value))
+    .filter((value): value is string => Boolean(value));
+  const reconstructedInventories = reconstructInventoriesAtTimestamp({
+    frames: input.sortedFrames,
+    upToTimestamp: purchaseTimestamp,
+    participantIds: [
+      ...input.allyTeamDraft.map((member) => member.participantId),
+      ...input.enemyTeamDraft.map((member) => member.participantId),
+    ],
+    itemSlugIndex: input.itemSlugIndex,
+  });
+  console.info(
+    `[ml-puzzle] reconstructed team inventories snapshotMinute=${(purchaseTimestamp / 60000).toFixed(2)} participants=${reconstructedInventories.participantsCovered} eventsApplied=${reconstructedInventories.eventsApplied}`,
+  );
+  const { allyTeam, enemyTeam } = buildScenarioTeams({
+    allyTeamDraft: input.allyTeamDraft,
+    enemyTeamDraft: input.enemyTeamDraft,
+    inventories: reconstructedInventories.inventories,
+  });
+  const snapshot = {
+    patch: input.importedMatch.patch ?? "unknown",
+    championSlug: input.importedMatch.targetChampionSlug ?? "",
+    role: input.importedMatch.targetRole,
+    goldAvailable: goldBeforePurchase,
+    level: safeInt(input.participantFrame.level),
+    ...input.state.combatStats,
+    cs: safeInt(input.participantFrame.minionsKilled) + safeInt(input.participantFrame.jungleMinionsKilled),
+    timestampMinutes: purchaseTimestamp / 60000,
+    currentItems: currentBuild,
+    allyFrontlineCount: input.allyComposition.frontlineCount,
+    allyMagicDamageCount: input.allyComposition.magicDamageCount,
+    allyPhysicalDamageCount: input.allyComposition.physicalDamageCount,
+    allySupportCount: input.allyComposition.supportCount,
+    enemyFrontlineCount: input.enemyComposition.frontlineCount,
+    enemyMagicDamageCount: input.enemyComposition.magicDamageCount,
+    enemyPhysicalDamageCount: input.enemyComposition.physicalDamageCount,
+    enemySupportCount: input.enemyComposition.supportCount,
+  } satisfies MlPuzzleSnapshot;
+  const actualPurchase = {
+    itemSlug: input.itemSlugIndex.get(itemId) ?? null,
+    goldTotal: input.itemGoldIndex.get(itemId)?.goldTotal ?? null,
+    burstPurchaseIndex: input.state.burstPurchaseIndex,
+    timestampMinutes: purchaseTimestamp / 60000,
+  };
+  input.state.rawCandidates.push({
+    snapshotIndex: input.state.rawCandidates.length,
+    rawPurchaseIndex: input.state.rawCandidates.length,
+    snapshot,
+    scenario: {
+      currentBuild,
+      allyTeam,
+      enemyTeam,
+    },
+    relevanceScore: buildCandidateRelevanceScore({
+      snapshot,
+      burstPurchaseIndex: input.state.burstPurchaseIndex,
+      actualPurchaseGoldTotal: actualPurchase.goldTotal,
+    }),
+    actualPurchase,
+  });
+  input.state.inventory.push(itemId);
+}
+
+function processParticipantSnapshotEvent(input: {
+  state: SnapshotBuildState;
+  event: Record<string, unknown>;
+  eventIndex: number;
+  events: Array<Record<string, unknown>>;
+  participantId: number;
+  participantFrame: Record<string, unknown>;
+  sortedFrames: Array<Record<string, unknown>>;
+  allyTeamDraft: ScenarioMemberDraft[];
+  enemyTeamDraft: ScenarioMemberDraft[];
+  allyComposition: TeamComposition;
+  enemyComposition: TeamComposition;
+  importedMatch: {
+    patch: string | null;
+    targetChampionSlug: string | null;
+    targetRole: Role | null;
+  };
+  itemSlugIndex: Map<number, string>;
+  itemGoldIndex: Map<number, ItemGoldValue>;
+}) {
+  const eventType = String(input.event.type ?? "");
+  const itemId = safeInt(input.event.itemId);
+
+  if (eventType === "ITEM_PURCHASED" && itemId > 0) {
+    appendPurchasedItemSnapshotCandidate(input);
+    return;
+  }
+
+  applyInventoryEvent(input.state.inventory, input.event);
+}
+
 export function buildSnapshotCandidates(input: {
   importedMatch: {
     patch: string | null;
@@ -446,15 +588,17 @@ export function buildSnapshotCandidates(input: {
   const sortedFrames = input.frames
     .filter((frame) => typeof frame === "object" && frame !== null)
     .sort((left, right) => safeInt(left.timestamp) - safeInt(right.timestamp));
-  const inventory: number[] = [];
-  let combatStats = {
-    kills: 0,
-    deaths: 0,
-    assists: 0,
+  const state: SnapshotBuildState = {
+    inventory: [],
+    combatStats: {
+      kills: 0,
+      deaths: 0,
+      assists: 0,
+    },
+    rawCandidates: [],
+    lastPurchaseTimestamp: Number.NEGATIVE_INFINITY,
+    burstPurchaseIndex: 0,
   };
-  const rawCandidates: SnapshotCandidate[] = [];
-  let lastPurchaseTimestamp = Number.NEGATIVE_INFINITY;
-  let burstPurchaseIndex = 0;
 
   for (const frame of sortedFrames) {
     const participantFrames = frame.participantFrames as Record<string, Record<string, unknown>> | undefined;
@@ -462,99 +606,34 @@ export function buildSnapshotCandidates(input: {
     const events = Array.isArray(frame.events) ? (frame.events as Array<Record<string, unknown>>) : [];
 
     for (const [eventIndex, event] of events.entries()) {
-      const eventType = String(event.type ?? "");
       const eventParticipantId = safeInt(event.participantId);
 
-      combatStats = updateCombatStats(event, participantId, combatStats);
+      state.combatStats = updateCombatStats(event, participantId, state.combatStats);
 
       if (eventParticipantId !== participantId) {
         continue;
       }
 
-      const itemId = safeInt(event.itemId);
-      if (eventType === "ITEM_PURCHASED" && itemId > 0) {
-        const purchaseTimestamp = safeInt(event.timestamp);
-        burstPurchaseIndex =
-          purchaseTimestamp - lastPurchaseTimestamp <= SHOP_BURST_WINDOW_MS
-            ? burstPurchaseIndex + 1
-            : 0;
-        lastPurchaseTimestamp = purchaseTimestamp;
-        const goldBeforePurchase = calculateGoldBeforePurchaseFromFrame({
-          events,
-          participantId,
-          purchaseEventIndex: eventIndex,
-          endingGold: safeInt(participantFrame.currentGold),
-          itemGoldIndex: input.itemGoldIndex,
-        });
-        const currentBuild = inventory
-          .map((value) => input.itemSlugIndex.get(value))
-          .filter((value): value is string => Boolean(value));
-        const reconstructedInventories = reconstructInventoriesAtTimestamp({
-          frames: sortedFrames,
-          upToTimestamp: safeInt(event.timestamp),
-          participantIds: [
-            ...allyTeamDraft.map((member) => member.participantId),
-            ...enemyTeamDraft.map((member) => member.participantId),
-          ],
-          itemSlugIndex: input.itemSlugIndex,
-        });
-        console.info(
-          `[ml-puzzle] reconstructed team inventories snapshotMinute=${(safeInt(event.timestamp) / 60000).toFixed(2)} participants=${reconstructedInventories.participantsCovered} eventsApplied=${reconstructedInventories.eventsApplied}`,
-        );
-        const { allyTeam, enemyTeam } = buildScenarioTeams({
-          allyTeamDraft,
-          enemyTeamDraft,
-          inventories: reconstructedInventories.inventories,
-        });
-        const snapshot = {
-          patch: input.importedMatch.patch ?? "unknown",
-          championSlug: input.importedMatch.targetChampionSlug ?? "",
-          role: input.importedMatch.targetRole,
-          goldAvailable: goldBeforePurchase,
-          level: safeInt(participantFrame.level),
-          ...combatStats,
-          cs: safeInt(participantFrame.minionsKilled) + safeInt(participantFrame.jungleMinionsKilled),
-          timestampMinutes: safeInt(event.timestamp) / 60000,
-          currentItems: currentBuild,
-          allyFrontlineCount: allyComposition.frontlineCount,
-          allyMagicDamageCount: allyComposition.magicDamageCount,
-          allyPhysicalDamageCount: allyComposition.physicalDamageCount,
-          allySupportCount: allyComposition.supportCount,
-          enemyFrontlineCount: enemyComposition.frontlineCount,
-          enemyMagicDamageCount: enemyComposition.magicDamageCount,
-          enemyPhysicalDamageCount: enemyComposition.physicalDamageCount,
-          enemySupportCount: enemyComposition.supportCount,
-        } satisfies MlPuzzleSnapshot;
-        const actualPurchase = {
-          itemSlug: input.itemSlugIndex.get(itemId) ?? null,
-          goldTotal: input.itemGoldIndex.get(itemId)?.goldTotal ?? null,
-          burstPurchaseIndex,
-          timestampMinutes: purchaseTimestamp / 60000,
-        };
-        rawCandidates.push({
-          snapshotIndex: rawCandidates.length,
-          rawPurchaseIndex: rawCandidates.length,
-          snapshot,
-          scenario: {
-            currentBuild,
-            allyTeam,
-            enemyTeam,
-          },
-          relevanceScore: buildCandidateRelevanceScore({
-            snapshot,
-            burstPurchaseIndex,
-            actualPurchaseGoldTotal: actualPurchase.goldTotal,
-          }),
-          actualPurchase,
-        });
-        inventory.push(itemId);
-        continue;
-      }
-
-      applyInventoryEvent(inventory, event);
+      processParticipantSnapshotEvent({
+        state,
+        event,
+        eventIndex,
+        events,
+        participantId,
+        participantFrame,
+        sortedFrames,
+        allyTeamDraft,
+        enemyTeamDraft,
+        allyComposition,
+        enemyComposition,
+        importedMatch: input.importedMatch,
+        itemSlugIndex: input.itemSlugIndex,
+        itemGoldIndex: input.itemGoldIndex,
+      });
     }
   }
 
+  const rawCandidates = state.rawCandidates;
   const filteredCandidates = rawCandidates.filter(isMeaningfulPurchaseSnapshotCandidate);
   const dedupedCandidates = dedupeAndRankSnapshots(filteredCandidates);
 

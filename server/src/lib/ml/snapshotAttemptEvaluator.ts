@@ -377,6 +377,137 @@ function applyFallbackBusinessRules(input: {
   };
 }
 
+function buildResolvedSnapshotAttempt(input: {
+  importedMatchId: string;
+  userId: string;
+  candidate: SnapshotCandidate;
+  payload: ReturnType<typeof mapSnapshotToMlPayload>;
+  prediction: MlPredictNextItemResponse;
+  seed: MlPuzzleSeed;
+  resolvedChoices: ReturnType<typeof resolveMlPuzzleChoices>;
+  businessRules: BusinessRulesResult;
+  goodAnswerSource: GoodAnswerSource;
+  variationSeed: string;
+}): SnapshotAttempt {
+  const publishabilityAssessment = assessSnapshotPublishability({
+    snapshot: input.candidate.snapshot,
+    goodAnswer: input.resolvedChoices.goodAnswer,
+    distractors: input.resolvedChoices.distractors,
+    businessRules: input.businessRules,
+  });
+  if (!publishabilityAssessment.publishable) {
+    return buildRejectedAttempt({
+      candidate: input.candidate,
+      payload: input.payload,
+      prediction: input.prediction,
+      seed: input.seed,
+      rawCandidatePoolSize: input.prediction.candidate_pool_size,
+      filteredCandidatePoolSize: input.businessRules.debug.candidatePoolSizeAfterFallback,
+      goodAnswer: input.resolvedChoices.goodAnswer.slug,
+      rejectionReasons: publishabilityAssessment.reasons,
+      technicalViable: true,
+      publishabilityScore: publishabilityAssessment.publishabilityScore,
+      publishabilityReasons: publishabilityAssessment.reasons,
+      goodAnswerSource: input.goodAnswerSource,
+      details: {
+        goodAnswerSource: input.goodAnswerSource,
+        businessRules: input.businessRules.debug,
+        publishability: publishabilityAssessment,
+        choiceResolution: toChoiceDebugPayload(input.resolvedChoices),
+      } as Prisma.InputJsonValue,
+    });
+  }
+
+  const effectiveLowConfidence = !canOverrideLowConfidence({
+    seed: input.seed,
+    prediction: input.prediction,
+    publishabilityScore: publishabilityAssessment.publishabilityScore,
+    candidatePoolSizeAfterFallback: input.businessRules.debug.candidatePoolSizeAfterFallback,
+    goodAnswerSource: input.goodAnswerSource,
+  }) && input.seed.lowConfidence;
+  if (effectiveLowConfidence) {
+    return buildRejectedAttempt({
+      candidate: input.candidate,
+      payload: input.payload,
+      prediction: input.prediction,
+      seed: input.seed,
+      rawCandidatePoolSize: input.prediction.candidate_pool_size,
+      filteredCandidatePoolSize: input.businessRules.debug.candidatePoolSizeAfterFallback,
+      goodAnswer: input.resolvedChoices.goodAnswer.slug,
+      rejectionReasons: ["low-confidence"],
+      technicalViable: true,
+      publishabilityScore: publishabilityAssessment.publishabilityScore,
+      publishabilityReasons: [],
+      goodAnswerSource: input.goodAnswerSource,
+      details: {
+        goodAnswerSource: input.goodAnswerSource,
+        businessRules: input.businessRules.debug,
+        publishability: publishabilityAssessment,
+        choiceResolution: toChoiceDebugPayload(input.resolvedChoices),
+      } as Prisma.InputJsonValue,
+    });
+  }
+
+  const qualityScore = calculateQualityScore({
+    seed: {
+      ...input.seed,
+      lowConfidence: effectiveLowConfidence,
+    },
+    prediction: input.prediction,
+    businessRules: input.businessRules,
+    resolvedChoices: input.resolvedChoices,
+  });
+  const choiceSignature = buildChoiceSignatureForHistory(
+    input.resolvedChoices.goodAnswer.slug,
+    input.resolvedChoices.distractors.map((item) => item.slug),
+  );
+
+  return {
+    status: "accepted",
+    technicalViable: true,
+    snapshotIndex: input.candidate.snapshotIndex,
+    rawPurchaseIndex: input.candidate.rawPurchaseIndex,
+    snapshot: input.candidate.snapshot,
+    scenario: input.candidate.scenario,
+    payload: input.payload,
+    prediction: input.prediction,
+    seed: {
+      ...input.seed,
+      lowConfidence: effectiveLowConfidence,
+    },
+    resolvedChoices: input.resolvedChoices,
+    businessRules: input.businessRules,
+    qualityScore,
+    variationSeed: input.variationSeed,
+    choiceSignature,
+    debugSummary: {
+      snapshotIndex: input.candidate.snapshotIndex,
+      snapshotMinute: Number(input.candidate.snapshot.timestampMinutes.toFixed(2)),
+      patch: input.candidate.snapshot.patch,
+      goldAvailable: input.candidate.snapshot.goldAvailable,
+      snapshotSignature: buildSnapshotSignature({
+        snapshotMinute: input.candidate.snapshot.timestampMinutes,
+        goldAvailable: input.candidate.snapshot.goldAvailable,
+        role: input.candidate.snapshot.role,
+        currentItems: input.candidate.snapshot.currentItems,
+      }),
+      rawCandidatePoolSize: input.prediction.candidate_pool_size,
+      filteredCandidatePoolSize: input.businessRules.debug.candidatePoolSizeAfterFallback,
+      goodAnswer: input.resolvedChoices.goodAnswer.slug,
+      qualityScore,
+      rejectionReasons: [],
+      lowConfidence: effectiveLowConfidence,
+      confidenceScore: input.seed.confidenceScore,
+      confidenceGap: input.seed.confidenceGap,
+      technicalViable: true,
+      publishable: true,
+      publishabilityScore: publishabilityAssessment.publishabilityScore,
+      publishabilityReasons: [],
+      goodAnswerSource: input.goodAnswerSource,
+    },
+  };
+}
+
 export async function evaluateSnapshotAttempt(input: {
   importedMatchId: string;
   userId: string;
@@ -521,123 +652,18 @@ export async function evaluateSnapshotAttempt(input: {
       });
     }
 
-    const publishabilityAssessment = assessSnapshotPublishability({
-      snapshot: input.candidate.snapshot,
-      goodAnswer: resolvedChoices.goodAnswer,
-      distractors: resolvedChoices.distractors,
-      businessRules,
-    });
-    if (!publishabilityAssessment.publishable) {
-      return buildRejectedAttempt({
-        candidate: input.candidate,
-        payload,
-        prediction,
-        seed,
-        rawCandidatePoolSize: prediction.candidate_pool_size,
-        filteredCandidatePoolSize: businessRules.debug.candidatePoolSizeAfterFallback,
-        goodAnswer: resolvedChoices.goodAnswer.slug,
-        rejectionReasons: publishabilityAssessment.reasons,
-        technicalViable: true,
-        publishabilityScore: publishabilityAssessment.publishabilityScore,
-        publishabilityReasons: publishabilityAssessment.reasons,
-        goodAnswerSource,
-        details: {
-          goodAnswerSource,
-          businessRules: businessRules.debug,
-          publishability: publishabilityAssessment,
-          choiceResolution: toChoiceDebugPayload(resolvedChoices),
-        } as Prisma.InputJsonValue,
-      });
-    }
-
-    const effectiveLowConfidence = !canOverrideLowConfidence({
-      seed,
-      prediction,
-      publishabilityScore: publishabilityAssessment.publishabilityScore,
-      candidatePoolSizeAfterFallback: businessRules.debug.candidatePoolSizeAfterFallback,
-      goodAnswerSource,
-    }) && seed.lowConfidence;
-    if (effectiveLowConfidence) {
-      return buildRejectedAttempt({
-        candidate: input.candidate,
-        payload,
-        prediction,
-        seed,
-        rawCandidatePoolSize: prediction.candidate_pool_size,
-        filteredCandidatePoolSize: businessRules.debug.candidatePoolSizeAfterFallback,
-        goodAnswer: resolvedChoices.goodAnswer.slug,
-        rejectionReasons: ["low-confidence"],
-        technicalViable: true,
-        publishabilityScore: publishabilityAssessment.publishabilityScore,
-        publishabilityReasons: [],
-        goodAnswerSource,
-        details: {
-          goodAnswerSource,
-          businessRules: businessRules.debug,
-          publishability: publishabilityAssessment,
-          choiceResolution: toChoiceDebugPayload(resolvedChoices),
-        } as Prisma.InputJsonValue,
-      });
-    }
-
-    const qualityScore = calculateQualityScore({
-      seed: {
-        ...seed,
-        lowConfidence: effectiveLowConfidence,
-      },
-      prediction,
-      businessRules,
-      resolvedChoices,
-    });
-    const choiceSignature = buildChoiceSignatureForHistory(
-      resolvedChoices.goodAnswer.slug,
-      resolvedChoices.distractors.map((item) => item.slug),
-    );
-
-    return {
-      status: "accepted",
-      technicalViable: true,
-      snapshotIndex: input.candidate.snapshotIndex,
-      rawPurchaseIndex: input.candidate.rawPurchaseIndex,
-      snapshot: input.candidate.snapshot,
-      scenario: input.candidate.scenario,
+    return buildResolvedSnapshotAttempt({
+      importedMatchId: input.importedMatchId,
+      userId: input.userId,
+      candidate: input.candidate,
       payload,
       prediction,
-      seed: {
-        ...seed,
-        lowConfidence: effectiveLowConfidence,
-      },
+      seed,
       resolvedChoices,
       businessRules,
-      qualityScore,
+      goodAnswerSource,
       variationSeed,
-      choiceSignature,
-      debugSummary: {
-        snapshotIndex: input.candidate.snapshotIndex,
-        snapshotMinute: Number(input.candidate.snapshot.timestampMinutes.toFixed(2)),
-        patch: input.candidate.snapshot.patch,
-        goldAvailable: input.candidate.snapshot.goldAvailable,
-        snapshotSignature: buildSnapshotSignature({
-          snapshotMinute: input.candidate.snapshot.timestampMinutes,
-          goldAvailable: input.candidate.snapshot.goldAvailable,
-          role: input.candidate.snapshot.role,
-          currentItems: input.candidate.snapshot.currentItems,
-        }),
-        rawCandidatePoolSize: prediction.candidate_pool_size,
-        filteredCandidatePoolSize: businessRules.debug.candidatePoolSizeAfterFallback,
-        goodAnswer: resolvedChoices.goodAnswer.slug,
-        qualityScore,
-        rejectionReasons: [],
-        lowConfidence: effectiveLowConfidence,
-        confidenceScore: seed.confidenceScore,
-        confidenceGap: seed.confidenceGap,
-        technicalViable: true,
-        publishable: true,
-        publishabilityScore: publishabilityAssessment.publishabilityScore,
-        publishabilityReasons: [],
-        goodAnswerSource,
-      },
-    };
+    });
   } catch (error) {
     return buildRejectedAttempt({
       candidate: input.candidate,
