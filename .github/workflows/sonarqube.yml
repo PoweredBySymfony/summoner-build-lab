@@ -45,8 +45,17 @@ jobs:
           node-version: 22
           cache: npm
 
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
       - name: Install dependencies
         run: npm ci
+
+      - name: Install ML dependencies
+        working-directory: ml
+        run: python -m pip install -e ".[dev]"
 
       - name: Start local services
         run: docker compose up -d postgres mongo
@@ -65,6 +74,10 @@ jobs:
 
       - name: Test with coverage
         run: npm run test:coverage
+
+      - name: Test ML with coverage
+        working-directory: ml
+        run: python -m pytest --cov=features --cov=inference --cov=models --cov=training --cov-report=xml:coverage.xml
 
       - name: Build
         run: npm run build
