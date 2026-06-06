@@ -866,6 +866,21 @@ function getCompetitiveRunStopReason(input: {
   return null;
 }
 
+function getDiscoveryUniqueBudget(input: {
+  options: CliOptions;
+  remainingTargetMatches: number;
+  classificationBudget: number;
+}) {
+  const desiredCreatedBudget = input.options.maxCreatedPerRun
+    ? Math.max(input.options.maxCreatedPerRun * 4, input.options.maxCreatedPerRun + 50)
+    : input.remainingTargetMatches;
+
+  return Math.max(
+    150,
+    Math.min(input.remainingTargetMatches, input.classificationBudget, desiredCreatedBudget),
+  );
+}
+
 async function loadCompetitiveImportSetup(options: CliOptions) {
   const { absolutePath: seedAbsolutePath, manifest } = await loadManifest(options.seedPath);
   const policyConfig = withPolicyOverrides(
@@ -1032,13 +1047,7 @@ async function main() {
   let discoveryStopReason: string | null = null;
   const authFailureCountsBySeedKey = new Map<string, number>();
   const authFailureCountsByRegion = new Map<string, number>();
-  const desiredCreatedBudget = options.maxCreatedPerRun
-    ? Math.max(options.maxCreatedPerRun * 4, options.maxCreatedPerRun + 50)
-    : remainingTargetMatches;
-  const discoveryUniqueBudget = Math.max(
-    150,
-    Math.min(remainingTargetMatches, classificationBudget, desiredCreatedBudget),
-  );
+  const discoveryUniqueBudget = getDiscoveryUniqueBudget({ options, remainingTargetMatches, classificationBudget });
 
   const persistDiscoveryProgress = async (input: {
     processedSeeds: number;
