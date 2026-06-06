@@ -29,6 +29,14 @@ type CliOptions = {
   countPerSeed: number;
 };
 
+type ActiveProSeed = ProResolvedSeed & {
+  puuid: string;
+  cluster: NonNullable<ProResolvedSeed["cluster"]>;
+};
+
+type ProMatchQueueEntry = ReturnType<typeof buildRoundRobinMatchQueue>[number];
+type ImportedProMatch = Awaited<ReturnType<typeof riotSyncService.importMatchForIdentity>>;
+
 function parseArgs(argv: string[]): CliOptions {
   const options: CliOptions = {
     seedPath: path.join("data", "pro-seeds", "major-pros-recent.json"),
@@ -137,90 +145,113 @@ function mergeResolvedSeed(seed: ProPlayerSeed, cached: ProResolvedSeed | undefi
   };
 }
 
+function getErrorMessage(error: unknown) {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function buildUnresolvedSeed(
+  seed: ProPlayerSeed,
+  cached: ProResolvedSeed | undefined,
+  resolutionError: string,
+  resolutionSource: ProResolvedSeed["resolutionSource"],
+): ProResolvedSeed {
+  return {
+    ...mergeResolvedSeed(seed, cached),
+    resolutionStatus: "unresolved",
+    resolutionError,
+    resolutionSource,
+  };
+}
+
+async function resolveSeedByPuuid(seed: ProPlayerSeed, cached: ProResolvedSeed | undefined) {
+  try {
+    const resolved = await riotSyncService.resolveImportIdentity({ type: "puuid", puuid: seed.puuid! });
+    return {
+      ...mergeResolvedSeed(seed, cached),
+      resolutionStatus: "resolved",
+      resolutionError: null,
+      resolutionSource: "seed-puuid",
+      resolvedRiotId:
+        resolved.gameName && resolved.tagLine ? `${resolved.gameName}#${resolved.tagLine}` : (seed.riotId ?? null),
+      puuid: resolved.puuid,
+      platformHint: resolved.platform,
+      cluster: resolved.region,
+    } satisfies ProResolvedSeed;
+  } catch (error) {
+    return buildUnresolvedSeed(seed, cached, getErrorMessage(error), "seed-puuid");
+  }
+}
+
+function getCandidateRiotIds(seed: ProPlayerSeed) {
+  return [seed.riotId, ...seed.riotIdCandidates].filter((value): value is string => Boolean(value));
+}
+
+function getCandidateResolutionSource(seed: ProPlayerSeed, index: number): ProResolvedSeed["resolutionSource"] {
+  return index === 0 && seed.riotId ? "seed-riot-id" : "candidate-riot-id";
+}
+
+async function resolveRiotIdCandidate(
+  seed: ProPlayerSeed,
+  cached: ProResolvedSeed | undefined,
+  candidate: string,
+  index: number,
+): Promise<ProResolvedSeed | null> {
+  const { gameName, tagLine } = splitRiotId(candidate);
+  if (!gameName || !tagLine) {
+    return null;
+  }
+
+  const resolved = await riotSyncService.resolveImportIdentity({
+    type: "riot-id",
+    gameName,
+    tagLine,
+  });
+
+  return {
+    ...mergeResolvedSeed(seed, cached),
+    resolutionStatus: "resolved",
+    resolutionError: null,
+    resolutionSource: getCandidateResolutionSource(seed, index),
+    resolvedRiotId: `${resolved.gameName ?? gameName}#${resolved.tagLine ?? tagLine}`,
+    puuid: resolved.puuid,
+    platformHint: resolved.platform,
+    cluster: resolved.region,
+  } satisfies ProResolvedSeed;
+}
+
+async function resolveSeedByRiotIdCandidates(seed: ProPlayerSeed, cached: ProResolvedSeed | undefined) {
+  const candidateRiotIds = getCandidateRiotIds(seed);
+
+  if (candidateRiotIds.length === 0) {
+    return buildUnresolvedSeed(seed, cached, "No Riot ID or PUUID candidate available in the seed.", null);
+  }
+
+  for (let index = 0; index < candidateRiotIds.length; index += 1) {
+    const candidate = candidateRiotIds[index]!;
+
+    try {
+      const resolved = await resolveRiotIdCandidate(seed, cached, candidate, index);
+      if (resolved) {
+        return resolved;
+      }
+    } catch (error) {
+      if (index === candidateRiotIds.length - 1) {
+        return buildUnresolvedSeed(seed, cached, getErrorMessage(error), getCandidateResolutionSource(seed, index));
+      }
+    }
+  }
+
+  return buildUnresolvedSeed(seed, cached, "Unable to resolve Riot identity.", null);
+}
+
 async function resolveSeed(seed: ProPlayerSeed, cached: ProResolvedSeed | undefined): Promise<ProResolvedSeed> {
   if (cached?.resolutionStatus === "resolved" && cached.puuid && cached.cluster) {
     return cached;
   }
 
-  if (seed.puuid) {
-    try {
-      const resolved = await riotSyncService.resolveImportIdentity({ type: "puuid", puuid: seed.puuid });
-      return {
-        ...mergeResolvedSeed(seed, cached),
-        resolutionStatus: "resolved",
-        resolutionError: null,
-        resolutionSource: "seed-puuid",
-        resolvedRiotId:
-          resolved.gameName && resolved.tagLine ? `${resolved.gameName}#${resolved.tagLine}` : (seed.riotId ?? null),
-        puuid: resolved.puuid,
-        platformHint: resolved.platform,
-        cluster: resolved.region,
-      };
-    } catch (error) {
-      return {
-        ...mergeResolvedSeed(seed, cached),
-        resolutionStatus: "unresolved",
-        resolutionError: error instanceof Error ? error.message : String(error),
-        resolutionSource: "seed-puuid",
-      };
-    }
-  }
-
-  const candidateRiotIds = [seed.riotId, ...seed.riotIdCandidates].filter(
-    (value): value is string => Boolean(value),
-  );
-
-  if (candidateRiotIds.length === 0) {
-    return {
-      ...mergeResolvedSeed(seed, cached),
-      resolutionStatus: "unresolved",
-      resolutionError: "No Riot ID or PUUID candidate available in the seed.",
-      resolutionSource: null,
-    };
-  }
-
-  for (let index = 0; index < candidateRiotIds.length; index += 1) {
-    const candidate = candidateRiotIds[index];
-    const { gameName, tagLine } = splitRiotId(candidate);
-    if (!gameName || !tagLine) {
-      continue;
-    }
-
-    try {
-      const resolved = await riotSyncService.resolveImportIdentity({
-        type: "riot-id",
-        gameName,
-        tagLine,
-      });
-
-      return {
-        ...mergeResolvedSeed(seed, cached),
-        resolutionStatus: "resolved",
-        resolutionError: null,
-        resolutionSource: index === 0 && seed.riotId ? "seed-riot-id" : "candidate-riot-id",
-        resolvedRiotId: `${resolved.gameName ?? gameName}#${resolved.tagLine ?? tagLine}`,
-        puuid: resolved.puuid,
-        platformHint: resolved.platform,
-        cluster: resolved.region,
-      };
-    } catch (error) {
-      if (index === candidateRiotIds.length - 1) {
-        return {
-          ...mergeResolvedSeed(seed, cached),
-          resolutionStatus: "unresolved",
-          resolutionError: error instanceof Error ? error.message : String(error),
-          resolutionSource: index === 0 && seed.riotId ? "seed-riot-id" : "candidate-riot-id",
-        };
-      }
-    }
-  }
-
-  return {
-    ...mergeResolvedSeed(seed, cached),
-    resolutionStatus: "unresolved",
-    resolutionError: "Unable to resolve Riot identity.",
-    resolutionSource: null,
-  };
+  return seed.puuid
+    ? resolveSeedByPuuid(seed, cached)
+    : resolveSeedByRiotIdCandidates(seed, cached);
 }
 
 function buildSourceMetadata(seed: ProResolvedSeed, queueOrder: number, targetUniqueMatches: number): Prisma.InputJsonObject {
@@ -248,20 +279,17 @@ function buildSourceMetadata(seed: ProResolvedSeed, queueOrder: number, targetUn
   } as Prisma.InputJsonObject;
 }
 
-async function main() {
-  const options = parseArgs(process.argv.slice(2));
+function validateOptions(options: CliOptions) {
   if (!Number.isFinite(options.targetMatches) || options.targetMatches <= 0) {
     throw new Error("--target-matches must be a positive integer.");
   }
   if (!Number.isFinite(options.countPerSeed) || options.countPerSeed <= 0) {
     throw new Error("--count-per-seed must be a positive integer.");
   }
+}
 
-  const ownerUserId = await resolveOwnerUserId(options);
-  const { absolutePath: seedAbsolutePath, players } = await loadSeeds(options.seedPath);
-  const checkpointPath = path.resolve(options.checkpointPath);
-  const reportPath = path.resolve(options.reportPath);
-  const checkpoint = (await loadProIngestionCheckpoint(checkpointPath)) ?? {
+function createInitialCheckpoint(options: CliOptions): ProIngestionCheckpoint {
+  return {
     version: 1,
     generatedAt: new Date().toISOString(),
     targetUniqueMatches: options.targetMatches,
@@ -270,38 +298,46 @@ async function main() {
     attemptedMatchIds: [],
     importedMatchIds: [],
     failedMatches: [],
-  } satisfies ProIngestionCheckpoint;
+  };
+}
 
+async function resolveSeeds(players: ProPlayerSeed[], checkpoint: ProIngestionCheckpoint) {
   const resolvedSeedCache = new Map(checkpoint.resolvedSeeds.map((seed) => [buildSeedKey(seed), seed]));
-  const discoveredCache = new Map(checkpoint.discoveredMatches.map((seed) => [seed.seedKey, seed]));
   const resolvedSeeds: ProResolvedSeed[] = [];
 
-  console.info(`[pro-ingestion] resolving ${players.length} seed players from ${seedAbsolutePath}`);
   for (const seed of players) {
     const resolved = await resolveSeed(seed, resolvedSeedCache.get(buildSeedKey(seed)));
     resolvedSeeds.push(resolved);
   }
 
-  const activeSeeds = resolvedSeeds.filter(
-    (seed): seed is ProResolvedSeed & { puuid: string; cluster: NonNullable<ProResolvedSeed["cluster"]> } =>
+  return resolvedSeeds;
+}
+
+function getActiveSeeds(resolvedSeeds: ProResolvedSeed[]) {
+  return resolvedSeeds.filter(
+    (seed): seed is ActiveProSeed =>
       seed.resolutionStatus === "resolved" && Boolean(seed.puuid) && Boolean(seed.cluster),
   );
+}
 
-  if (activeSeeds.length === 0) {
-    throw new Error("No professional seeds could be resolved to Riot accounts.");
-  }
-
+async function discoverSeedMatches(
+  activeSeeds: ActiveProSeed[],
+  checkpoint: ProIngestionCheckpoint,
+  countPerSeed: number,
+) {
+  const discoveredCache = new Map(checkpoint.discoveredMatches.map((seed) => [seed.seedKey, seed]));
   const discoveries: ProSeedMatchDiscovery[] = [];
+
   for (const seed of activeSeeds) {
     const seedKey = buildSeedKey(seed);
     const cached = discoveredCache.get(seedKey);
-    if (cached && cached.matchIds.length >= options.countPerSeed) {
+    if (cached && cached.matchIds.length >= countPerSeed) {
       discoveries.push(cached);
       continue;
     }
 
-    const matchIds = await riotApiClient.getMatchIdsByPuuidOnRegion(seed.puuid, seed.cluster, options.countPerSeed);
-    const discovery: ProSeedMatchDiscovery = {
+    const matchIds = await riotApiClient.getMatchIdsByPuuidOnRegion(seed.puuid, seed.cluster, countPerSeed);
+    discoveries.push({
       seedKey,
       playerName: seed.playerName,
       team: seed.team,
@@ -311,28 +347,124 @@ async function main() {
       puuid: seed.puuid,
       region: seed.cluster,
       matchIds,
-    };
-    discoveries.push(discovery);
+    });
   }
 
-  const currentProMatches = await prisma.importedMatch.count({
-    where: { sourceKind: "PRO_SEED" },
-  });
-  const discoveredUniqueMatches = new Set(discoveries.flatMap((seed) => seed.matchIds)).size;
-  const queue = buildRoundRobinMatchQueue(discoveries, discoveredUniqueMatches);
-  const attemptedMatchIds = new Set(checkpoint.attemptedMatchIds);
-  const importedMatchIds = new Set(checkpoint.importedMatchIds);
-  const failedMatches = [...checkpoint.failedMatches];
-  const seedIndex = new Map(activeSeeds.map((seed) => [buildSeedKey(seed), seed]));
+  return discoveries;
+}
 
-  let totalProMatches = currentProMatches;
+function buildSkippedMatchFailure(candidate: ProMatchQueueEntry, seed: ActiveProSeed, imported: ImportedProMatch) {
+  return {
+    matchId: candidate.matchId,
+    seedKey: candidate.seedKey,
+    playerName: seed.playerName,
+    team: seed.team,
+    league: seed.league,
+    competition: seed.competition,
+    role: seed.role,
+    region: seed.cluster,
+    patch: imported.patch,
+    timelineAvailable: imported.timelineAvailable,
+    timelineMissingReason: imported.timelineMissingReason,
+    targetChampionSlug: imported.targetChampionSlug,
+    targetRole: imported.targetRole,
+    gameCreationAt: imported.gameCreationAt?.toISOString() ?? null,
+    created: imported.created,
+    failureReason: imported.skippedReason,
+  };
+}
 
-  console.info(
-    `[pro-ingestion] starting activeSeeds=${activeSeeds.length} existingProMatches=${currentProMatches} queueCandidates=${queue.length} target=${options.targetMatches}`,
+function buildErroredMatchFailure(candidate: ProMatchQueueEntry, seed: ActiveProSeed, error: unknown) {
+  return {
+    matchId: candidate.matchId,
+    seedKey: candidate.seedKey,
+    playerName: seed.playerName,
+    team: seed.team,
+    league: seed.league,
+    competition: seed.competition,
+    role: seed.role,
+    region: seed.cluster,
+    patch: null,
+    timelineAvailable: false,
+    timelineMissingReason: null,
+    targetChampionSlug: null,
+    targetRole: null,
+    gameCreationAt: null,
+    created: false,
+    failureReason: getErrorMessage(error),
+  };
+}
+
+function buildImportIdentity(seed: ActiveProSeed) {
+  const riotId = seed.resolvedRiotId ? splitRiotId(seed.resolvedRiotId) : null;
+
+  return {
+    puuid: seed.puuid,
+    gameName: riotId?.gameName ?? null,
+    tagLine: riotId?.tagLine ?? null,
+    region: seed.cluster,
+    platform: seed.platformHint ?? "euw1",
+  };
+}
+
+async function importProMatch(input: {
+  ownerUserId: string;
+  candidate: ProMatchQueueEntry;
+  seed: ActiveProSeed;
+  targetMatches: number;
+}) {
+  return riotSyncService.importMatchForIdentity(
+    input.ownerUserId,
+    input.candidate.matchId,
+    buildImportIdentity(input.seed),
+    {
+      sourceKind: "PRO_SEED",
+      sourceMetadata: buildSourceMetadata(input.seed, input.candidate.order, input.targetMatches),
+      skipExistingWithDifferentTarget: true,
+    },
   );
+}
 
-  for (const candidate of queue) {
-    if (totalProMatches >= options.targetMatches) {
+async function saveCheckpoint(input: {
+  checkpointPath: string;
+  options: CliOptions;
+  resolvedSeeds: ProResolvedSeed[];
+  discoveries: ProSeedMatchDiscovery[];
+  attemptedMatchIds: Set<string>;
+  importedMatchIds: Set<string>;
+  failedMatches: ProIngestionAttemptSummary[];
+}) {
+  await saveProIngestionCheckpoint(input.checkpointPath, {
+    version: 1,
+    generatedAt: new Date().toISOString(),
+    targetUniqueMatches: input.options.targetMatches,
+    resolvedSeeds: input.resolvedSeeds,
+    discoveredMatches: input.discoveries,
+    attemptedMatchIds: [...input.attemptedMatchIds],
+    importedMatchIds: [...input.importedMatchIds],
+    failedMatches: input.failedMatches,
+  });
+}
+
+async function importQueuedMatches(input: {
+  ownerUserId: string;
+  options: CliOptions;
+  checkpointPath: string;
+  checkpoint: ProIngestionCheckpoint;
+  activeSeeds: ActiveProSeed[];
+  resolvedSeeds: ProResolvedSeed[];
+  discoveries: ProSeedMatchDiscovery[];
+  queue: ProMatchQueueEntry[];
+  currentProMatches: number;
+}) {
+  const attemptedMatchIds = new Set(input.checkpoint.attemptedMatchIds);
+  const importedMatchIds = new Set(input.checkpoint.importedMatchIds);
+  const failedMatches = [...input.checkpoint.failedMatches];
+  const seedIndex = new Map(input.activeSeeds.map((seed) => [buildSeedKey(seed), seed]));
+  let totalProMatches = input.currentProMatches;
+
+  for (const candidate of input.queue) {
+    if (totalProMatches >= input.options.targetMatches) {
       break;
     }
     if (attemptedMatchIds.has(candidate.matchId)) {
@@ -340,28 +472,18 @@ async function main() {
     }
 
     const seed = seedIndex.get(candidate.seedKey);
-    if (!seed?.puuid || !seed.cluster) {
+    if (!seed) {
       continue;
     }
 
     attemptedMatchIds.add(candidate.matchId);
     try {
-      const imported = await riotSyncService.importMatchForIdentity(
-        ownerUserId,
-        candidate.matchId,
-        {
-          puuid: seed.puuid,
-          gameName: seed.resolvedRiotId ? splitRiotId(seed.resolvedRiotId).gameName : null,
-          tagLine: seed.resolvedRiotId ? splitRiotId(seed.resolvedRiotId).tagLine : null,
-          region: seed.cluster,
-          platform: seed.platformHint ?? "euw1",
-        },
-        {
-          sourceKind: "PRO_SEED",
-          sourceMetadata: buildSourceMetadata(seed, candidate.order, options.targetMatches),
-          skipExistingWithDifferentTarget: true,
-        },
-      );
+      const imported = await importProMatch({
+        ownerUserId: input.ownerUserId,
+        candidate,
+        seed,
+        targetMatches: input.options.targetMatches,
+      });
 
       if (imported.created) {
         importedMatchIds.add(imported.riotMatchId);
@@ -369,63 +491,77 @@ async function main() {
       }
 
       if (imported.skippedReason) {
-        failedMatches.push({
-          matchId: candidate.matchId,
-          seedKey: candidate.seedKey,
-          playerName: seed.playerName,
-          team: seed.team,
-          league: seed.league,
-          competition: seed.competition,
-          role: seed.role,
-          region: seed.cluster,
-          patch: imported.patch,
-          timelineAvailable: imported.timelineAvailable,
-          timelineMissingReason: imported.timelineMissingReason,
-          targetChampionSlug: imported.targetChampionSlug,
-          targetRole: imported.targetRole,
-          gameCreationAt: imported.gameCreationAt?.toISOString() ?? null,
-          created: imported.created,
-          failureReason: imported.skippedReason,
-        });
+        failedMatches.push(buildSkippedMatchFailure(candidate, seed, imported));
       }
     } catch (error) {
-      failedMatches.push({
-        matchId: candidate.matchId,
-        seedKey: candidate.seedKey,
-        playerName: seed.playerName,
-        team: seed.team,
-        league: seed.league,
-        competition: seed.competition,
-        role: seed.role,
-        region: seed.cluster,
-        patch: null,
-        timelineAvailable: false,
-        timelineMissingReason: null,
-        targetChampionSlug: null,
-        targetRole: null,
-        gameCreationAt: null,
-        created: false,
-        failureReason: error instanceof Error ? error.message : String(error),
-      });
+      failedMatches.push(buildErroredMatchFailure(candidate, seed, error));
     }
 
-    await saveProIngestionCheckpoint(checkpointPath, {
-      version: 1,
-      generatedAt: new Date().toISOString(),
-      targetUniqueMatches: options.targetMatches,
-      resolvedSeeds,
-      discoveredMatches: discoveries,
-      attemptedMatchIds: [...attemptedMatchIds],
-      importedMatchIds: [...importedMatchIds],
+    await saveCheckpoint({
+      checkpointPath: input.checkpointPath,
+      options: input.options,
+      resolvedSeeds: input.resolvedSeeds,
+      discoveries: input.discoveries,
+      attemptedMatchIds,
+      importedMatchIds,
       failedMatches,
     });
 
-    if (attemptedMatchIds.size % 25 === 0 || totalProMatches >= options.targetMatches) {
+    if (attemptedMatchIds.size % 25 === 0 || totalProMatches >= input.options.targetMatches) {
       console.info(
-        `[pro-ingestion] progress attempted=${attemptedMatchIds.size} created=${importedMatchIds.size} totalProMatches=${totalProMatches}/${options.targetMatches}`,
+        `[pro-ingestion] progress attempted=${attemptedMatchIds.size} created=${importedMatchIds.size} totalProMatches=${totalProMatches}/${input.options.targetMatches}`,
       );
     }
   }
+
+  return {
+    attemptedMatchIds,
+    importedMatchIds,
+    failedMatches,
+    totalProMatches,
+  };
+}
+
+async function main() {
+  const options = parseArgs(process.argv.slice(2));
+  validateOptions(options);
+
+  const ownerUserId = await resolveOwnerUserId(options);
+  const { absolutePath: seedAbsolutePath, players } = await loadSeeds(options.seedPath);
+  const checkpointPath = path.resolve(options.checkpointPath);
+  const reportPath = path.resolve(options.reportPath);
+  const checkpoint = (await loadProIngestionCheckpoint(checkpointPath)) ?? createInitialCheckpoint(options);
+
+  console.info(`[pro-ingestion] resolving ${players.length} seed players from ${seedAbsolutePath}`);
+  const resolvedSeeds = await resolveSeeds(players, checkpoint);
+  const activeSeeds = getActiveSeeds(resolvedSeeds);
+
+  if (activeSeeds.length === 0) {
+    throw new Error("No professional seeds could be resolved to Riot accounts.");
+  }
+
+  const discoveries = await discoverSeedMatches(activeSeeds, checkpoint, options.countPerSeed);
+  const currentProMatches = await prisma.importedMatch.count({
+    where: { sourceKind: "PRO_SEED" },
+  });
+  const discoveredUniqueMatches = new Set(discoveries.flatMap((seed) => seed.matchIds)).size;
+  const queue = buildRoundRobinMatchQueue(discoveries, discoveredUniqueMatches);
+
+  console.info(
+    `[pro-ingestion] starting activeSeeds=${activeSeeds.length} existingProMatches=${currentProMatches} queueCandidates=${queue.length} target=${options.targetMatches}`,
+  );
+
+  const { attemptedMatchIds, importedMatchIds, failedMatches } = await importQueuedMatches({
+    ownerUserId,
+    options,
+    checkpointPath,
+    checkpoint,
+    activeSeeds,
+    resolvedSeeds,
+    discoveries,
+    queue,
+    currentProMatches,
+  });
 
   const persistedRows = await prisma.importedMatch.findMany({
     where: {
