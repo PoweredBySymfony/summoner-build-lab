@@ -36,9 +36,10 @@ async function main() {
   console.log(`Daily reminders processed: ${sent}`);
 }
 
-main()
-  .then(() => process.exit(0))
-  .catch((error) => {
-    console.error(error);
-    process.exit(1);
-  });
+try {
+  await main();
+  process.exit(0);
+} catch (error) {
+  console.error(error);
+  process.exit(1);
+}

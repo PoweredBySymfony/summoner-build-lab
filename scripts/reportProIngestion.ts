@@ -2,7 +2,7 @@ import { prisma } from "../server/src/lib/prisma.js";
 import { buildProIngestionReport } from "../server/src/lib/riot/proIngestion.js";
 
 function parseDays(argv: string[]) {
-  const index = argv.findIndex((arg) => arg === "--days");
+  const index = argv.indexOf("--days");
   if (index === -1) {
     return 365;
   }
@@ -69,11 +69,11 @@ async function main() {
   );
 }
 
-main()
-  .catch((error) => {
-    console.error("[pro-ingestion-report] failed", error);
-    process.exitCode = 1;
-  })
-  .finally(async () => {
-    await prisma.$disconnect();
-  });
+try {
+  await main();
+} catch (error) {
+  console.error("[pro-ingestion-report] failed", error);
+  process.exitCode = 1;
+} finally {
+  await prisma.$disconnect();
+}

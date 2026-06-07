@@ -21,9 +21,11 @@ function parseArgs(argv: string[]): CliOptions {
     puuids: [],
   };
 
-  for (let index = 0; index < argv.length; index += 1) {
+  let index = 0;
+  while (index < argv.length) {
     const arg = argv[index];
-    const next = argv[index + 1];
+    index += 1;
+    const next = argv[index];
 
     switch (arg) {
       case "--user-id":
@@ -158,11 +160,11 @@ async function main() {
   }
 }
 
-main()
-  .catch((error) => {
-    console.error("[riot-import-batch] failed", error);
-    process.exitCode = 1;
-  })
-  .finally(async () => {
-    await prisma.$disconnect();
-  });
+try {
+  await main();
+} catch (error) {
+  console.error("[riot-import-batch] failed", error);
+  process.exitCode = 1;
+} finally {
+  await prisma.$disconnect();
+}

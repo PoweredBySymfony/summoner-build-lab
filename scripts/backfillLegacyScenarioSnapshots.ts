@@ -325,11 +325,11 @@ async function main() {
   console.log(`Backfilled ${updated} legacy puzzle scenarios.`);
 }
 
-main()
-  .catch((error) => {
-    console.error("Legacy scenario backfill failed.", error);
-    process.exit(1);
-  })
-  .finally(async () => {
-    await prisma.$disconnect();
-  });
+try {
+  await main();
+} catch (error) {
+  console.error("Legacy scenario backfill failed.", error);
+  process.exit(1);
+} finally {
+  await prisma.$disconnect();
+}

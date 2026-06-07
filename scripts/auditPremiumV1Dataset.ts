@@ -54,9 +54,11 @@ function parseArgs(argv: string[]): CliOptions {
     checkpointReportPath: path.join("data", "runtime", "competitive-ingestion", "report.json"),
   };
 
-  for (let index = 0; index < argv.length; index += 1) {
+  let index = 0;
+  while (index < argv.length) {
     const arg = argv[index];
-    const next = argv[index + 1];
+    index += 1;
+    const next = argv[index];
 
     const valueHandler = valueOptionHandlers[arg];
     if (valueHandler) {
@@ -352,11 +354,11 @@ async function main() {
   console.info(JSON.stringify(reportPayload, null, 2));
 }
 
-main()
-  .catch((error) => {
-    console.error("[premium-v1-audit] failed", error);
-    process.exitCode = 1;
-  })
-  .finally(async () => {
-    await prisma.$disconnect();
-  });
+try {
+  await main();
+} catch (error) {
+  console.error("[premium-v1-audit] failed", error);
+  process.exitCode = 1;
+} finally {
+  await prisma.$disconnect();
+}

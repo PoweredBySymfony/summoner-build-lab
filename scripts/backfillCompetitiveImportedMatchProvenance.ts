@@ -23,9 +23,11 @@ function parseArgs(argv: string[]): CliOptions {
     checkpointPath: path.join("data", "runtime", "competitive-ingestion", "checkpoint.json"),
   };
 
-  for (let index = 0; index < argv.length; index += 1) {
+  let index = 0;
+  while (index < argv.length) {
     const arg = argv[index];
-    const next = argv[index + 1];
+    index += 1;
+    const next = argv[index];
     if (arg === "--checkpoint-path" && next) {
       options.checkpointPath = next;
       index += 1;
@@ -226,11 +228,11 @@ async function main() {
   }, null, 2));
 }
 
-main()
-  .catch((error) => {
-    console.error("[backfill-competitive-provenance] failed", error);
-    process.exitCode = 1;
-  })
-  .finally(async () => {
-    await prisma.$disconnect();
-  });
+try {
+  await main();
+} catch (error) {
+  console.error("[backfill-competitive-provenance] failed", error);
+  process.exitCode = 1;
+} finally {
+  await prisma.$disconnect();
+}

@@ -161,8 +161,10 @@ async function main() {
 }
 
 if (process.argv[1]?.includes("auditStaticData.ts")) {
-  main().catch((error) => {
+  try {
+    await main();
+  } catch (error) {
     console.error(error);
     process.exit(1);
-  });
+  }
 }

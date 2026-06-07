@@ -65,11 +65,11 @@ type CampaignSummary = {
 type ArgHandler = (options: CampaignOptions, next: string | undefined) => boolean;
 
 const campaignArgHandlers: Record<string, ArgHandler> = {
-  "--seed-path": (o, v) => { if (v) o.seedPath = v; return true; },
-  "--policy-path": (o, v) => { if (v) o.policyPath = v; return true; },
-  "--checkpoint-path": (o, v) => { if (v) o.checkpointPath = v; return true; },
-  "--quarantine-path": (o, v) => { if (v) o.quarantinePath = v; return true; },
-  "--report-dir": (o, v) => { if (v) o.reportDir = v; return true; },
+  "--seed-path": (o, v) => { if (v) { o.seedPath = v; } return true; },
+  "--policy-path": (o, v) => { if (v) { o.policyPath = v; } return true; },
+  "--checkpoint-path": (o, v) => { if (v) { o.checkpointPath = v; } return true; },
+  "--quarantine-path": (o, v) => { if (v) { o.quarantinePath = v; } return true; },
+  "--report-dir": (o, v) => { if (v) { o.reportDir = v; } return true; },
   "--owner-user-id": (o, v) => { o.ownerUserId = v; return true; },
   "--owner-email": (o, v) => { o.ownerEmail = v; return true; },
   "--target-matches": (o, v) => { o.targetMatches = Number(v ?? "2000"); return true; },
@@ -107,9 +107,11 @@ function parseArgs(argv: string[]): CampaignOptions {
     maxNoViableRate: 0.1,
   };
 
-  for (let index = 0; index < argv.length; index += 1) {
+  let index = 0;
+  while (index < argv.length) {
     const handler = campaignArgHandlers[argv[index]];
-    if (handler?.(options, argv[index + 1])) {
+    index += 1;
+    if (handler?.(options, argv[index])) {
       index += 1;
     }
   }
@@ -390,7 +392,9 @@ async function main() {
   await prisma.$disconnect();
 }
 
-main().catch(async (error) => {
+try {
+  await main();
+} catch (error) {
   console.error("[campaign] failed", error);
   try {
     await prisma.$disconnect();
@@ -398,4 +402,4 @@ main().catch(async (error) => {
     // ignore
   }
   process.exitCode = 1;
-});
+}

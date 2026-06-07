@@ -8,7 +8,7 @@ type CliOptions = {
 };
 
 function parseArgs(argv: string[]): CliOptions {
-  const limitIndex = argv.findIndex((arg) => arg === "--limit");
+  const limitIndex = argv.indexOf("--limit");
   return {
     limit: limitIndex === -1 ? 250 : Number(argv[limitIndex + 1] ?? "250"),
     applyQuarantine: argv.includes("--apply-quarantine"),
@@ -214,11 +214,11 @@ async function main() {
   }, null, 2));
 }
 
-main()
-  .catch((error) => {
-    console.error("[audit-ai-puzzles] failed", error);
-    process.exitCode = 1;
-  })
-  .finally(async () => {
-    await prisma.$disconnect();
-  });
+try {
+  await main();
+} catch (error) {
+  console.error("[audit-ai-puzzles] failed", error);
+  process.exitCode = 1;
+} finally {
+  await prisma.$disconnect();
+}

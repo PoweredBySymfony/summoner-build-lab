@@ -14,8 +14,8 @@ import {
 } from "./lib/competitiveImportedMatchProvenance.js";
 
 function parseOptions(argv: string[]) {
-  const daysIndex = argv.findIndex((arg) => arg === "--days");
-  const checkpointIndex = argv.findIndex((arg) => arg === "--checkpoint-path");
+  const daysIndex = argv.indexOf("--days");
+  const checkpointIndex = argv.indexOf("--checkpoint-path");
 
   return {
     days: daysIndex === -1 ? 365 : Number(argv[daysIndex + 1] ?? "365"),
@@ -158,11 +158,11 @@ async function main() {
   );
 }
 
-main()
-  .catch((error) => {
-    console.error("[competitive-ingestion-report] failed", error);
-    process.exitCode = 1;
-  })
-  .finally(async () => {
-    await prisma.$disconnect();
-  });
+try {
+  await main();
+} catch (error) {
+  console.error("[competitive-ingestion-report] failed", error);
+  process.exitCode = 1;
+} finally {
+  await prisma.$disconnect();
+}

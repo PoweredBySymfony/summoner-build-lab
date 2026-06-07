@@ -85,9 +85,12 @@ function parseArgs(argv: string[]): CliOptions {
     baselineReportPath: null,
   };
 
-  for (let index = 0; index < argv.length; index += 1) {
-    const handler = validationArgHandlers[argv[index]];
-    if (handler?.(options, argv[index + 1])) {
+  let index = 0;
+  while (index < argv.length) {
+    const arg = argv[index];
+    index += 1;
+    const handler = validationArgHandlers[arg];
+    if (handler?.(options, argv[index])) {
       index += 1;
     }
   }
@@ -572,12 +575,12 @@ async function main() {
   }
 }
 
-main()
-  .catch((error) => {
-    console.error("[match-based-validation] failed", error);
-    process.exitCode = 1;
-  })
-  .finally(async () => {
-    await prisma.$disconnect();
-    process.exit(process.exitCode ?? 0);
-  });
+try {
+  await main();
+} catch (error) {
+  console.error("[match-based-validation] failed", error);
+  process.exitCode = 1;
+} finally {
+  await prisma.$disconnect();
+  process.exit(process.exitCode ?? 0);
+}

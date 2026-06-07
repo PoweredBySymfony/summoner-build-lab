@@ -138,9 +138,11 @@ export function parseArgs(argv: string[]): CliOptions {
     refreshDiscovery: false,
   };
 
-  for (let index = 0; index < argv.length; index += 1) {
+  let index = 0;
+  while (index < argv.length) {
     const arg = argv[index];
-    const next = argv[index + 1];
+    index += 1;
+    const next = argv[index];
 
     const valueHandler = valueOptionHandlers[arg];
     if (valueHandler) {
