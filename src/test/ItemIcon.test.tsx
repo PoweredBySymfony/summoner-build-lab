@@ -211,6 +211,7 @@ describe("ItemIcon", () => {
       vi.advanceTimersByTime(200);
     });
 
+    expect(screen.queryByText("Trinity Force")).not.toBeInTheDocument();
     vi.useRealTimers();
   });
 
