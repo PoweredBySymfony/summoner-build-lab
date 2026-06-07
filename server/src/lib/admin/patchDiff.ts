@@ -88,14 +88,14 @@ const formatDecimal = (value: number) => {
 
 const formatNumber = (value: unknown) => {
   const numericValue = parseNumericStatValue(value);
-  return numericValue === null ? String(value ?? "Non renseigne") : formatDecimal(numericValue);
+  return numericValue === null ? (value != null ? String(value) : "Non renseigne") : formatDecimal(numericValue);
 };
 
 const formatDeltaNumber = (value: number) => `${value > 0 ? "+" : ""}${formatDecimal(value)}`;
 
 const formatPercentFromRatio = (value: unknown) => {
   const numericValue = parseNumericStatValue(value);
-  return numericValue === null ? String(value ?? "Non renseigne") : `${Math.round(numericValue * 100)}%`;
+  return numericValue === null ? (value != null ? String(value) : "Non renseigne") : `${Math.round(numericValue * 100)}%`;
 };
 
 const formatPercentDeltaFromRatio = (value: number) => `${value > 0 ? "+" : ""}${Math.round(value * 100)}%`;
@@ -249,7 +249,7 @@ const formatStatLines = (
   keys = Object.keys(value),
   deltaBase?: Record<string, unknown>,
 ) =>
-  keys
+  [...keys]
     .sort((left, right) => {
       const leftLabel = descriptors[left]?.label ?? left;
       const rightLabel = descriptors[right]?.label ?? right;
@@ -273,13 +273,13 @@ const formatStatRecord = (value: Record<string, unknown>, descriptors: Record<st
 
 const normalizeText = (value: string | null | undefined) =>
   (value ?? "")
-    .replace(/<[^>]*>/g, " ")
-    .replace(/\s+/g, " ")
+    .replaceAll(/<[^>]*>/g, " ")
+    .replaceAll(/\s+/g, " ")
     .trim();
 
 const spellSlots = ["Passive", "A", "Z", "E", "R"];
 
-const formatSpellDescription = (value: string | null | undefined) => normalizeText(value).replace(/\{\{[^}]+\}\}/g, "").trim();
+const formatSpellDescription = (value: string | null | undefined) => normalizeText(value).replaceAll(/\{\{[^}]+\}\}/g, "").trim();
 
 const getChampionAbilityEntries = (detail: RemoteChampionDetail | undefined) => {
   if (!detail) {

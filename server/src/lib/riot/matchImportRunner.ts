@@ -174,7 +174,7 @@ async function resolveChampionSlugFromParticipant(participant: Record<string, un
 
 export function normalizeSourceKind(sourceKind?: string | null) {
   const normalized = sourceKind?.trim();
-  return normalized ? normalized : null;
+  return normalized || null;
 }
 
 export function buildImportedMatchMetadata(input: {

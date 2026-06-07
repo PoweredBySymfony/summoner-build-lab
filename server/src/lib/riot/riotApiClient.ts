@@ -303,7 +303,7 @@ export class RiotApiClient {
     apiKeys: string[];
     apiKeyIndex: number;
   }): Promise<RequestAttemptResult<T> | { type: "try-next-api-key" }> {
-    const apiKey = input.apiKeys[input.apiKeyIndex]!;
+    const apiKey = input.apiKeys[input.apiKeyIndex] ?? "";
     this.metrics.totalRequests += 1;
 
     try {

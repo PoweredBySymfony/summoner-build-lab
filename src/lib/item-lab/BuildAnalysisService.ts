@@ -277,12 +277,14 @@ export const BuildAnalysisService = {
     const strengths = detectCompositionStrengths(signals, stats);
     const weaknesses = detectCompositionWeaknesses(signals, stats);
 
-    const confidence =
-      itemCount >= 6 || (itemCount >= 4 && strengths.length >= 2)
-        ? "high"
-        : itemCount >= 3
-          ? "medium"
-          : "low";
+    let confidence: "high" | "medium" | "low";
+    if (itemCount >= 6 || (itemCount >= 4 && strengths.length >= 2)) {
+      confidence = "high";
+    } else if (itemCount >= 3) {
+      confidence = "medium";
+    } else {
+      confidence = "low";
+    }
 
     return {
       strengths: strengths.slice(0, 3),

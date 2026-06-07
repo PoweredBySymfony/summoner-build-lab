@@ -23,7 +23,6 @@ import {
   importMatchForIdentityInternal,
   importRecentMatchesInternal,
   type RiotImportSourceContext,
-  type RiotImportedMatchDetail,
 } from "../lib/riot/matchImportRunner.js";
 
 const roleMap: Record<string, Role[]> = {
@@ -43,12 +42,12 @@ function inferRoles(tags: string[]) {
 function decodeHtmlEntities(input: string) {
   return input
     .replace(/&nbsp;|&#160;/g, " ")
-    .replace(/&amp;/g, "&")
-    .replace(/&quot;/g, "\"")
+    .replaceAll("&amp;", "&")
+    .replaceAll("&quot;", "\"")
     .replace(/&#39;|&apos;/g, "'")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/\u00a0/g, " ");
+    .replaceAll("&lt;", "<")
+    .replaceAll("&gt;", ">")
+    .replaceAll("\u00a0", " ");
 }
 
 function formatItemDescription(input: string) {

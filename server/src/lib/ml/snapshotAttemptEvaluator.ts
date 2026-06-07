@@ -585,7 +585,7 @@ export async function evaluateSnapshotAttempt(input: {
     const variationSeed = `${input.importedMatchId}:${input.userId}:${input.candidate.snapshotIndex}:${Date.now()}`;
     const rankedResolvedItems = prediction.top_k_predictions
       .map((entry) => resolveMlChoiceItemRef(entry.item_slug, input.patchChoiceItems))
-      .filter((item): item is MlChoiceItem => Boolean(item));
+      .filter((item): item is MlChoiceItem => !!item);
     let businessRules = buildBusinessRules({
       snapshot: input.candidate.snapshot,
       championTags: input.championTags,

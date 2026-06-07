@@ -28,8 +28,8 @@ const useDebouncedValue = <T,>(value: T, delayMs: number) => {
 };
 
 type RiotIdSearchProps = {
-  defaultValue?: string;
-  compact?: boolean;
+  readonly defaultValue?: string;
+  readonly compact?: boolean;
 };
 
 type Suggestion =
@@ -118,10 +118,10 @@ function CurrentSuggestionButton({
   onActivate,
   onSelect,
 }: {
-  suggestion: Extract<Suggestion, { type: "current" }>;
-  isActive: boolean;
-  onActivate: () => void;
-  onSelect: () => void;
+  readonly suggestion: Extract<Suggestion, { type: "current" }>;
+  readonly isActive: boolean;
+  readonly onActivate: () => void;
+  readonly onSelect: () => void;
 }) {
   return (
     <button
@@ -151,18 +151,17 @@ function KnownSuggestionRow({
   onActivate,
   onSelect,
 }: {
-  suggestion: Exclude<Suggestion, { type: "current" }>;
-  isActive: boolean;
-  onActivate: () => void;
-  onSelect: () => void;
+  readonly suggestion: Exclude<Suggestion, { type: "current" }>;
+  readonly isActive: boolean;
+  readonly onActivate: () => void;
+  readonly onSelect: () => void;
 }) {
   return (
     <div
       key={`${suggestion.type}-${suggestion.riotId}`}
       className={`flex min-h-14 items-center gap-3 rounded-2xl px-3 py-3 transition ${isActive ? "bg-white/8" : "hover:bg-white/5"}`}
-      onMouseEnter={onActivate}
     >
-      <button type="button" className="flex min-w-0 flex-1 items-center gap-3 text-left" onClick={onSelect}>
+      <button type="button" className="flex min-w-0 flex-1 items-center gap-3 text-left" onMouseEnter={onActivate} onClick={onSelect}>
         <RiotIdAvatar entry={suggestion} />
         <div className="min-w-0 flex-1">
           <p className="truncate text-base font-semibold text-foreground">{suggestion.gameName}</p>
@@ -177,6 +176,7 @@ function KnownSuggestionRow({
           type="button"
           className="rounded-full p-2.5 text-muted-foreground transition hover:bg-white/8 hover:text-foreground"
           aria-label={`Remove ${suggestion.riotId} from recent searches`}
+          onMouseEnter={onActivate}
           onClick={() => removeRecentRiotSearch(suggestion.riotId)}
         >
           <X className="h-5 w-5" />
@@ -193,11 +193,11 @@ function SuggestionRows({
   onActivate,
   onSelect,
 }: {
-  suggestions: Suggestion[];
-  activeIndex: number;
-  panelMaxHeight: number;
-  onActivate: (index: number) => void;
-  onSelect: (riotId: string) => void;
+  readonly suggestions: Suggestion[];
+  readonly activeIndex: number;
+  readonly panelMaxHeight: number;
+  readonly onActivate: (index: number) => void;
+  readonly onSelect: (riotId: string) => void;
 }) {
   return (
     <div className="overflow-y-auto p-3" style={{ maxHeight: panelMaxHeight }}>
@@ -217,7 +217,7 @@ function SuggestionRows({
   );
 }
 
-function SuggestionStatus({ children }: { children: ReactNode }) {
+function SuggestionStatus({ children }: { readonly children: ReactNode }) {
   return (
     <div className="flex items-center gap-3 px-5 py-6 text-sm text-muted-foreground">
       <Clock3 className="h-4 w-4" />
@@ -235,13 +235,13 @@ function SuggestionPanelContent({
   onActivate,
   onSelect,
 }: {
-  suggestions: Suggestion[];
-  activeIndex: number;
-  isLoadingSuggestions: boolean;
-  emptyState: string;
-  panelMaxHeight: number;
-  onActivate: (index: number) => void;
-  onSelect: (riotId: string) => void;
+  readonly suggestions: Suggestion[];
+  readonly activeIndex: number;
+  readonly isLoadingSuggestions: boolean;
+  readonly emptyState: string;
+  readonly panelMaxHeight: number;
+  readonly onActivate: (index: number) => void;
+  readonly onSelect: (riotId: string) => void;
 }) {
   if (isLoadingSuggestions) {
     return <SuggestionStatus>Recherche de comptes connus en cours...</SuggestionStatus>;
@@ -494,11 +494,11 @@ export const RiotIdSearch = ({ defaultValue = "", compact = false }: RiotIdSearc
                 }}
               />
             </div>
-            {!compact ? (
+            {compact ? null : (
               <p className="text-sm text-muted-foreground">
                 Au focus: dernieres recherches. Pendant la saisie: suggestions de comptes connus et recherche exacte sur Riot ID complet.
               </p>
-            ) : null}
+            )}
           </div>
           <Button type="submit" variant="gold" className={`${compact ? "h-11 w-full" : "h-14 min-w-44"} rounded-2xl text-base`}>
             Rechercher

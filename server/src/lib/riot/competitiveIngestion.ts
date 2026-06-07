@@ -576,8 +576,8 @@ function runQueueSelectionRound(
   for (const groupKey of groupKeys) {
     const bucket = grouped.get(groupKey);
     if (!bucket?.length) continue;
-    const next = bucket.shift()!;
-    if (seen.has(next.matchId)) continue;
+    const next = bucket.shift();
+    if (!next || seen.has(next.matchId)) continue;
     if (!canSelectWithCaps({ candidate: next, selected: queue, targetUniqueMatches, policy })) continue;
     seen.add(next.matchId);
     queue.push(next);

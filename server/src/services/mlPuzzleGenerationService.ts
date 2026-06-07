@@ -10,15 +10,12 @@ import {
   isLowConfidenceDraftAllowed,
   isMlGenerationConfigured,
   type MlPredictNextItemResponse,
-  type MlPuzzleSnapshot,
 } from "../lib/ml/mlPuzzle.js";
 import {
   buildSnapshotCandidates,
   calculateGoldBeforePurchaseFromFrame,
   collectSnapshotBuilderItemIds,
   dedupeAndRankSnapshots,
-  type ItemGoldValue,
-  type ScenarioSnapshot,
   type SnapshotCandidate,
   type SnapshotChampionProfile,
 } from "../lib/ml/snapshotCandidateBuilder.js";
@@ -33,7 +30,6 @@ import {
   evaluateSnapshotAttempt,
   logSnapshotAttempt,
   prevalidateSnapshotCandidate,
-  type AttemptDebugSummary,
   type PreparedSnapshotAttempt,
   type SnapshotAttempt,
 } from "../lib/ml/snapshotAttemptEvaluator.js";
@@ -45,10 +41,7 @@ import {
   getSnapshotSegment,
   selectAttemptsForSeries,
   selectBestAttempt,
-  type SegmentEvaluationSummary,
-  type SeriesSelectionResult,
   type SnapshotHistoryEntry,
-  type SnapshotSegment,
 } from "../lib/ml/snapshotSeriesSelection.js";
 import {
   type MlChoiceItem,
@@ -225,12 +218,12 @@ function mapChoiceItems(
   return items.map(
     (item): MlChoiceItem => ({
       ...item,
-      tags: Array.isArray(item.tags) ? item.tags.map((tag) => String(tag)) : [],
-      buildsFrom: Array.isArray(item.buildsFrom) ? item.buildsFrom.map((entry) => String(entry)) : [],
+      tags: Array.isArray(item.tags) ? item.tags.map(String) : [],
+      buildsFrom: Array.isArray(item.buildsFrom) ? item.buildsFrom.map(String) : [],
       itemGroups: getItemGroups({
         ...item,
         fullDescription: item.fullDescription,
-      }).map((group) => String(group)),
+      }).map(String),
     }),
   );
 }
@@ -321,7 +314,7 @@ async function getPatchChoiceItems(input: ResolvedPatchLookup) {
   const familyPrefixes = [...new Set(
     input.lookupCandidates
       .map((candidate) => candidate.match(/^(\d{1,2})\./)?.[1] ?? null)
-      .filter((entry): entry is string => Boolean(entry))
+      .filter(Boolean)
       .map((major) => `${major}.`),
   )];
 
@@ -414,7 +407,7 @@ async function getPreviousChoiceSignatures(input: {
     .map((requestRecord) =>
       requestRecord.resultPuzzle?.choices
         .map((choice) => choice.item?.slug)
-        .filter((slug): slug is string => Boolean(slug)) ?? [],
+        .filter(Boolean) ?? [],
     )
     .filter((slugs) => slugs.length === 4)
     .map((slugs) => [...slugs].sort((left, right) => left.localeCompare(right)).join("|"));
@@ -425,11 +418,14 @@ function extractSnapshotEntriesFromParameters(parameters: unknown, createdAt: Da
     return [];
   }
   const objectParameters = parameters as Record<string, unknown>;
-  const selectedSnapshots = Array.isArray(objectParameters.selectedSnapshots)
-    ? objectParameters.selectedSnapshots
-    : objectParameters.selectedSnapshot
-      ? [objectParameters.selectedSnapshot]
-      : [];
+  let selectedSnapshots: unknown[];
+  if (Array.isArray(objectParameters.selectedSnapshots)) {
+    selectedSnapshots = objectParameters.selectedSnapshots;
+  } else if (objectParameters.selectedSnapshot) {
+    selectedSnapshots = [objectParameters.selectedSnapshot];
+  } else {
+    selectedSnapshots = [];
+  }
 
   const entries: SnapshotHistoryEntry[] = [];
   for (const snapshotEntry of selectedSnapshots) {
@@ -516,12 +512,12 @@ async function buildSnapshotCandidatesFromImportedMatch(
       champion.riotChampionId ?? 0,
       {
         slug: champion.slug,
-        tags: Array.isArray(champion.tags) ? champion.tags.map((tag) => String(tag)) : [],
+        tags: Array.isArray(champion.tags) ? champion.tags.map(String) : [],
       },
     ]),
   );
 
-  const itemIdsSeen = collectSnapshotBuilderItemIds(frames as Array<Record<string, unknown>>);
+  const itemIdsSeen = collectSnapshotBuilderItemIds(frames);
 
   const itemRows = itemIdsSeen.size
     ? await prisma.item.findMany({
@@ -553,7 +549,7 @@ async function buildSnapshotCandidatesFromImportedMatch(
       targetRole: importedMatch.targetRole ?? null,
     },
     participants,
-    frames: frames as Array<Record<string, unknown>>,
+    frames,
     championIndex,
     itemSlugIndex,
     itemGoldIndex,
@@ -664,7 +660,7 @@ export const mlPuzzleGenerationService = {
         importedMatchId,
         userId,
       });
-      const championTags = Array.isArray(champion.tags) ? champion.tags.map((tag) => String(tag)) : [];
+      const championTags = Array.isArray(champion.tags) ? champion.tags.map(String) : [];
       const prevalidation = snapshotCandidates.map((candidate) => ({
         candidate,
         verdict: prevalidateSnapshotCandidate({

@@ -185,7 +185,7 @@ async function resolveSeedByPuuid(seed: ProPlayerSeed, cached: ProResolvedSeed |
 }
 
 function getCandidateRiotIds(seed: ProPlayerSeed) {
-  return [seed.riotId, ...seed.riotIdCandidates].filter((value): value is string => Boolean(value));
+  return [seed.riotId, ...seed.riotIdCandidates].filter(Boolean);
 }
 
 function getCandidateResolutionSource(seed: ProPlayerSeed, index: number): ProResolvedSeed["resolutionSource"] {

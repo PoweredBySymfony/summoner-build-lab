@@ -1,4 +1,4 @@
-import { Role, type Champion, type Item, Prisma } from "@prisma/client";
+import { Role, type Champion, Prisma } from "@prisma/client";
 import { prisma } from "../server/src/lib/prisma.js";
 import { resolveItemSlug } from "../server/src/lib/itemSlugAliases.js";
 import { classifyLegacyScenarioBackfill, isLegacyStringArray } from "../server/src/lib/scenarioBackfill.js";

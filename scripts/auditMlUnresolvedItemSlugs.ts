@@ -46,7 +46,7 @@ async function main() {
     const attempts = asArray(attemptsSummary?.attempts);
     for (const attempt of attempts) {
       const attemptRecord = asObject(attempt);
-      const rejectionReasons = asArray(attemptRecord?.rejectionReasons).map((entry) => String(entry));
+      const rejectionReasons = asArray(attemptRecord?.rejectionReasons).map(String);
       if (!rejectionReasons.includes("good-answer-unresolved")) {
         continue;
       }

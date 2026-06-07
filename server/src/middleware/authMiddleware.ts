@@ -1,4 +1,4 @@
-import { timingSafeEqual } from "crypto";
+import { timingSafeEqual } from "node:crypto";
 import type { NextFunction, Request, Response } from "express";
 import { userRepository } from "../repositories/userRepository.js";
 import { env } from "../config/env.js";

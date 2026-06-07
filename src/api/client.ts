@@ -6,7 +6,7 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
       credentials: "include",
       headers: {
         "Content-Type": "application/json",
-        ...(init?.headers ?? {}),
+        ...init?.headers,
       },
     });
   } catch (error) {

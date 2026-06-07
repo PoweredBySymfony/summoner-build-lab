@@ -272,11 +272,11 @@ function AdminSidebar({
   section,
   onSectionChange,
   onOpenPatchDialog,
-}: {
+}: Readonly<{
   section: SectionKey;
   onSectionChange: (section: SectionKey) => void;
   onOpenPatchDialog: () => void;
-}) {
+}>) {
   return (
     <Sidebar variant="inset" collapsible="icon">
       <SidebarHeader className="border-b border-sidebar-border px-3 py-4">
@@ -331,7 +331,7 @@ function AdminSidebar({
   );
 }
 
-function AdminHeader({ user }: { user: { username: string } | null | undefined }) {
+function AdminHeader({ user }: Readonly<{ user: { username: string } | null | undefined }>) {
   return (
     <header className="sticky top-0 z-30 border-b border-border/60 bg-background/95 backdrop-blur">
       <div className="flex items-center justify-between gap-4 px-4 py-4 sm:px-6 lg:px-8">
@@ -375,7 +375,7 @@ function AdminSectionContent({
   onDeleteChampion,
   onDeleteItem,
   onDeletePuzzle,
-}: {
+}: Readonly<{
   section: SectionKey;
   overview: Parameters<typeof OverviewAdminSection>[0]["overview"];
   champions: ChampionView[];
@@ -395,7 +395,7 @@ function AdminSectionContent({
   onDeleteChampion: (champion: ChampionView) => void;
   onDeleteItem: (item: GameItem) => void;
   onDeletePuzzle: Parameters<typeof PuzzleAdminSection>[0]["onDelete"];
-}) {
+}>) {
   switch (section) {
     case "overview":
       return <OverviewAdminSection overview={overview} onOpenPatchDialog={onOpenPatchDialog} />;
@@ -443,13 +443,13 @@ function DeleteConfirmationDialog({
   onDeleteChampion,
   onDeleteItem,
   onDeletePuzzle,
-}: {
+}: Readonly<{
   target: DeleteTarget | null;
   onTargetChange: (target: DeleteTarget | null) => void;
   onDeleteChampion: (id: string) => Promise<unknown>;
   onDeleteItem: (id: string) => Promise<unknown>;
   onDeletePuzzle: (id: string) => Promise<unknown>;
-}) {
+}>) {
   const description = target
     ? `Tu vas supprimer ${deleteTargetEntityLabels[target.type]} "${target.label}".`
     : "";

@@ -1,4 +1,4 @@
-import { useState, useCallback, type ReactNode } from "react";
+import { useState, useCallback, useMemo, type ReactNode } from "react";
 import { LanguageContext, translations, type Language, type TranslationNode } from "./languageContext";
 
 export const LanguageProvider = ({ children }: { children: ReactNode }) => {
@@ -18,8 +18,10 @@ export const LanguageProvider = ({ children }: { children: ReactNode }) => {
     return typeof value === "string" ? value : key;
   }, [lang]);
 
+  const contextValue = useMemo(() => ({ lang, setLang, t }), [lang, setLang, t]);
+
   return (
-    <LanguageContext.Provider value={{ lang, setLang, t }}>
+    <LanguageContext.Provider value={contextValue}>
       {children}
     </LanguageContext.Provider>
   );

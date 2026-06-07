@@ -23,6 +23,8 @@ interface ItemIconProps {
   inspectControls?: string;
 }
 
+type Placement = "right" | "left" | "top" | "bottom";
+
 const sizeMap = {
   sm: "h-10 w-10",
   md: "h-12 w-12",
@@ -170,10 +172,10 @@ const TooltipPortal = ({
   anchor: HTMLElement | null;
   preferredWidth: number;
   preferredMaxHeight: number;
-  children: (placement: "right" | "left" | "top" | "bottom") => ReactNode;
+  children: (placement: Placement) => ReactNode;
 }) => {
   const [style, setStyle] = useState<CSSProperties | null>(null);
-  const [placement, setPlacement] = useState<"right" | "left" | "top" | "bottom">("right");
+  const [placement, setPlacement] = useState<Placement>("right");
   const containerRef = useRef<HTMLDivElement | null>(null);
   const viewportPadding = 16;
 
@@ -200,7 +202,7 @@ const TooltipPortal = ({
       const spaceBottom = globalThis.innerHeight - boundaryRect.bottom - viewportPadding;
       const spaceTop = boundaryRect.top - viewportPadding;
 
-      let nextPlacement: "right" | "left" | "top" | "bottom" = "right";
+      let nextPlacement: Placement = "right";
       if (spaceRight < width + gap) {
         if (spaceLeft >= width + gap) {
           nextPlacement = "left";
@@ -413,12 +415,12 @@ export const ItemIcon = ({
         className={`${sizeMap[size]} overflow-hidden rounded-md border border-border/60 bg-muted/50 ${canInteract ? "cursor-pointer" : ""} transition-all duration-200 hover:border-primary/50 hover:shadow-lg hover:shadow-primary/10 ${active || highlighted ? "border-primary/50 shadow-lg shadow-primary/10" : ""} ${className}`}
         style={{ boxShadow: "inset 0 2px 4px hsl(222 47% 4% / 0.5)" }}
       >
-        {!failed ? (
-          <img src={item.icon} alt={item.name} className="h-full w-full object-cover" loading="lazy" onError={() => setFailed(true)} />
-        ) : (
+        {failed ? (
           <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-primary/15 to-secondary px-1 text-center text-[9px] font-bold text-foreground">
             {item.name.slice(0, 3).toUpperCase()}
           </div>
+        ) : (
+          <img src={item.icon} alt={item.name} className="h-full w-full object-cover" loading="lazy" onError={() => setFailed(true)} />
         )}
       </div>
 
@@ -475,7 +477,7 @@ const ItemTooltip = ({
   layoutMode,
 }: {
   item: GameItem;
-  placement: "right" | "left" | "top" | "bottom";
+  placement: Placement;
   statLines: ReturnType<typeof getItemStatLines>;
   effectBlocks: ReturnType<typeof getItemEffectBlocks>;
   maxHeight: number;

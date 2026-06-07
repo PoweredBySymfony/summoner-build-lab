@@ -166,12 +166,12 @@ function parseNumericValue(value: string) {
 
 function decodeHtmlEntities(value: string) {
   return value
-    .replace(/&nbsp;/g, " ")
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, "\"")
-    .replace(/&#39;/g, "'");
+    .replaceAll("&nbsp;", " ")
+    .replaceAll("&amp;", "&")
+    .replaceAll("&lt;", "<")
+    .replaceAll("&gt;", ">")
+    .replaceAll("&quot;", "\"")
+    .replaceAll("&#39;", "'");
 }
 
 function stripDataDragonMarkup(value: string) {
@@ -195,7 +195,7 @@ function resolveDescriptor(rawLabel: string) {
 
 function parseStatLine(line: string): ResolvedItemStatLine | null {
   const compact = line.replace(/\s+/g, " ").trim();
-  const match = compact.match(/^([+-]?\d+(?:[.,]\d+)?%?)\s+(.+)$/);
+  const match = /^([+-]?\d+(?:[.,]\d+)?%?)\s+(.+)$/.exec(compact);
   if (!match) {
     return null;
   }

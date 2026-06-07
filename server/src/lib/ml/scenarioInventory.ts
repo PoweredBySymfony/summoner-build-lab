@@ -140,7 +140,7 @@ export function reconstructInventoriesAtTimestamp(input: {
         participantId,
         itemIds
           .map((itemId) => input.itemSlugIndex.get(itemId))
-          .filter((itemSlug): itemSlug is string => Boolean(itemSlug))
+          .filter((itemSlug): itemSlug is string => !!itemSlug)
           .map((itemSlug) => resolveItemSlug(itemSlug)),
       ]),
     ),

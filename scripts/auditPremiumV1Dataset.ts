@@ -336,7 +336,7 @@ async function main() {
         "npm run backfill:competitive-provenance",
         "npm run riot:report-competitive",
         "npm run ml:export-raw",
-        "ml\\.venv\\Scripts\\python.exe ml\\scripts\\tasks.py build-dataset",
+        String.raw`ml\.venv\Scripts\python.exe ml\scripts\tasks.py build-dataset`,
         "npm run audit:premium-v1-dataset",
       ],
     },

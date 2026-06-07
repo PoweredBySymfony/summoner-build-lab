@@ -1,5 +1,7 @@
 // Future-ready data models for database integration
 
+export type UserLanguage = "fr" | "en";
+
 export interface User {
   id: string;
   username: string;
@@ -11,7 +13,7 @@ export interface User {
   streak: number;
   preferred_roles: string[];
   target_skills: string[];
-  language: "fr" | "en";
+  language: UserLanguage;
   created_at: string;
 }
 

@@ -123,16 +123,16 @@ export function translateGeneratedCopy(input: string, championName?: string) {
     (_match, name: string, role: string, minute: string) =>
       `Tu joues ${name} en ${englishRoleLabel[role.toLowerCase()] ?? role} vers la ${minute}e minute. `,
   );
-  value = value.replace(
-    /Enemy frontline is stacking armor while burst still threatens you\./gi,
+  value = value.replaceAll(
+    "Enemy frontline is stacking armor while burst still threatens you.",
     "La frontline ennemie empile l'armure tandis que le burst reste une menace.",
   );
-  value = value.replace(
-    /Visible enemy items show the type of resistance or burst you need to answer right now\./gi,
+  value = value.replaceAll(
+    "Visible enemy items show the type of resistance or burst you need to answer right now.",
     "Les objets ennemis visibles montrent quel type de resistance ou de burst tu dois gerer tout de suite.",
   );
-  value = value.replace(
-    /Generated from champion-focused OTP heuristics\./gi,
+  value = value.replaceAll(
+    "Generated from champion-focused OTP heuristics.",
     "Genere a partir des heuristiques OTP centrees sur le champion.",
   );
   value = value.replace(
@@ -155,12 +155,12 @@ export function translateGeneratedCopy(input: string, championName?: string) {
     (_match, itemName: string, rest: string) =>
       `${translateItemName(itemName)} est l'achat le plus coherent ici.${rest ? " " + rest.trim() : ""}`,
   );
-  value = value.replace(/slightly increases health regen/gi, "Augmente legerement la regeneration de PV");
-  value = value.replace(/increases health/gi, "Augmente les points de vie");
-  value = value.replace(/grants a bonus to next attack after spell cast/gi, "Accorde un bonus a la prochaine attaque apres un sort");
+  value = value.replaceAll("slightly increases health regen", "Augmente legerement la regeneration de PV");
+  value = value.replaceAll("increases health", "Augmente les points de vie");
+  value = value.replaceAll("grants a bonus to next attack after spell cast", "Accorde un bonus a la prochaine attaque apres un sort");
 
   if (championName) {
-    value = value.replace(new RegExp(`\\b${championName}\\b focused scenario`, "gi"), `Scenario centre sur ${championName}`);
+    value = value.replace(new RegExp(String.raw`\b${championName}\b focused scenario`, "gi"), `Scenario centre sur ${championName}`);
   }
 
   return plainTextLabelMap[value] ?? repairEncodingArtifacts(value);

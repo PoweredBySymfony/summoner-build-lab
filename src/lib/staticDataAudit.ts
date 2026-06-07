@@ -208,9 +208,11 @@ function auditItem(item: GameItem, latestPatch: string | null) {
 
   const seenSignatures = new Set<string>();
   const seenLabels = new Set<string>();
-  issues.push(...auditItemDisplayStats(displayStatLines, seenSignatures, seenLabels, baseIssue));
-  issues.push(...auditItemRawStats(rawStatLines, displayStatLines, baseIssue));
-  issues.push(...auditItemEffects(effectBlocks, displayStatLines, baseIssue));
+  issues.push(
+    ...auditItemDisplayStats(displayStatLines, seenSignatures, seenLabels, baseIssue),
+    ...auditItemRawStats(rawStatLines, displayStatLines, baseIssue),
+    ...auditItemEffects(effectBlocks, displayStatLines, baseIssue),
+  );
 
   return issues;
 }

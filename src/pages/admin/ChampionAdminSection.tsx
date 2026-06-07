@@ -17,13 +17,13 @@ export function ChampionAdminSection({
   onQueryChange,
   onEdit,
   onDelete,
-}: {
+}: Readonly<{
   champions: ChampionView[];
   query: string;
   onQueryChange: (value: string) => void;
   onEdit: (champion: ChampionView) => void;
   onDelete: (champion: ChampionView) => void;
-}) {
+}>) {
   return (
     <div className="space-y-5">
       <SectionHeader title="Catalogue champions" description="Liste complete des champions enregistres avec leur image, leurs roles, leur patch et leur statut d'activation." />

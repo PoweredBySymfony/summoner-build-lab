@@ -129,12 +129,12 @@ async function main() {
   );
 }
 
-main()
-  .catch((error) => {
-    console.error("[readiness-10k] failed", error);
-    process.exitCode = 1;
-  })
-  .finally(async () => {
-    await closeMongoClient();
-    await prisma.$disconnect();
-  });
+try {
+  await main();
+} catch (error) {
+  console.error("[readiness-10k] failed", error);
+  process.exitCode = 1;
+} finally {
+  try { await closeMongoClient(); } catch { /* ignore */ }
+  try { await prisma.$disconnect(); } catch { /* ignore */ }
+}

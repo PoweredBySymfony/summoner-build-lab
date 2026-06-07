@@ -5,15 +5,15 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 
-export function ChampionThumb({ src, alt }: { src: string; alt: string }) {
+export function ChampionThumb({ src, alt }: Readonly<{ src: string; alt: string }>) {
   return <img src={src} alt={alt} className="h-12 w-12 rounded-xl border border-border/60 object-cover shadow-md shadow-black/20" />;
 }
 
-export function ItemThumb({ src, alt }: { src: string; alt: string }) {
+export function ItemThumb({ src, alt }: Readonly<{ src: string; alt: string }>) {
   return <img src={src} alt={alt} className="h-12 w-12 rounded-xl border border-border/60 object-cover shadow-md shadow-black/20" />;
 }
 
-export function StatTile({ icon: Icon, label, value, hint }: { icon: LucideIcon; label: string; value: string | number; hint: string }) {
+export function StatTile({ icon: Icon, label, value, hint }: Readonly<{ icon: LucideIcon; label: string; value: string | number; hint: string }>) {
   return (
     <div className="surface-elevated rounded-2xl p-5">
       <Icon className="mb-4 h-5 w-5 text-primary" />
@@ -28,11 +28,11 @@ export function SectionHeader({
   title,
   description,
   action,
-}: {
+}: Readonly<{
   title: string;
   description: string;
   action?: ReactNode;
-}) {
+}>) {
   return (
     <div className="flex flex-col gap-4 border-b border-border/60 pb-5 lg:flex-row lg:items-end lg:justify-between">
       <div>
@@ -49,11 +49,11 @@ export function AdminSearchField({
   value,
   onChange,
   placeholder,
-}: {
+}: Readonly<{
   value: string;
   onChange: (value: string) => void;
   placeholder: string;
-}) {
+}>) {
   return (
     <div className="flex max-w-md items-center gap-3 rounded-2xl border border-border/60 bg-card/80 px-4 py-3">
       <Search className="h-4 w-4 text-muted-foreground" />
@@ -67,12 +67,12 @@ export function InputField({
   value,
   onChange,
   type = "text",
-}: {
+}: Readonly<{
   label: string;
   value: string;
   onChange: (value: string) => void;
   type?: string;
-}) {
+}>) {
   return (
     <label className="block">
       <span className="mb-2 block text-sm font-medium text-foreground">{label}</span>
@@ -86,12 +86,12 @@ export function TextareaField({
   value,
   onChange,
   rows,
-}: {
+}: Readonly<{
   label: string;
   value: string;
   onChange: (value: string) => void;
   rows: number;
-}) {
+}>) {
   return (
     <label className="block">
       <span className="mb-2 block text-sm font-medium text-foreground">{label}</span>
@@ -104,11 +104,11 @@ export function ToggleField({
   label,
   checked,
   onCheckedChange,
-}: {
+}: Readonly<{
   label: string;
   checked: boolean;
   onCheckedChange: (value: boolean) => void;
-}) {
+}>) {
   return (
     <label className="flex items-center gap-3 rounded-xl border border-border/60 bg-muted/20 px-3 py-3">
       <Checkbox checked={checked} onCheckedChange={(value) => onCheckedChange(Boolean(value))} />

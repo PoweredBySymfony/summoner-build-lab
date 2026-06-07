@@ -44,7 +44,6 @@ import {
 } from "./lib/competitiveDiscoveryCheckpoint.js";
 import { renderMarkdownReport } from "./lib/competitiveImportReport.js";
 import {
-  buildDiscoveryQuerySignature,
   discoverSeeds,
   resolveSeeds,
 } from "./lib/competitiveSeedRunner.js";
@@ -117,6 +116,14 @@ function withPolicyOverrides(
   policy: CompetitiveIngestionPolicyConfig,
   options: CliOptions,
 ): CompetitiveIngestionPolicyConfig {
+  let seasonWindowEnd: string | null;
+  if (options.endTime === undefined) {
+    seasonWindowEnd = policy.seasonWindowEnd;
+  } else if (options.endTime) {
+    seasonWindowEnd = new Date(options.endTime * 1000).toISOString();
+  } else {
+    seasonWindowEnd = null;
+  }
   return {
     ...policy,
     preferredPatchPrefixes: options.preferredPatchPrefixes ?? policy.preferredPatchPrefixes,
@@ -127,15 +134,18 @@ function withPolicyOverrides(
       typeof options.startTime === "number"
         ? new Date(options.startTime * 1000).toISOString()
         : policy.seasonWindowStart,
-    seasonWindowEnd:
-      typeof options.endTime !== "undefined"
-        ? (options.endTime ? new Date(options.endTime * 1000).toISOString() : null)
-        : policy.seasonWindowEnd,
+    seasonWindowEnd,
   };
 }
 
 function toSourceKind(priorityTier: CompetitiveSeed["priorityTier"]) {
-  return priorityTier === "pro" ? "PRO_SEED" : priorityTier === "elite" ? "ELITE_SEED" : "FALLBACK_SEED";
+  if (priorityTier === "pro") {
+    return "PRO_SEED";
+  }
+  if (priorityTier === "elite") {
+    return "ELITE_SEED";
+  }
+  return "FALLBACK_SEED";
 }
 
 function getErrorMessage(error: unknown) {
@@ -1601,12 +1611,12 @@ async function main() {
   console.info(JSON.stringify(reportPayload, null, 2));
 }
 
-main()
-  .catch((error) => {
-    console.error("[competitive-ingestion] failed", error);
-    process.exitCode = 1;
-  })
-  .finally(async () => {
-    await prisma.$disconnect();
-    process.exit(process.exitCode ?? 0);
-  });
+try {
+  await main();
+} catch (error) {
+  console.error("[competitive-ingestion] failed", error);
+  process.exitCode = 1;
+} finally {
+  await prisma.$disconnect();
+  process.exit(process.exitCode ?? 0);
+}

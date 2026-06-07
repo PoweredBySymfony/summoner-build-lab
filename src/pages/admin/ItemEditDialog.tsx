@@ -18,12 +18,12 @@ export function ItemEditDialog({
   open,
   onOpenChange,
   onSave,
-}: {
+}: Readonly<{
   item: GameItem | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSave: (payload: AdminItemUpdatePayload) => Promise<void>;
-}) {
+}>) {
   const [form, setForm] = useState({
     name: "",
     shortDescription: "",
@@ -58,8 +58,8 @@ export function ItemEditDialog({
       patch: item.patch,
       category: item.category ?? "",
       goldTotal: String(item.cost),
-      goldBase: item.baseCost != null ? String(item.baseCost) : "",
-      goldSell: item.sellPrice != null ? String(item.sellPrice) : "",
+      goldBase: item.baseCost == null ? "" : String(item.baseCost),
+      goldSell: item.sellPrice == null ? "" : String(item.sellPrice),
       isBoots: item.isBoots,
       isLegendary: item.isLegendary,
       isConsumable: item.isConsumable,

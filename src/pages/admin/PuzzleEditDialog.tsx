@@ -20,14 +20,14 @@ export function PuzzleEditDialog({
   open,
   onOpenChange,
   onSave,
-}: {
+}: Readonly<{
   puzzle: PuzzleDetail | null;
   champions: ChampionView[];
   loading: boolean;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSave: (payload: AdminPuzzleUpdatePayload) => Promise<void>;
-}) {
+}>) {
   const [form, setForm] = useState({
     title: "",
     slug: "",

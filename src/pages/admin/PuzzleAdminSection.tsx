@@ -20,7 +20,7 @@ export function PuzzleAdminSection({
   onEdit,
   onPublish,
   onDelete,
-}: {
+}: Readonly<{
   puzzles: PuzzleListItem[];
   aiGeneratedPuzzles: PuzzleListItem[];
   query: string;
@@ -29,7 +29,7 @@ export function PuzzleAdminSection({
   onEdit: (puzzleId: string) => void;
   onPublish: (puzzleId: string) => void;
   onDelete: (puzzle: PuzzleListItem) => void;
-}) {
+}>) {
   return (
     <div className="space-y-5">
       <SectionHeader title="Bibliotheque puzzles" description="Tous les puzzles, y compris les brouillons, avec acces au detail, au champion associe et aux contenus a corriger." />
@@ -92,12 +92,12 @@ function AiGeneratedPuzzleQueue({
   publishing,
   onEdit,
   onPublish,
-}: {
+}: Readonly<{
   puzzles: PuzzleListItem[];
   publishing: boolean;
   onEdit: (puzzleId: string) => void;
   onPublish: (puzzleId: string) => void;
-}) {
+}>) {
   return (
     <div className="rounded-[28px] border border-primary/20 bg-primary/5 p-5">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">

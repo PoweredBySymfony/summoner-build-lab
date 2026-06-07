@@ -746,7 +746,10 @@ async function createGeneratedPuzzle(
   }
 
   const generatedSlug = `${champion.slug}-${variant.key}-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
-  const correctItem = itemIndex.get(variant.correctChoice)!;
+  const correctItem = itemIndex.get(variant.correctChoice);
+  if (!correctItem) {
+    throw new HttpError(500, "Impossible de résoudre l'item correct pour la génération du puzzle.");
+  }
   const playerRole = Role[playerSlot];
   let csForSlot: number;
   if (playerSlot === "SUPPORT") {
@@ -776,7 +779,10 @@ async function createGeneratedPuzzle(
       isDailyEligible: !importedMatchId,
       choices: {
         create: variant.choices.map((choiceSlug, index) => {
-          const item = itemIndex.get(choiceSlug)!;
+          const item = itemIndex.get(choiceSlug);
+          if (!item) {
+            throw new HttpError(500, `Item de choix introuvable: ${choiceSlug}`);
+          }
           const isCorrect = choiceSlug === variant.correctChoice;
           return {
             label: item.name,

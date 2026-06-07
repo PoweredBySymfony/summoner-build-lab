@@ -394,7 +394,7 @@ const Training = () => {
           <section className="space-y-4">
             <div className="glass-surface rounded-3xl p-6">
               <div className="flex flex-wrap items-center gap-3 text-[11px] uppercase tracking-[0.22em]">
-                <span className="font-semibold text-primary">{puzzle.mode.replace(/_/g, " ")}</span>
+                <span className="font-semibold text-primary">{puzzle.mode.replaceAll("_", " ")}</span>
                 <span className="text-muted-foreground">Patch {puzzle.patch}</span>
                 <span className="text-muted-foreground">{puzzle.difficulty}</span>
                 {puzzle.role ? <span className="text-muted-foreground">{puzzle.role}</span> : null}

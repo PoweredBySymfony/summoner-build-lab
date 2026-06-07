@@ -167,10 +167,10 @@ function logSeedQualityReport(report: ReturnType<typeof buildSeedQualityReport>)
     `[competitive-seeds] quality resolved=${report.resolvedSeedsPercent.toFixed(2)}% riotIdCandidates=${report.seedsWithRiotIdCandidatesPercent.toFixed(2)}%`,
   );
   console.info(
-    `[competitive-seeds] quality leagues=${report.leagueDistribution.slice(0, 8).map((entry) => `${entry.league}:${entry.count}`).join(", ")}`,
+    `[competitive-seeds] quality leagues=${report.leagueDistribution.slice(0, 8).map((entry) => entry.league + ":" + entry.count).join(", ")}`,
   );
   console.info(
-    `[competitive-seeds] quality regions=${report.regionDistribution.slice(0, 8).map((entry) => `${entry.region}:${entry.count}`).join(", ")}`,
+    `[competitive-seeds] quality regions=${report.regionDistribution.slice(0, 8).map((entry) => entry.region + ":" + entry.count).join(", ")}`,
   );
 }
 

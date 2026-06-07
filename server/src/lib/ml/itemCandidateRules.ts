@@ -32,7 +32,7 @@ function resolveUpgradeFromItems(item: MlChoiceItem, catalog: MlChoiceItem[]) {
     .map(toRiotItemId)
     .filter((value): value is number => value !== null)
     .map((riotItemId) => indexes.byRiotItemId.get(riotItemId) ?? null)
-    .filter((entry): entry is MlChoiceItem => Boolean(entry));
+    .filter((entry): entry is MlChoiceItem => !!entry);
 }
 
 function getItemClass(item: MlChoiceItem, catalog: MlChoiceItem[]) {

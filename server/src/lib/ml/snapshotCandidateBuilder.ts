@@ -241,7 +241,7 @@ function isSameSnapshotCandidate(left: SnapshotCandidate, right: SnapshotCandida
 }
 
 function appendUniqueSnapshotCandidate(kept: SnapshotCandidate[], candidate: SnapshotCandidate) {
-  if (kept.find((existing) => isSameSnapshotCandidate(candidate, existing))) {
+  if (kept.some((existing) => isSameSnapshotCandidate(candidate, existing))) {
     return false;
   }
 
@@ -454,7 +454,7 @@ function appendPurchasedItemSnapshotCandidate(input: {
   });
   const currentBuild = input.state.inventory
     .map((value) => input.itemSlugIndex.get(value))
-    .filter((value): value is string => Boolean(value));
+    .filter((value): value is string => !!value);
   const reconstructedInventories = reconstructInventoriesAtTimestamp({
     frames: input.sortedFrames,
     upToTimestamp: purchaseTimestamp,

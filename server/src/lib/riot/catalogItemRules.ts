@@ -60,7 +60,7 @@ export function deriveBootItemIds(
       if (bootItemIds.has(numericItemId)) {
         continue;
       }
-      const buildsFrom = Array.isArray(item.from) ? item.from.map((entry) => Number(entry)) : [];
+      const buildsFrom = Array.isArray(item.from) ? item.from.map(Number) : [];
       if (buildsFrom.some((entry) => bootItemIds.has(entry))) {
         bootItemIds.add(numericItemId);
         changed = true;

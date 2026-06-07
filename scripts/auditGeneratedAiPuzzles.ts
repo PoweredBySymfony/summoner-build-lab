@@ -22,7 +22,7 @@ function asObject(value: unknown) {
 }
 
 function asStringArray(value: unknown) {
-  return Array.isArray(value) ? value.map((entry) => String(entry)).filter(Boolean) : [];
+  return Array.isArray(value) ? value.map(String).filter(Boolean) : [];
 }
 
 function getPublishabilityFloorGold(playerGold: number) {

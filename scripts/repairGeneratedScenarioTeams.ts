@@ -1,4 +1,4 @@
-import { Role, type Champion, type Item, Prisma } from "@prisma/client";
+import { Role, type Champion, Prisma } from "@prisma/client";
 import { prisma } from "../server/src/lib/prisma.js";
 import { resolveItemSlug } from "../server/src/lib/itemSlugAliases.js";
 
@@ -319,11 +319,11 @@ async function main() {
   console.log(`Repaired ${repaired} generated puzzle scenarios with missing teams.`);
 }
 
-main()
-  .catch((error) => {
-    console.error("Generated scenario team repair failed.", error);
-    process.exit(1);
-  })
-  .finally(async () => {
-    await prisma.$disconnect();
-  });
+try {
+  await main();
+} catch (error) {
+  console.error("Generated scenario team repair failed.", error);
+  process.exit(1);
+} finally {
+  try { await prisma.$disconnect(); } catch { /* ignore */ }
+}

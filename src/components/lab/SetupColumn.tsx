@@ -46,8 +46,8 @@ const profileBarClass = {
 };
 
 interface ChampionRoleBadgesProps {
-  side: SetupColumnProps["side"];
-  roles: ChampionView["roles"];
+  readonly side: SetupColumnProps["side"];
+  readonly roles: ChampionView["roles"];
 }
 
 function ChampionRoleBadges({ side, roles }: ChampionRoleBadgesProps) {
@@ -65,11 +65,11 @@ function ChampionRoleBadges({ side, roles }: ChampionRoleBadgesProps) {
 }
 
 interface RoleSelectorProps {
-  side: SetupColumnProps["side"];
-  selectedRole: LabRoleKey;
-  roleOptions: LabRoleKey[];
-  disabled: boolean;
-  onRoleChange: (role: LabRoleKey) => void;
+  readonly side: SetupColumnProps["side"];
+  readonly selectedRole: LabRoleKey;
+  readonly roleOptions: LabRoleKey[];
+  readonly disabled: boolean;
+  readonly onRoleChange: (role: LabRoleKey) => void;
 }
 
 function RoleSelector({ side, selectedRole, roleOptions, disabled, onRoleChange }: RoleSelectorProps) {
@@ -131,7 +131,7 @@ const SetupColumn = ({
       ),
     [analysis.champion, items, setup],
   );
-  const activeSlotValidation = activeItemSlot !== null ? slotValidations[activeItemSlot] : null;
+  const activeSlotValidation = activeItemSlot === null ? null : slotValidations[activeItemSlot];
   const itemOptions = useMemo(() => {
     if (!activeSlotValidation) return [];
     const query = itemSearch.trim().toLowerCase();
@@ -351,11 +351,11 @@ const SetupColumn = ({
               </div>
             </div>
 
-            {!buildValidation.isValid ? (
+            {buildValidation.isValid ? null : (
               <div className="mt-4 rounded-2xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
                 {buildValidation.issues[0].itemName} n'est plus valide avec le role ou l'etat actuel du build. Remplace cet item pour revenir sur un setup legal.
               </div>
-            ) : null}
+            )}
 
             <div className="mt-4 grid gap-3 lg:grid-cols-2">
               <div className="rounded-2xl border border-border/60 bg-card/70 p-4">

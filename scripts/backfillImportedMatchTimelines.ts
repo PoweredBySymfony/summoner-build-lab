@@ -164,11 +164,11 @@ async function main() {
   console.info(`[ml-backfill] completed: updated=${updatedCount}, skipped=${skippedCount}`);
 }
 
-main()
-  .catch((error) => {
-    console.error("[ml-backfill] failed", error);
-    process.exitCode = 1;
-  })
-  .finally(async () => {
-    await prisma.$disconnect();
-  });
+try {
+  await main();
+} catch (error) {
+  console.error("[ml-backfill] failed", error);
+  process.exitCode = 1;
+} finally {
+  try { await prisma.$disconnect(); } catch { /* ignore */ }
+}

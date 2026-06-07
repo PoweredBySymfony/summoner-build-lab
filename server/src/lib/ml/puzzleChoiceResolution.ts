@@ -200,7 +200,7 @@ export function resolveMlPuzzleChoices(input: MlChoiceResolutionInput): MlChoice
   const availableBySlug = new Map(catalog.map((item) => [item.slug, item]));
   const ownedItems = input.currentItemSlugs
     .map((slug) => availableBySlug.get(resolveItemSlug(slug)) ?? null)
-    .filter((item): item is MlChoiceItem => Boolean(item));
+    .filter((item): item is MlChoiceItem => !!item);
 
   const ctx: DistractorResolutionCtx = {
     input,

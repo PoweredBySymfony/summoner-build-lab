@@ -16,6 +16,12 @@ import { riotSyncService } from "../services/riotSyncService.js";
 import { clearSessionCookie, setSessionCookie } from "../lib/session.js";
 import { asyncRoute } from "../utils/asyncRoute.js";
 import { HttpError } from "../utils/http.js";
+import type { Request } from "express";
+
+function requireUser(request: Request) {
+  if (!request.user) throw new HttpError(401, "Authentication required.");
+  return request.user;
+}
 
 const router = Router();
 const authLimiter = rateLimit({
@@ -77,7 +83,7 @@ router.post("/auth/register", authLimiter, asyncRoute(async (request, response) 
     email: z.string().email(),
     username: z.string().min(3).max(24),
     password: z.string().min(8).max(128),
-  }).parse(request.body) as { email: string; username: string; password: string };
+  }).parse(request.body);
 
   const user = await authService.register(payload);
   setSessionCookie(response, user);
@@ -88,7 +94,7 @@ router.post("/auth/login", authLimiter, asyncRoute(async (request, response) => 
   const payload = z.object({
     email: z.string().email(),
     password: z.string().min(8).max(128),
-  }).parse(request.body) as { email: string; password: string };
+  }).parse(request.body);
 
   const user = await authService.login(payload.email, payload.password);
   setSessionCookie(response, user);
@@ -116,7 +122,7 @@ router.get("/auth/google/callback", authLimiter, asyncRoute(async (request, resp
   const payload = z.object({
     code: z.string().min(1),
     state: z.string().min(1),
-  }).parse(request.query) as { code: string; state: string };
+  }).parse(request.query);
 
   oauthService.validateGoogleState(payload.state, request.cookies?.[GOOGLE_OAUTH_STATE_COOKIE]);
   response.clearCookie(GOOGLE_OAUTH_STATE_COOKIE, {
@@ -195,11 +201,11 @@ router.post("/puzzles/:slug/attempts", asyncRoute(async (request, response) => {
 }));
 
 router.get("/dashboard", requireAuth, asyncRoute(async (request, response) => {
-  response.json(await appService.getDashboard(request.user!.id));
+  response.json(await appService.getDashboard(requireUser(request).id));
 }));
 
 router.get("/progress", requireAuth, asyncRoute(async (request, response) => {
-  response.json(await progressService.getOverview(request.user!.id));
+  response.json(await progressService.getOverview(requireUser(request).id));
 }));
 
 router.get("/daily-challenge", asyncRoute(async (_request, response) => {
@@ -212,7 +218,7 @@ router.post("/daily-challenge/complete", requireAuth, asyncRoute(async (request,
   }).parse(request.body);
   const challenge = await dailyChallengeService.getOrCreateToday();
   const completion = await progressService.completeDailyChallenge({
-    userId: request.user!.id,
+    userId: requireUser(request).id,
     dailyChallengeId: challenge.id,
     isCorrect: payload.isCorrect,
   });
@@ -231,7 +237,7 @@ router.get("/champions/:slug", asyncRoute(async (request, response) => {
 
 router.post("/generated-puzzles/champion", requireAuth, asyncRoute(async (request, response) => {
   const payload = z.object({ championId: z.string().min(1) }).parse(request.body);
-  response.status(201).json(await puzzleGenerationService.generateChampionPuzzleSeries(payload.championId, request.user!.id));
+  response.status(201).json(await puzzleGenerationService.generateChampionPuzzleSeries(payload.championId, requireUser(request).id));
 }));
 
 router.post("/generated-puzzles/match", requireAuth, asyncRoute(async (request, response) => {
@@ -239,14 +245,15 @@ router.post("/generated-puzzles/match", requireAuth, asyncRoute(async (request, 
     importedMatchId: z.string().min(1),
     forceDraftOnLowConfidence: z.boolean().optional(),
   }).parse(request.body);
-  if (payload.forceDraftOnLowConfidence && !request.user!.isAdmin) {
+  const user = requireUser(request);
+  if (payload.forceDraftOnLowConfidence && !user.isAdmin) {
     throw new HttpError(403, "Le mode brouillon low-confidence est reserve aux administrateurs.");
   }
 
   response.status(201).json(
-    await puzzleGenerationService.generateMatchBasedPuzzle(payload.importedMatchId, request.user!.id, {
+    await puzzleGenerationService.generateMatchBasedPuzzle(payload.importedMatchId, user.id, {
       forceDraftOnLowConfidence: payload.forceDraftOnLowConfidence,
-      actorIsAdmin: request.user!.isAdmin,
+      actorIsAdmin: user.isAdmin,
     }),
   );
 }));
@@ -270,13 +277,13 @@ router.post("/generated-puzzles/item-explanation", itemExplanationLimiter, async
 
 router.get("/generated-puzzles/requests/:requestId/draft", requireAuth, asyncRoute(async (request, response) => {
   response.json(
-    await appService.getGeneratedPuzzleDraftByRequestId(String(request.params.requestId), request.user!),
+    await appService.getGeneratedPuzzleDraftByRequestId(String(request.params.requestId), requireUser(request)),
   );
 }));
 
 router.get("/generated-puzzles/requests/:requestId", requireAuth, asyncRoute(async (request, response) => {
   response.json(
-    await appService.getGeneratedPuzzleRequestById(String(request.params.requestId), request.user!),
+    await appService.getGeneratedPuzzleRequestById(String(request.params.requestId), requireUser(request)),
   );
 }));
 
@@ -311,7 +318,7 @@ router.post("/riot/import-matches", requireAuth, playerSearchLimiter, asyncRoute
     puuid: z.string().min(1),
     count: z.coerce.number().min(1).max(20).default(5),
   }).parse(request.body);
-  response.status(201).json(await riotSyncService.importRecentMatches(request.user!.id, payload.puuid, payload.count));
+  response.status(201).json(await riotSyncService.importRecentMatches(requireUser(request).id, payload.puuid, payload.count));
 }));
 
 router.post("/sync/champions", syncLimiter, requireSyncAccess, asyncRoute(async (_request, response) => {

@@ -1,5 +1,5 @@
 import { createGzip } from "node:zlib";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir } from "node:fs/promises";
 import { createWriteStream } from "node:fs";
 import path from "node:path";
 import { Readable } from "node:stream";

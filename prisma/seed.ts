@@ -320,10 +320,8 @@ async function main() {
     },
   });
 
-  const createdManual = [];
   for (const puzzle of manualPuzzles) {
-    const created = await createManualPuzzle(puzzle);
-    if (created) createdManual.push(created);
+    await createManualPuzzle(puzzle);
   }
 
   const champions = await prisma.champion.findMany({ orderBy: { name: "asc" } });
@@ -363,11 +361,11 @@ async function main() {
   console.log(`Seed complete: ${champions.length} champions, ${(await prisma.item.count())} items, ${await prisma.puzzle.count()} puzzles.`);
 }
 
-main()
-  .catch((error) => {
-    console.error("Seed failed", error);
-    process.exit(1);
-  })
-  .finally(async () => {
-    await prisma.$disconnect();
-  });
+try {
+  await main();
+} catch (error) {
+  console.error(error);
+  process.exitCode = 1;
+} finally {
+  await prisma.$disconnect();
+}

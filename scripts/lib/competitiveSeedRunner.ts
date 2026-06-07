@@ -87,7 +87,7 @@ async function resolveSeedByPuuid(
 }
 
 function getSeedRiotIdCandidates(seed: CompetitiveSeed) {
-  return [seed.riotId, ...seed.riotIdCandidates].filter((value): value is string => Boolean(value));
+  return [seed.riotId, ...seed.riotIdCandidates].filter(Boolean);
 }
 
 function getRiotIdResolutionSource(seed: CompetitiveSeed, index: number) {

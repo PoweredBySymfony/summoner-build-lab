@@ -157,7 +157,7 @@ function toAttemptSummary(value: unknown): AttemptSummary | null {
     filteredCandidatePoolSize: Number(record.filteredCandidatePoolSize ?? 0),
     goodAnswer: asString(record.goodAnswer),
     qualityScore: Number(record.qualityScore ?? 0),
-    rejectionReasons: asArray(record.rejectionReasons).map((entry) => String(entry)),
+    rejectionReasons: asArray(record.rejectionReasons).map(String),
     lowConfidence: Boolean(record.lowConfidence),
     confidenceScore: Number(record.confidenceScore ?? 0),
     confidenceGap: Number(record.confidenceGap ?? 0),
@@ -262,9 +262,9 @@ async function buildEvaluationRow(index: number, match: MatchForEvaluation, user
     .map(toAttemptSummary)
     .filter((entry): entry is AttemptSummary => entry !== null);
   const selectedSnapshot = asObject(parameters.selectedSnapshot);
-  const selectedSnapshots = asArray(parameters.selectedSnapshots).map(asObject).filter((entry): entry is JsonRecord => entry !== null);
-  const primarySelectedSnapshot = selectedSnapshot ?? selectedSnapshots[0] ?? null;
-  const primarySelectedSnapshotWithHistory = selectedSnapshots[0] ?? selectedSnapshot ?? null;
+  const firstSelectedSnapshot = asArray(parameters.selectedSnapshots).map(asObject).find((entry): entry is JsonRecord => entry !== null) ?? null;
+  const primarySelectedSnapshot = selectedSnapshot ?? firstSelectedSnapshot;
+  const primarySelectedSnapshotWithHistory = firstSelectedSnapshot ?? selectedSnapshot ?? null;
   const selectedSnapshotIndex = asNumber(primarySelectedSnapshot?.snapshotIndex);
   const selectedAttempt = selectedSnapshotIndex === null
     ? null
@@ -366,7 +366,7 @@ async function main() {
   const forcedImportedMatchIds = options.importedMatchIds
     ?? baselineGenerations
       .map((entry) => asString(entry.importedMatchId))
-      .filter((entry): entry is string => Boolean(entry));
+      .filter((entry): entry is string => entry !== null);
 
   const candidateMatches = await prisma.importedMatch.findMany({
     where: {
@@ -443,11 +443,11 @@ async function main() {
   const selectedSnapshotKeys = new Set(
     generations
       .map((row) => row.selectedSnapshotHistoryKey)
-      .filter((entry): entry is string => Boolean(entry)),
+      .filter((entry): entry is string => entry !== null),
   );
   const selectedSnapshotSignatures = generations
     .map((row) => row.selectedSnapshotSignature)
-    .filter((entry): entry is string => Boolean(entry));
+    .filter((entry): entry is string => entry !== null);
   const distinctSelectedSnapshotSignatures = new Set(selectedSnapshotSignatures);
   const summary = {
     completedCount,
@@ -460,7 +460,7 @@ async function main() {
     distinctSelectedSnapshotSignatureCount: distinctSelectedSnapshotSignatures.size,
     reusedSelectedSnapshotSignatureCount: selectedSnapshotSignatures.length - distinctSelectedSnapshotSignatures.size,
     patchCatalogFallbackOccurrences,
-    distinctChampionCount: new Set(generations.map((row) => row.championSlug).filter((entry): entry is string => Boolean(entry))).size,
+    distinctChampionCount: new Set(generations.map((row) => row.championSlug).filter((entry): entry is string => entry !== null)).size,
     snapshotSegmentCounts,
     averageCandidatePoolSize: Number(
       (
@@ -489,7 +489,7 @@ async function main() {
           new Set([
             ...asArray(baselineSummary.rejectionReasonCounts)
               .map((entry) => asString(asObject(entry)?.reason))
-              .filter((entry): entry is string => Boolean(entry)),
+              .filter((entry): entry is string => entry !== null),
             ...summary.rejectionReasonCounts.map((entry) => entry.reason),
           ]),
         )
@@ -511,9 +511,9 @@ async function main() {
   const reproductionCommands = [
     "npm run ml:export-raw",
     "cd ml",
-    ".\\.venv\\Scripts\\python.exe scripts\\tasks.py build-dataset",
-    ".\\.venv\\Scripts\\python.exe scripts\\tasks.py train-baseline",
-    `npm run audit:match-based-validation -- --sample-size ${options.sampleSize}${options.userEmail ? ` --user-email ${options.userEmail}` : ""}${forcedImportedMatchIds.length > 0 ? ` --imported-match-ids ${forcedImportedMatchIds.join(",")}` : ""}${options.baselineReportPath ? ` --baseline-report ${options.baselineReportPath}` : ""}`,
+    String.raw`.\.venv\Scripts\python.exe scripts\tasks.py build-dataset`,
+    String.raw`.\.venv\Scripts\python.exe scripts\tasks.py train-baseline`,
+    `npm run audit:match-based-validation -- --sample-size ${options.sampleSize}${options.userEmail ? " --user-email " + options.userEmail : ""}${forcedImportedMatchIds.length > 0 ? " --imported-match-ids " + forcedImportedMatchIds.join(",") : ""}${options.baselineReportPath ? " --baseline-report " + options.baselineReportPath : ""}`,
   ];
 
   const report = {

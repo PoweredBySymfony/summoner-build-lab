@@ -13,11 +13,11 @@ import {
 import type { GeneratedPuzzleItemExplanation, PuzzleDetail } from "@/types/domain";
 
 interface PuzzleItemExplanationDialogProps {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  puzzle: PuzzleDetail;
-  selectedChoiceId: string | null;
-  result: {
+  readonly open: boolean;
+  readonly onOpenChange: (open: boolean) => void;
+  readonly puzzle: PuzzleDetail;
+  readonly selectedChoiceId: string | null;
+  readonly result: {
     isCorrect: boolean;
     correctChoiceId: string | null;
   } | null;
@@ -66,7 +66,7 @@ function toCsv(rows: GeneratedPuzzleItemExplanation["exportPayload"]["rows"]) {
   const header = ["type", "label", "recommended", "compared", "delta", "unit", "note"];
   const lines = rows.map((row) =>
     [row.type, row.label, row.recommended, row.compared, row.delta, row.unit ?? "", row.note ?? ""]
-      .map((value) => `"${String(value).replace(/"/g, "\"\"")}"`)
+      .map((value) => `"${String(value).replaceAll('"', '""')}"`)
       .join(","));
   return [header.join(","), ...lines].join("\n");
 }
@@ -161,7 +161,7 @@ export function PuzzleItemExplanationDialog({
               <span className="flex h-10 w-10 items-center justify-center rounded-lg border border-primary/20 bg-primary/10 text-primary">
                 <BarChart3 className="h-5 w-5" />
               </span>
-              Preuve item
+              {" "}Preuve item
             </DialogTitle>
             <DialogDescription className="max-w-3xl text-sm text-muted-foreground">
               Tableau de decision: degats estimes, rendement en or, contraintes d'achat et profil strategique.
@@ -230,17 +230,23 @@ export function PuzzleItemExplanationDialog({
                       <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">Verdict</p>
                       <h3 className="mt-2 text-lg font-semibold text-foreground">{explanation.strategicVerdict.summary}</h3>
                     </div>
-                    <span
-                      className={`rounded-full px-3 py-1 text-xs font-semibold ${
-                        explanation.strategicVerdict.winner === "recommended"
-                          ? "bg-emerald-500/15 text-emerald-300"
-                          : explanation.strategicVerdict.winner === "compared"
-                            ? "bg-amber-500/15 text-amber-300"
-                            : "bg-secondary text-muted-foreground"
-                      }`}
-                    >
-                      confiance {explanation.strategicVerdict.confidence}
-                    </span>
+                    {(() => {
+                      let winnerClass: string;
+                      if (explanation.strategicVerdict.winner === "recommended") {
+                        winnerClass = "bg-emerald-500/15 text-emerald-300";
+                      } else if (explanation.strategicVerdict.winner === "compared") {
+                        winnerClass = "bg-amber-500/15 text-amber-300";
+                      } else {
+                        winnerClass = "bg-secondary text-muted-foreground";
+                      }
+                      return (
+                        <span
+                          className={`rounded-full px-3 py-1 text-xs font-semibold ${winnerClass}`}
+                        >
+                          confiance {explanation.strategicVerdict.confidence}
+                        </span>
+                      );
+                    })()}
                   </div>
                   <div className="mt-3 grid gap-2 sm:grid-cols-2">
                     <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/10 p-3">

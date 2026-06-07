@@ -63,18 +63,22 @@ export async function persistAiGeneratedPuzzle(input: {
     input.attempt.variationSeed,
   ].join("-");
 
+  let difficulty: PuzzleDifficulty;
+  if (input.attempt.seed.difficulty === "easy") {
+    difficulty = PuzzleDifficulty.BEGINNER;
+  } else if (input.attempt.seed.difficulty === "medium") {
+    difficulty = PuzzleDifficulty.INTERMEDIATE;
+  } else {
+    difficulty = PuzzleDifficulty.ADVANCED;
+  }
+
   return prisma.puzzle.create({
     data: {
       title: `${input.championName} AI item puzzle`,
       slug: slugify(uniqueSlugSeed),
       mode: PuzzleMode.PERSONALIZED,
       sourceType: PuzzleSourceType.AI_GENERATED,
-      difficulty:
-        input.attempt.seed.difficulty === "easy"
-          ? PuzzleDifficulty.BEGINNER
-          : input.attempt.seed.difficulty === "medium"
-            ? PuzzleDifficulty.INTERMEDIATE
-            : PuzzleDifficulty.ADVANCED,
+      difficulty,
       patch: input.attempt.snapshot.patch,
       description: input.draft
         ? `Brouillon genere par le service ML pour ${input.championName}, a revoir avant toute publication.`

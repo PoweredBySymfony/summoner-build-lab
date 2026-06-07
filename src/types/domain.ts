@@ -180,7 +180,7 @@ export interface PuzzleDetail extends PuzzleListItem {
         }
     >;
     allyItems?: unknown;
-    enemyItems?: Array<GameItem | { id: string; name: string }> | unknown;
+    enemyItems?: unknown;
     notableThreats?: unknown;
     objectiveState?: unknown;
     damageProfile?: unknown;

@@ -98,7 +98,7 @@ function parseArgs(argv: string[]): CampaignOptions {
     maxIdsPerSeed: 400,
     maxStages: 1,
     auditSampleSize: 20,
-    reportDir: path.join("data", "runtime", "campaigns", `competitive-${new Date().toISOString().replace(/[:.]/g, "-")}`),
+    reportDir: path.join("data", "runtime", "campaigns", `competitive-${new Date().toISOString().replaceAll(":", "-").replaceAll(".", "-")}`),
     dryRun: false,
     resetCheckpoint: false,
     maxSeedDiscoveryFailures: 2,
@@ -131,7 +131,7 @@ function buildArgs(base: string[], ...extras: Array<Array<string | undefined>>) 
     ...base,
     ...extras
       .flat()
-      .filter((value): value is string => Boolean(value)),
+      .filter(Boolean),
   ];
 }
 
