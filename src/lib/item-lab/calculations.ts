@@ -211,7 +211,14 @@ export const analyzeSetup = ({
 
 const buildComparisonCard = (label: string, statA: number, statB: number, formatter: (value: number) => string) => {
   const max = Math.max(statA, statB, 1);
-  const leader: LabSide | "tie" = Math.abs(statA - statB) < 0.009 ? "tie" : statA > statB ? "A" : "B";
+  let leader: LabSide | "tie";
+  if (Math.abs(statA - statB) < 0.009) {
+    leader = "tie";
+  } else if (statA > statB) {
+    leader = "A";
+  } else {
+    leader = "B";
+  }
   const delta = Math.abs(statA - statB);
   return {
     label,

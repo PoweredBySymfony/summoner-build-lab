@@ -201,16 +201,16 @@ const TooltipPortal = ({
       const spaceTop = boundaryRect.top - viewportPadding;
 
       let nextPlacement: "right" | "left" | "top" | "bottom" = "right";
-      if (spaceRight >= width + gap) {
-        nextPlacement = "right";
-      } else if (spaceLeft >= width + gap) {
-        nextPlacement = "left";
-      } else if (spaceTop >= panelHeight + gap) {
-        nextPlacement = "top";
-      } else if (spaceBottom >= panelHeight + gap) {
-        nextPlacement = "bottom";
-      } else {
-        nextPlacement = spaceBottom >= spaceTop ? "bottom" : "top";
+      if (spaceRight < width + gap) {
+        if (spaceLeft >= width + gap) {
+          nextPlacement = "left";
+        } else if (spaceTop >= panelHeight + gap) {
+          nextPlacement = "top";
+        } else if (spaceBottom >= panelHeight + gap) {
+          nextPlacement = "bottom";
+        } else {
+          nextPlacement = spaceBottom >= spaceTop ? "bottom" : "top";
+        }
       }
 
       setPlacement(nextPlacement);
@@ -317,12 +317,14 @@ export const ItemIcon = ({
   const totalEffectLength = effectBlocks.reduce((sum, block) => sum + block.body.length + (block.title?.length ?? 0), 0);
   const longestStatLabel = statLines.reduce((max, entry) => Math.max(max, entry.label.length), 0);
   const hasDenseContent = totalEffectLength > 220 || effectBlocks.length > 1;
-  const layoutMode =
-    hasDenseContent || (effectBlocks.length > 0 && item.buildsFrom.length > 0)
-      ? "dense"
-      : effectBlocks.length > 0 || statLines.length >= 4 || longestStatLabel > 22
-        ? "balanced"
-        : "compact";
+  let layoutMode: "dense" | "balanced" | "compact";
+  if (hasDenseContent || (effectBlocks.length > 0 && item.buildsFrom.length > 0)) {
+    layoutMode = "dense";
+  } else if (effectBlocks.length > 0 || statLines.length >= 4 || longestStatLabel > 22) {
+    layoutMode = "balanced";
+  } else {
+    layoutMode = "compact";
+  }
   const { width: tooltipWidth, maxHeight: tooltipMaxHeight } = getTooltipLayoutMetrics(layoutMode);
 
   useEffect(() => {
@@ -458,7 +460,6 @@ export const ItemIcon = ({
       ref={(node) => {
         triggerRef.current = node;
       }}
-      role="img"
     >
       {triggerContent}
     </div>

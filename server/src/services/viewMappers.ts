@@ -153,7 +153,7 @@ export function translateGeneratedCopy(input: string, championName?: string) {
   value = value.replace(
     /^(.+?) is the most coherent purchase here\.(.*)$/i,
     (_match, itemName: string, rest: string) =>
-      `${translateItemName(itemName)} est l'achat le plus coherent ici.${rest ? ` ${rest.trim()}` : ""}`,
+      `${translateItemName(itemName)} est l'achat le plus coherent ici.${rest ? " " + rest.trim() : ""}`,
   );
   value = value.replace(/slightly increases health regen/gi, "Augmente legerement la regeneration de PV");
   value = value.replace(/increases health/gi, "Augmente les points de vie");

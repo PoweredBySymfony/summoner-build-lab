@@ -611,8 +611,8 @@ export function buildCompetitiveMatchQueue(input: {
     grouped.set(key, bucket);
   }
 
-  for (const bucket of grouped.values()) {
-    bucket.sort((left, right) => right.matchPriorityScore - left.matchPriorityScore || left.matchId.localeCompare(right.matchId));
+  for (const [key, bucket] of grouped.entries()) {
+    grouped.set(key, [...bucket].sort((left, right) => right.matchPriorityScore - left.matchPriorityScore || left.matchId.localeCompare(right.matchId)));
   }
 
   const groupKeys = [...grouped.keys()].sort((left, right) => {

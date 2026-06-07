@@ -94,13 +94,13 @@ const getTrigger = (container: HTMLElement) =>
   container.querySelector('[data-item-icon="trinity-force"]') as HTMLElement;
 
 describe("ItemIcon", () => {
-  it("renders as div with role=img when interactive is false", () => {
+  it("renders as div without role when interactive is false", () => {
     const { container } = render(
       React.createElement(ItemIcon, { item: fakeItem, interactive: false, showTooltip: false }),
     );
     const trigger = getTrigger(container);
     expect(trigger.tagName).toBe("DIV");
-    expect(trigger.getAttribute("role")).toBe("img");
+    expect(trigger.getAttribute("role")).toBeNull();
   });
 
   it("renders as button when interactive is true and showTooltip is true", () => {

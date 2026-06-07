@@ -57,7 +57,6 @@ function formatItemDescription(input: string) {
       .replace(/<br\s*\/?>/gi, "\n")
       .replace(/<\/(mainText|stats)>/gi, "\n")
       .replace(/<(mainText|stats)>/gi, "")
-      .replace(/<\/?(attention|passive|active|ornnBonus|rarityLegendary|rarityMythic|scaleLevel|scaleAD|scaleAP|scaleMana|scaleHealth|magicDamage|physicalDamage|trueDamage|healing|OnHit|status|keywordMajor|keywordStealth|speed|shield|rules|itemPassive|itemActive)>/gi, "")
       .replace(/<li>/gi, "• ")
       .replace(/<\/li>/gi, "\n")
       .replace(/<[^>]+>/g, "")

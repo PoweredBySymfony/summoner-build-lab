@@ -269,45 +269,30 @@ const SetupColumn = ({
                     return (
                       <Popover key={`${side}-slot-${slotIndex}`} open={activeItemSlot === slotIndex} onOpenChange={(open) => setActiveItemSlot(open ? slotIndex : null)}>
                         <PopoverTrigger asChild>
-                          <div
-                            role="button"
-                            tabIndex={0}
-                            onKeyDown={(event) => {
-                              if (event.key === "Enter" || event.key === " ") {
-                                event.preventDefault();
-                                setActiveItemSlot(slotIndex);
-                              }
-                            }}
+                          <button
+                            type="button"
                             className="group item-slot-lg relative w-full rounded-xl border border-border/60 bg-card/80 transition-colors hover:border-primary/40"
                           >
                             {currentItem ? (
                               <>
                                 <ItemIcon item={currentItem} size="lg" showTooltip className="h-full w-full border-0" interactive={false} />
-                                <span
-                                  role="button"
-                                  tabIndex={0}
+                                <button
+                                  type="button"
                                   className="absolute right-1 top-1 rounded-full bg-background/80 p-1 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100"
-                                  onKeyDown={(event) => {
-                                    if (event.key === "Enter" || event.key === " ") {
-                                      event.preventDefault();
-                                      event.stopPropagation();
-                                      onItemRemove(slotIndex);
-                                    }
-                                  }}
                                   onClick={(event) => {
                                     event.stopPropagation();
                                     onItemRemove(slotIndex);
                                   }}
                                 >
                                   <CircleX className="h-3 w-3" />
-                                </span>
+                                </button>
                               </>
                             ) : (
                               <div className="flex h-full w-full items-center justify-center text-muted-foreground">
                                 <Plus className="h-5 w-5" />
                               </div>
                             )}
-                          </div>
+                          </button>
                         </PopoverTrigger>
                         <PopoverContent align="start" sideOffset={10} className="w-[360px] border-border/60 bg-card/95 p-3">
                           <div className="mb-3 flex items-center justify-between">

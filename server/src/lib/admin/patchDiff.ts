@@ -203,7 +203,7 @@ const formatItemReferenceLines = (itemIds: string[], options: ItemPatchDiffOptio
 
   return [...groups.values()]
     .map((group) => {
-      const sortedIds = group.ids.sort((left, right) => Number(left) - Number(right));
+      const sortedIds = [...group.ids].sort((left, right) => Number(left) - Number(right));
       return {
         key: sortedIds.join("|"),
         label: group.label,
@@ -294,7 +294,7 @@ const getChampionAbilityEntries = (detail: RemoteChampionDetail | undefined) => 
     },
     ...detail.spells.map((spell, index) => ({
       key: spell.id,
-      label: `${spellSlots[index + 1] ?? `Sort ${index + 1}`} - ${spell.name}`,
+      label: `${spellSlots[index + 1] ?? ("Sort " + String(index + 1))} - ${spell.name}`,
       value: formatSpellDescription(spell.tooltip || spell.description),
     })),
   ];

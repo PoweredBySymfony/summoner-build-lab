@@ -43,7 +43,7 @@ export const usePuzzles = (params?: { championSlug?: string; mode?: string; limi
       if (params?.championSlug) query.set("championSlug", params.championSlug);
       if (params?.mode) query.set("mode", params.mode);
       if (params?.limit) query.set("limit", String(params.limit));
-      return apiFetch<PuzzleListItem[]>(`/puzzles${query.toString() ? `?${query.toString()}` : ""}`);
+      return apiFetch<PuzzleListItem[]>(`/puzzles${query.toString() ? "?" + query.toString() : ""}`);
     },
   });
 

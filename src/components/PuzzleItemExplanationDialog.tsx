@@ -73,7 +73,7 @@ function toCsv(rows: GeneratedPuzzleItemExplanation["exportPayload"]["rows"]) {
 
 function signed(value: number, unit = "") {
   const prefix = value > 0 ? "+" : "";
-  return `${prefix}${value}${unit ? ` ${unit}` : ""}`;
+  return `${prefix}${value}${unit ? " " + unit : ""}`;
 }
 
 function rowTone(delta: number) {

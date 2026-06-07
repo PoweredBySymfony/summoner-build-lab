@@ -665,15 +665,21 @@ export async function evaluateSnapshotAttempt(input: {
       variationSeed,
     });
   } catch (error) {
+    let rejectionReason: string;
+    if (error instanceof HttpError) {
+      rejectionReason = `attempt-http-${error.status}`;
+    } else if (error instanceof Error) {
+      rejectionReason = error.message;
+    } else {
+      rejectionReason = String(error);
+    }
     return buildRejectedAttempt({
       candidate: input.candidate,
       payload,
       rawCandidatePoolSize: 0,
       filteredCandidatePoolSize: 0,
       goodAnswer: null,
-      rejectionReasons: [
-        error instanceof HttpError ? `attempt-http-${error.status}` : error instanceof Error ? error.message : String(error),
-      ],
+      rejectionReasons: [rejectionReason],
       goodAnswerSource: "ml-prediction",
       details:
         error instanceof HttpError

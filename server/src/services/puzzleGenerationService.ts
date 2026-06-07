@@ -748,6 +748,14 @@ async function createGeneratedPuzzle(
   const generatedSlug = `${champion.slug}-${variant.key}-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
   const correctItem = itemIndex.get(variant.correctChoice)!;
   const playerRole = Role[playerSlot];
+  let csForSlot: number;
+  if (playerSlot === "SUPPORT") {
+    csForSlot = 38;
+  } else if (playerSlot === "JUNGLE") {
+    csForSlot = 142;
+  } else {
+    csForSlot = 184;
+  }
 
   const puzzle = await prisma.puzzle.create({
     data: {
@@ -793,7 +801,7 @@ async function createGeneratedPuzzle(
           kills: playerSlot === "SUPPORT" ? 1 : 5,
           deaths: 2,
           assists: playerSlot === "SUPPORT" ? 10 : 6,
-          cs: playerSlot === "SUPPORT" ? 38 : playerSlot === "JUNGLE" ? 142 : 184,
+          cs: csForSlot,
           currentBuild: serializedCurrentBuild as Prisma.InputJsonValue,
           allyTeam: serializedAllyTeam as Prisma.InputJsonValue,
           enemyTeam: serializedEnemyTeam as Prisma.InputJsonValue,
