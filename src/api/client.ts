@@ -2,12 +2,12 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
   let response: Response;
   try {
     response = await fetch(`/api${path}`, {
+      ...init,
       credentials: "include",
       headers: {
         "Content-Type": "application/json",
         ...(init?.headers ?? {}),
       },
-      ...init,
     });
   } catch (error) {
     if (error instanceof TypeError) {
