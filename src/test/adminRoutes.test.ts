@@ -1,29 +1,32 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-type HandlerFn = (req: any, res: any, next?: any) => any;
+type HandlerFn = (
+  req: Record<string, unknown>,
+  res: Record<string, unknown>,
+  next?: (err?: unknown) => void,
+) => Promise<void> | void;
 
-const captured = vi.hoisted(() => ({
-  handlers: {} as Record<string, HandlerFn>,
-  router: null as any,
+const captured = vi.hoisted((): { handlers: Record<string, HandlerFn> } => ({
+  handlers: {},
 }));
 
 vi.mock("express", () => {
-  captured.router = {
+  const router = {
     use: vi.fn(),
-    get: vi.fn((path: string, ...args: any[]) => {
-      captured.handlers[`GET ${path}`] = args[args.length - 1];
+    get: vi.fn((path: string, ...args: unknown[]) => {
+      captured.handlers[`GET ${path}`] = args[args.length - 1] as HandlerFn;
     }),
-    post: vi.fn((path: string, ...args: any[]) => {
-      captured.handlers[`POST ${path}`] = args[args.length - 1];
+    post: vi.fn((path: string, ...args: unknown[]) => {
+      captured.handlers[`POST ${path}`] = args[args.length - 1] as HandlerFn;
     }),
-    patch: vi.fn((path: string, ...args: any[]) => {
-      captured.handlers[`PATCH ${path}`] = args[args.length - 1];
+    patch: vi.fn((path: string, ...args: unknown[]) => {
+      captured.handlers[`PATCH ${path}`] = args[args.length - 1] as HandlerFn;
     }),
-    delete: vi.fn((path: string, ...args: any[]) => {
-      captured.handlers[`DELETE ${path}`] = args[args.length - 1];
+    delete: vi.fn((path: string, ...args: unknown[]) => {
+      captured.handlers[`DELETE ${path}`] = args[args.length - 1] as HandlerFn;
     }),
   };
-  return { Router: () => captured.router };
+  return { Router: () => router };
 });
 
 vi.mock("express-rate-limit", () => ({ default: vi.fn(() => vi.fn()) }));
@@ -76,14 +79,14 @@ vi.mock("../../server/src/services/adminService.js", () => ({
 }));
 
 vi.mock("../../server/src/lib/admin/adminPayloadSchemas.js", () => ({
-  adminChampionUpdateSchema: { parse: (body: any) => body },
-  adminItemUpdateSchema: { parse: (body: any) => body },
-  adminPuzzleUpdateSchema: { parse: (body: any) => body },
+  adminChampionUpdateSchema: { parse: (body: unknown) => body },
+  adminItemUpdateSchema: { parse: (body: unknown) => body },
+  adminPuzzleUpdateSchema: { parse: (body: unknown) => body },
 }));
 
 import "../../server/src/routes/adminRoutes.js";
 
-const req = (overrides: Record<string, any> = {}) => ({
+const req = (overrides: Record<string, unknown> = {}) => ({
   params: {},
   body: {},
   query: {},

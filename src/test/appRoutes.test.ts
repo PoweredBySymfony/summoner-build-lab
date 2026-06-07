@@ -1,25 +1,29 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-type HandlerFn = (req: any, res: any, next?: any) => any;
+type HandlerFn = (
+  req: Record<string, unknown>,
+  res: Record<string, unknown>,
+  next?: (err?: unknown) => void,
+) => Promise<void> | void;
 
-const captured = vi.hoisted(() => ({
-  handlers: {} as Record<string, HandlerFn>,
+const captured = vi.hoisted((): { handlers: Record<string, HandlerFn> } => ({
+  handlers: {},
 }));
 
 vi.mock("express", () => {
   const router = {
     use: vi.fn(),
-    get: vi.fn((path: string, ...args: any[]) => {
-      captured.handlers[`GET ${path}`] = args[args.length - 1];
+    get: vi.fn((path: string, ...args: unknown[]) => {
+      captured.handlers[`GET ${path}`] = args[args.length - 1] as HandlerFn;
     }),
-    post: vi.fn((path: string, ...args: any[]) => {
-      captured.handlers[`POST ${path}`] = args[args.length - 1];
+    post: vi.fn((path: string, ...args: unknown[]) => {
+      captured.handlers[`POST ${path}`] = args[args.length - 1] as HandlerFn;
     }),
-    patch: vi.fn((path: string, ...args: any[]) => {
-      captured.handlers[`PATCH ${path}`] = args[args.length - 1];
+    patch: vi.fn((path: string, ...args: unknown[]) => {
+      captured.handlers[`PATCH ${path}`] = args[args.length - 1] as HandlerFn;
     }),
-    delete: vi.fn((path: string, ...args: any[]) => {
-      captured.handlers[`DELETE ${path}`] = args[args.length - 1];
+    delete: vi.fn((path: string, ...args: unknown[]) => {
+      captured.handlers[`DELETE ${path}`] = args[args.length - 1] as HandlerFn;
     }),
   };
   return { Router: () => router };
@@ -169,7 +173,7 @@ vi.mock("../../server/src/repositories/puzzleRepository.js", () => ({
 
 import "../../server/src/routes/appRoutes.js";
 
-const req = (overrides: Record<string, any> = {}) => ({
+const req = (overrides: Record<string, unknown> = {}) => ({
   params: {},
   body: {},
   query: {},
@@ -179,14 +183,15 @@ const req = (overrides: Record<string, any> = {}) => ({
 });
 
 const res = () => {
-  const r: any = {
+  const r = {
     json: vi.fn(),
-    status: vi.fn().mockReturnThis(),
+    status: vi.fn(),
     send: vi.fn(),
     redirect: vi.fn(),
     cookie: vi.fn(),
     clearCookie: vi.fn(),
   };
+  r.status.mockReturnValue(r);
   return r;
 };
 
