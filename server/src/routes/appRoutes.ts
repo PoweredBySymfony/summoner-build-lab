@@ -83,7 +83,7 @@ router.post("/auth/register", authLimiter, asyncRoute(async (request, response) 
     email: z.string().email(),
     username: z.string().min(3).max(24),
     password: z.string().min(8).max(128),
-  }).parse(request.body);
+  }).parse(request.body) as { email: string; username: string; password: string };
 
   const user = await authService.register(payload);
   setSessionCookie(response, user);
