@@ -21,11 +21,20 @@ const mocks = vi.hoisted(() => ({
   latestVersion: vi.fn(),
   championCount: vi.fn(),
   championGroupBy: vi.fn(),
+  championFindMany: vi.fn(),
   puzzleCount: vi.fn(),
   itemGroupBy: vi.fn(),
   transaction: vi.fn(),
   puzzleChoiceCount: vi.fn(),
   syncAll: vi.fn(),
+  getChampionSummary: vi.fn(),
+  getItemSummary: vi.fn(),
+  getChampionDetail: vi.fn(),
+  diffChampionPatch: vi.fn(),
+  diffItemPatch: vi.fn(),
+  buildNewChampionPatchEntry: vi.fn(),
+  buildNewItemPatchEntries: vi.fn(),
+  countPatchStatus: vi.fn(),
   mapChampionView: vi.fn((champion: { slug?: string; id?: string }) => ({ id: champion.slug ?? champion.id })),
   mapItemView: vi.fn((item: { slug?: string; id?: string }) => ({ id: item.slug ?? item.id })),
   mapPuzzleListView: vi.fn((puzzle: { slug?: string; id?: string }) => ({ id: puzzle.slug ?? puzzle.id })),
@@ -63,6 +72,7 @@ vi.mock("../../server/src/lib/prisma.js", () => ({
     champion: {
       count: mocks.championCount,
       groupBy: mocks.championGroupBy,
+      findMany: mocks.championFindMany,
     },
     puzzle: {
       count: mocks.puzzleCount,
@@ -89,7 +99,18 @@ vi.mock("../../server/src/lib/gameData/dataDragonClient.js", () => ({
   dataDragonClient: {
     getLatestVersion: mocks.latestVersion,
     getItemIconUrl: vi.fn((patch: string, itemId: string) => `https://ddragon/${patch}/${itemId}.png`),
+    getChampionSummary: mocks.getChampionSummary,
+    getItemSummary: mocks.getItemSummary,
+    getChampionDetail: mocks.getChampionDetail,
   },
+}));
+
+vi.mock("../../server/src/lib/admin/patchDiff.js", () => ({
+  diffChampionPatch: mocks.diffChampionPatch,
+  diffItemPatch: mocks.diffItemPatch,
+  buildNewChampionPatchEntry: mocks.buildNewChampionPatchEntry,
+  buildNewItemPatchEntries: mocks.buildNewItemPatchEntries,
+  countPatchStatus: mocks.countPatchStatus,
 }));
 
 vi.mock("../../server/src/lib/championIndex.js", () => ({
@@ -221,6 +242,45 @@ beforeEach(() => {
   mocks.transaction.mockResolvedValue([0, 0, 0, 0]);
   mocks.puzzleChoiceCount.mockResolvedValue(0);
   mocks.syncAll.mockResolvedValue({ synced: true });
+
+  mocks.championFindMany.mockResolvedValue([champion({ championKey: "Jinx" })]);
+  mocks.getChampionSummary.mockResolvedValue({
+    data: {
+      Jinx: { id: "Jinx", key: "222", name: "Jinx", title: "the Loose Cannon", tags: ["Marksman"], stats: { attackdamage: 59 } },
+    },
+  });
+  mocks.getItemSummary.mockResolvedValue({
+    data: {
+      "3031": {
+        name: "Infinity Edge",
+        plaintext: "IE",
+        description: "<mainText>Crit</mainText>",
+        gold: { base: 1000, total: 3400, sell: 2380, purchasable: true },
+        tags: ["Damage"],
+        stats: { FlatCritChanceMod: 0.2 },
+        maps: { "11": true },
+        inStore: true,
+      },
+    },
+  });
+  mocks.getChampionDetail.mockResolvedValue({
+    id: "Jinx",
+    name: "Jinx",
+    title: "the Loose Cannon",
+    blurb: "Jinx's blurb",
+    passive: { name: "Powder Keg", description: "desc", image: { full: "Jinx_Passive.png" } },
+    spells: [
+      { id: "JinxQ", name: "Switcheroo!", description: "desc", image: { full: "JinxQ.png" } },
+      { id: "JinxW", name: "Zap!", description: "desc", image: { full: "JinxW.png" } },
+      { id: "JinxE", name: "Flame Chompers!", description: "desc", image: { full: "JinxE.png" } },
+      { id: "JinxR", name: "Super Mega Death Rocket!", description: "desc", image: { full: "JinxR.png" } },
+    ],
+  });
+  mocks.diffChampionPatch.mockReturnValue({ patchStatus: "changed", changeSummary: ["Name changed"], changes: [] });
+  mocks.diffItemPatch.mockReturnValue({ patchStatus: "changed", changeSummary: ["Gold changed"], changes: [] });
+  mocks.buildNewChampionPatchEntry.mockReturnValue({ patchStatus: "new", id: "new-champ" });
+  mocks.buildNewItemPatchEntries.mockReturnValue([]);
+  mocks.countPatchStatus.mockReturnValue(1);
 });
 
 describe("adminService", () => {
@@ -347,5 +407,45 @@ describe("adminService", () => {
       status: 404,
       message,
     } satisfies Partial<HttpError>);
+  });
+
+  it("computes patch status comparing local catalog to remote Data Dragon", async () => {
+    const status = await adminService.getPatchStatus();
+
+    expect(status.remoteLatestPatch).toBe("16.7");
+    expect(status.hasUpdate).toBe(true);
+    expect(Array.isArray(status.champions)).toBe(true);
+    expect(Array.isArray(status.items)).toBe(true);
+    expect(status.summary).toMatchObject({
+      championCount: expect.any(Number),
+      itemCount: expect.any(Number),
+      changedChampionCount: 1,
+      changedItemCount: 1,
+      newChampionCount: 1,
+      newItemCount: 1,
+    });
+
+    expect(mocks.getChampionSummary).toHaveBeenCalledWith("16.7");
+    expect(mocks.getItemSummary).toHaveBeenCalledWith("16.7");
+    expect(mocks.diffChampionPatch).toHaveBeenCalled();
+    expect(mocks.diffItemPatch).toHaveBeenCalled();
+  });
+
+  it("skips champion detail resolution when championKey is absent", async () => {
+    mocks.championFindMany.mockResolvedValue([champion({ championKey: null })]);
+
+    const status = await adminService.getPatchStatus();
+
+    expect(mocks.getChampionDetail).not.toHaveBeenCalled();
+    expect(Array.isArray(status.champions)).toBe(true);
+  });
+
+  it("delegates full sync to riotSyncService and returns combined patch status", async () => {
+    const result = await adminService.syncPatch("16.7");
+
+    expect(mocks.syncAll).toHaveBeenCalledWith("16.7");
+    expect(result.result).toEqual({ synced: true });
+    expect(result.status).toBeDefined();
+    expect(result.status.remoteLatestPatch).toBe("16.7");
   });
 });
