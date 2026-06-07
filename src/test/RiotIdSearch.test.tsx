@@ -266,20 +266,22 @@ describe("RiotIdSearch", () => {
       expect(screen.queryByText("Faker")).not.toBeInTheDocument();
     });
 
-    it("ArrowDown cycles through suggestions without crashing", () => {
+    it("ArrowDown moves focus to first suggestion", () => {
       mocks.parseRiotIdInput.mockReturnValue({ riotId: "Faker#KR1", gameName: "Faker", tagLine: "KR1" });
       setup();
       const input = screen.getByTestId("riot-id-input");
       fireEvent.change(input, { target: { value: "Faker#KR1" } });
       fireEvent.keyDown(input, { key: "ArrowDown" });
+      expect(screen.getByText("Recherche exacte")).toBeInTheDocument();
     });
 
-    it("ArrowUp cycles through suggestions without crashing", () => {
+    it("ArrowUp moves focus without closing the panel", () => {
       mocks.parseRiotIdInput.mockReturnValue({ riotId: "Faker#KR1", gameName: "Faker", tagLine: "KR1" });
       setup();
       const input = screen.getByTestId("riot-id-input");
       fireEvent.change(input, { target: { value: "Faker#KR1" } });
       fireEvent.keyDown(input, { key: "ArrowUp" });
+      expect(screen.getByText("Recherche exacte")).toBeInTheDocument();
     });
 
     it("Enter with active suggestion navigates to profile", () => {

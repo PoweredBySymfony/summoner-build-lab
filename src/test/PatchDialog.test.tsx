@@ -198,8 +198,7 @@ describe("PatchDialog", () => {
       ],
     };
     render(React.createElement(PatchDialog, { ...defaultProps, status: statusWithAll }));
-    const tousButtons = screen.getAllByRole("button").filter((b) => b.textContent?.match(/^tous/i));
-    fireEvent.click(tousButtons[0]);
+    fireEvent.click(screen.getAllByText(/^Tous/i)[0]);
     expect(screen.getByText("Jinx")).toBeInTheDocument();
     expect(screen.getByText("Lux")).toBeInTheDocument();
     expect(screen.getByText("Thresh")).toBeInTheDocument();
@@ -253,8 +252,238 @@ describe("PatchDialog", () => {
       champions: [champion, removedChampion],
     };
     render(React.createElement(PatchDialog, { ...defaultProps, status: statusWithRemoved }));
-    const removedButtons = screen.getAllByRole("button").filter((b) => b.textContent?.match(/retires/i));
-    fireEvent.click(removedButtons[0]);
+    const removedBtn = screen.getAllByRole("button").find((b) => /retires/i.exec(b.textContent ?? ""));
+    fireEvent.click(removedBtn ?? screen.getByText(/retires/i));
     expect(screen.getByText("Vi")).toBeInTheDocument();
+  });
+
+  it("renders ChampionPreviewPanel with blurb and abilities when champion has patchPreview", () => {
+    const championWithPreview: AdminPatchChampionEntry = {
+      ...champion,
+      patchStatus: "changed",
+      changes: [],
+      changeSummary: ["Ability changed"],
+      patchPreview: {
+        name: "Jinx",
+        title: "The Loose Cannon",
+        blurb: "A menace to order.",
+        passive: {
+          id: "JinxP",
+          key: "P",
+          name: "Excited!",
+          description: "Gains <b>bonus</b> movement speed.",
+          icon: "/passive.png",
+        },
+        spells: [
+          {
+            id: "JinxQ",
+            key: "Q",
+            name: "Switcheroo!",
+            description: "Swaps <i>weapon</i>.",
+            icon: "/q.png",
+          },
+        ],
+      },
+    };
+    const statusWithPreview: AdminPatchStatusPayload = {
+      ...patchStatus,
+      champions: [championWithPreview],
+      items: [],
+    };
+    render(React.createElement(PatchDialog, { ...defaultProps, status: statusWithPreview }));
+    const detailBtn = screen.getByRole("button", { name: /details/i });
+    fireEvent.click(detailBtn);
+    expect(screen.getByText("The Loose Cannon")).toBeInTheDocument();
+    expect(screen.getByText("A menace to order.")).toBeInTheDocument();
+    expect(screen.getByText(/Excited!/)).toBeInTheDocument();
+    expect(screen.getByText(/Switcheroo!/)).toBeInTheDocument();
+    expect(screen.getByText(/Gains.*movement speed/)).toBeInTheDocument();
+  });
+
+  it("renders PatchLongTextLines for changes with field=abilities", () => {
+    const championWithAbilities: AdminPatchChampionEntry = {
+      ...champion,
+      patchStatus: "changed",
+      changes: [
+        {
+          field: "abilities",
+          label: "Capacites",
+          before: "Ancienne version",
+          after: "Nouvelle version",
+          beforeLines: [{ key: "passive", label: "Passif", value: "Ancienne description" }],
+          afterLines: [{ key: "passive", label: "Passif", value: "Nouvelle description" }],
+        },
+      ],
+    };
+    const statusWithAbilities: AdminPatchStatusPayload = {
+      ...patchStatus,
+      champions: [championWithAbilities],
+      items: [],
+    };
+    render(React.createElement(PatchDialog, { ...defaultProps, status: statusWithAbilities }));
+    const detailBtn = screen.getByRole("button", { name: /details/i });
+    fireEvent.click(detailBtn);
+    expect(screen.getAllByText("Passif").length).toBeGreaterThan(0);
+    expect(screen.getByText("Ancienne description")).toBeInTheDocument();
+    expect(screen.getByText("Nouvelle description")).toBeInTheDocument();
+  });
+
+  it("shows fallback text when PatchLongTextLines has no lines", () => {
+    const championWithEmptyAbilities: AdminPatchChampionEntry = {
+      ...champion,
+      patchStatus: "changed",
+      changes: [
+        {
+          field: "abilities",
+          label: "Capacites",
+          before: "Aucune info avant",
+          after: "Aucune info apres",
+          beforeLines: [],
+          afterLines: [],
+        },
+      ],
+    };
+    const statusWithEmpty: AdminPatchStatusPayload = {
+      ...patchStatus,
+      champions: [championWithEmptyAbilities],
+      items: [],
+    };
+    render(React.createElement(PatchDialog, { ...defaultProps, status: statusWithEmpty }));
+    const detailBtn = screen.getByRole("button", { name: /details/i });
+    fireEvent.click(detailBtn);
+    expect(screen.getByText("Aucune info avant")).toBeInTheDocument();
+    expect(screen.getByText("Aucune info apres")).toBeInTheDocument();
+  });
+
+  it("renders PatchValueLines with added/removed changeType and delta for buildsFrom", () => {
+    const itemWithBuildChange: AdminPatchItemEntry = {
+      ...item,
+      patchStatus: "changed",
+      changes: [
+        {
+          field: "buildsFrom",
+          label: "Composants",
+          before: "old",
+          after: "new",
+          beforeLines: [
+            {
+              key: "sword",
+              label: "Long Sword",
+              value: "350g",
+              changeType: "removed",
+              delta: "-350",
+            },
+          ],
+          afterLines: [
+            {
+              key: "dagger",
+              label: "Dagger",
+              value: "300g",
+              changeType: "added",
+              delta: "+300",
+            },
+          ],
+        },
+      ],
+    };
+    const statusWithBuild: AdminPatchStatusPayload = {
+      ...patchStatus,
+      champions: [],
+      items: [itemWithBuildChange],
+    };
+    render(React.createElement(PatchDialog, { ...defaultProps, status: statusWithBuild }));
+    const detailBtn = screen.getByRole("button", { name: /details/i });
+    fireEvent.click(detailBtn);
+    expect(screen.getByText("Long Sword")).toBeInTheDocument();
+    expect(screen.getByText("Retire")).toBeInTheDocument();
+    expect(screen.getByText("-350")).toBeInTheDocument();
+    expect(screen.getByText("Dagger")).toBeInTheDocument();
+    expect(screen.getByText("Ajoute")).toBeInTheDocument();
+    expect(screen.getByText("+300")).toBeInTheDocument();
+    expect(screen.getByText(/Ce composant quitte le chemin/)).toBeInTheDocument();
+    expect(screen.getByText(/Desormais.*Dagger.*fait partie du chemin/)).toBeInTheDocument();
+  });
+
+  it("renders PatchValueLines with buildsInto explanations", () => {
+    const itemWithBuildsInto: AdminPatchItemEntry = {
+      ...item,
+      patchStatus: "changed",
+      changes: [
+        {
+          field: "buildsInto",
+          label: "Evolution",
+          before: "old",
+          after: "new",
+          beforeLines: [{ key: "r1", label: "Rabadon's", value: "x", changeType: "removed" }],
+          afterLines: [{ key: "ia", label: "Infinity Ankh", value: "x", changeType: "added" }],
+        },
+      ],
+    };
+    const statusBuildsInto: AdminPatchStatusPayload = {
+      ...patchStatus,
+      champions: [],
+      items: [itemWithBuildsInto],
+    };
+    render(React.createElement(PatchDialog, { ...defaultProps, status: statusBuildsInto }));
+    const detailBtn = screen.getByRole("button", { name: /details/i });
+    fireEvent.click(detailBtn);
+    expect(screen.getByText(/cette evolution quitte l'arborescence/i)).toBeInTheDocument();
+    expect(screen.getByText(/Desormais.*Infinity Ankh/i)).toBeInTheDocument();
+  });
+
+  it("renders PatchValueLines fallback text when no lines", () => {
+    const itemWithNoLines: AdminPatchItemEntry = {
+      ...item,
+      patchStatus: "changed",
+      changes: [
+        {
+          field: "stats",
+          label: "Statistiques",
+          before: "old stats",
+          after: "new stats",
+          beforeLines: [],
+          afterLines: [],
+        },
+      ],
+    };
+    const statusNoLines: AdminPatchStatusPayload = {
+      ...patchStatus,
+      champions: [],
+      items: [itemWithNoLines],
+    };
+    render(React.createElement(PatchDialog, { ...defaultProps, status: statusNoLines }));
+    const detailBtn = screen.getByRole("button", { name: /details/i });
+    fireEvent.click(detailBtn);
+    expect(screen.getByText("old stats")).toBeInTheDocument();
+    expect(screen.getByText("new stats")).toBeInTheDocument();
+  });
+
+  it("renders PatchValueLines with item icon in a line", () => {
+    const subItem = { ...item, id: "sub1", riotItemId: 1001, name: "Long Sword", slug: "long-sword" };
+    const itemWithItemLine: AdminPatchItemEntry = {
+      ...item,
+      patchStatus: "changed",
+      changes: [
+        {
+          field: "buildsFrom",
+          label: "Composants",
+          before: "old",
+          after: "new",
+          beforeLines: [
+            { key: "s1", label: "Long Sword", value: "350g", changeType: "removed", item: subItem },
+          ],
+          afterLines: [],
+        },
+      ],
+    };
+    const statusItemLine: AdminPatchStatusPayload = {
+      ...patchStatus,
+      champions: [],
+      items: [itemWithItemLine],
+    };
+    render(React.createElement(PatchDialog, { ...defaultProps, status: statusItemLine }));
+    const detailBtn = screen.getByRole("button", { name: /details/i });
+    fireEvent.click(detailBtn);
+    expect(screen.getAllByTestId("item-icon").length).toBeGreaterThan(0);
   });
 });
