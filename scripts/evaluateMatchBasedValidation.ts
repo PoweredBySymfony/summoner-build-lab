@@ -63,15 +63,15 @@ type EvaluationRow = {
 type ValidationArgHandler = (options: CliOptions, next: string | undefined) => boolean;
 
 const validationArgHandlers: Record<string, ValidationArgHandler> = {
-  "--sample-size": (o, v) => { v && (o.sampleSize = Number(v)); return true; },
-  "--strict-patch-prefix": (o, v) => { v && (o.strictPatchPrefix = v); return true; },
-  "--output-json": (o, v) => { v && (o.outputJsonPath = v); return true; },
-  "--report-path": (o, v) => { v && (o.outputJsonPath = v); return true; },
-  "--output-markdown": (o, v) => { v && (o.outputMarkdownPath = v); return true; },
-  "--markdown-report-path": (o, v) => { v && (o.outputMarkdownPath = v); return true; },
-  "--user-email": (o, v) => { v && (o.userEmail = v); return true; },
-  "--imported-match-ids": (o, v) => { v && (o.importedMatchIds = v.split(",").map((e) => e.trim()).filter(Boolean)); return true; },
-  "--baseline-report": (o, v) => { v && (o.baselineReportPath = v); return true; },
+  "--sample-size": (o, v) => { if (v) { o.sampleSize = Number(v); } return true; },
+  "--strict-patch-prefix": (o, v) => { if (v) { o.strictPatchPrefix = v; } return true; },
+  "--output-json": (o, v) => { if (v) { o.outputJsonPath = v; } return true; },
+  "--report-path": (o, v) => { if (v) { o.outputJsonPath = v; } return true; },
+  "--output-markdown": (o, v) => { if (v) { o.outputMarkdownPath = v; } return true; },
+  "--markdown-report-path": (o, v) => { if (v) { o.outputMarkdownPath = v; } return true; },
+  "--user-email": (o, v) => { if (v) { o.userEmail = v; } return true; },
+  "--imported-match-ids": (o, v) => { if (v) { o.importedMatchIds = v.split(",").map((e) => e.trim()).filter(Boolean); } return true; },
+  "--baseline-report": (o, v) => { if (v) { o.baselineReportPath = v; } return true; },
 };
 
 function parseArgs(argv: string[]): CliOptions {
