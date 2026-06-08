@@ -148,8 +148,8 @@ const sentenceLike = /[.!?]$/;
 function normalizeText(value: string) {
   return value
     .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/\s+/g, " ")
+    .replaceAll(/[\u0300-\u036f]/g, "")
+    .replaceAll(/\s+/g, " ")
     .trim()
     .toLowerCase();
 }
@@ -176,14 +176,14 @@ function decodeHtmlEntities(value: string) {
 
 function stripDataDragonMarkup(value: string) {
   return decodeHtmlEntities(value)
-    .replace(/<br\s*\/?>/gi, "\n")
-    .replace(/<\/(?:stats|mainText)>/gi, "\n")
-    .replace(/<\/(?:active|passive)>/gi, ": ")
-    .replace(/<[^>]+>/g, "")
-    .replace(/\{\{[^}]+\}\}/g, "")
-    .replace(/[ \t]+/g, " ")
-    .replace(/\n\s+/g, "\n")
-    .replace(/\n{3,}/g, "\n\n")
+    .replaceAll(/<br\s*\/?>/gi, "\n")
+    .replaceAll(/<\/(?:stats|mainText)>/gi, "\n")
+    .replaceAll(/<\/(?:active|passive)>/gi, ": ")
+    .replaceAll(/<[^>]+>/g, "")
+    .replaceAll(/\{\{[^}]+\}\}/g, "")
+    .replaceAll(/[ \t]+/g, " ")
+    .replaceAll(/\n\s+/g, "\n")
+    .replaceAll(/\n{3,}/g, "\n\n")
     .trim();
 }
 
@@ -194,7 +194,7 @@ function resolveDescriptor(rawLabel: string) {
 }
 
 function parseStatLine(line: string): ResolvedItemStatLine | null {
-  const compact = line.replace(/\s+/g, " ").trim();
+  const compact = line.replaceAll(/\s+/g, " ").trim();
   const match = /^([+-]?\d+(?:[.,]\d+)?%?)\s+(.+)$/.exec(compact);
   if (!match) {
     return null;
@@ -281,7 +281,7 @@ function statLinesFromRawStats(item: GameItem) {
         isPercent,
       } satisfies ResolvedItemStatLine;
     })
-    .filter((entry): entry is ResolvedItemStatLine => Boolean(entry));
+    .filter((entry): entry is ResolvedItemStatLine => entry != null);
 }
 
 export function getRawItemStatLines(item: GameItem) {

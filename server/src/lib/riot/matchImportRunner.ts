@@ -56,9 +56,7 @@ function shouldRetryRiotImport(error: unknown) {
 }
 
 function normalizeParticipantRole(value: unknown): Role | null {
-  const normalized = String(value ?? "")
-    .trim()
-    .toUpperCase();
+  const normalized = (typeof value === "string" ? value : "").trim().toUpperCase();
 
   switch (normalized) {
     case "TOP":
@@ -147,7 +145,7 @@ async function upsertIndexedParticipants(participants: Array<Record<string, unkn
 }
 
 async function resolveChampionSlugFromParticipant(participant: Record<string, unknown> | undefined) {
-  const championKey = String(participant?.championName ?? "").trim();
+  const championKey = (typeof participant?.championName === "string" ? participant.championName : "").trim();
   if (championKey) {
     const championByKey = await prisma.champion.findUnique({
       where: { championKey: championKey },

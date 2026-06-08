@@ -313,7 +313,7 @@ async function getPatchChoiceItems(input: ResolvedPatchLookup) {
 
   const familyPrefixes = [...new Set(
     input.lookupCandidates
-      .map((candidate) => candidate.match(/^(\d{1,2})\./)?.[1] ?? null)
+      .map((candidate) => /^(\d{1,2})\./.exec(candidate)?.[1] ?? null)
       .filter(Boolean)
       .map((major) => `${major}.`),
   )];
@@ -592,7 +592,7 @@ async function buildSnapshotCandidatesFromImportedMatch(
     return deduped;
   }
   if (rawCandidates.length > 0) {
-    return [rawCandidates[rawCandidates.length - 1]];
+    return rawCandidates.slice(-1);
   }
   throw new HttpError(400, "No purchase snapshot could be reconstructed from the imported match.");
 }

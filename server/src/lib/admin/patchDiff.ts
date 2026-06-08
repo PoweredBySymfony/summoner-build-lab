@@ -89,7 +89,8 @@ const formatDecimal = (value: number) => {
 const toDisplayString = (value: unknown): string => {
   if (value == null) return "Non renseigne";
   if (typeof value === "object") return JSON.stringify(value);
-  return String(value as string | number | boolean);
+  if (typeof value === "string") return value;
+  return String(value);
 };
 
 const formatNumber = (value: unknown) => {
@@ -178,7 +179,7 @@ const formatMapAvailabilityLines = (value: Record<string, unknown>) =>
     .map(([key, entryValue]) => ({
       key,
       label: mapAvailabilityLabels[key] ?? `Carte Riot ${key}`,
-      value: typeof entryValue === "boolean" ? formatBoolean(entryValue) : String(entryValue),
+      value: typeof entryValue === "boolean" ? formatBoolean(entryValue) : toDisplayString(entryValue),
     }));
 
 const formatMapAvailabilityRecord = (value: Record<string, unknown>) => {

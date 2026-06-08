@@ -172,7 +172,7 @@ function buildComparison(label: string, beforeReport: JsonRecord | null, afterRe
         ? {
             threshold: 0.4,
             completedRate: afterCompletedRate,
-            passed: afterCompletedRate !== null ? afterCompletedRate >= 0.4 : null,
+            passed: afterCompletedRate === null ? null : afterCompletedRate >= 0.4,
             nextStep:
               afterCompletedRate !== null && afterCompletedRate >= 0.4
                 ? "OK pour relancer import vers 2000"

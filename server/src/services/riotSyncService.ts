@@ -41,10 +41,10 @@ function inferRoles(tags: string[]) {
 
 function decodeHtmlEntities(input: string) {
   return input
-    .replace(/&nbsp;|&#160;/g, " ")
+    .replaceAll(/&nbsp;|&#160;/g, " ")
     .replaceAll("&amp;", "&")
     .replaceAll("&quot;", "\"")
-    .replace(/&#39;|&apos;/g, "'")
+    .replaceAll(/&#39;|&apos;/g, "'")
     .replaceAll("&lt;", "<")
     .replaceAll("&gt;", ">")
     .replaceAll("\u00a0", " ");
@@ -53,15 +53,15 @@ function decodeHtmlEntities(input: string) {
 function formatItemDescription(input: string) {
   return decodeHtmlEntities(
     input
-      .replace(/<br\s*\/?>/gi, "\n")
-      .replace(/<\/(mainText|stats)>/gi, "\n")
-      .replace(/<(mainText|stats)>/gi, "")
-      .replace(/<li>/gi, "• ")
-      .replace(/<\/li>/gi, "\n")
-      .replace(/<[^>]+>/g, "")
-      .replace(/[ \t]+\n/g, "\n")
-      .replace(/\n{3,}/g, "\n\n")
-      .replace(/[ \t]{2,}/g, " ")
+      .replaceAll(/<br\s*\/?>/gi, "\n")
+      .replaceAll(/<\/(mainText|stats)>/gi, "\n")
+      .replaceAll(/<(mainText|stats)>/gi, "")
+      .replaceAll(/<li>/gi, "• ")
+      .replaceAll(/<\/li>/gi, "\n")
+      .replaceAll(/<[^>]+>/g, "")
+      .replaceAll(/[ \t]+\n/g, "\n")
+      .replaceAll(/\n{3,}/g, "\n\n")
+      .replaceAll(/[ \t]{2,}/g, " ")
       .trim(),
   );
 }

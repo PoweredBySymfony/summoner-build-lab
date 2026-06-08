@@ -135,7 +135,7 @@ const renderTacticalEntries = (entries: Record<string, unknown>) =>
   Object.entries(entries).map(([key, value]) => (
     <div key={key} className="rounded-xl border border-border/50 bg-background/40 p-3">
       <p className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">{key}</p>
-      <p className="mt-2 break-words text-sm font-medium leading-5 text-foreground">{String(value)}</p>
+      <p className="mt-2 break-words text-sm font-medium leading-5 text-foreground">{typeof value === "string" ? value : JSON.stringify(value)}</p>
     </div>
   ));
 

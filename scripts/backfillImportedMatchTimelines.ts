@@ -9,9 +9,7 @@ function sleep(ms: number) {
 }
 
 function normalizeParticipantRole(value: unknown) {
-  const normalized = String(value ?? "")
-    .trim()
-    .toUpperCase();
+  const normalized = (typeof value === "string" ? value : "").trim().toUpperCase();
 
   switch (normalized) {
     case "TOP":
@@ -34,7 +32,9 @@ function normalizeParticipantRole(value: unknown) {
   }
 }
 
-async function fetchTimelineWithRetry(matchId: string, region: "europe" | "americas" | "asia" | "sea") {
+type MatchRegion = "europe" | "americas" | "asia" | "sea";
+
+async function fetchTimelineWithRetry(matchId: string, region: MatchRegion) {
   for (let attempt = 1; attempt <= 3; attempt += 1) {
     try {
       return await riotApiClient.getMatchTimelineByIdOnRegion(matchId, region);
@@ -88,7 +88,7 @@ async function main() {
         ? (existingMatchData.raw as Prisma.JsonObject)
         : await riotApiClient.getMatchByIdOnRegion(
             importedMatch.riotMatchId,
-            region as "europe" | "americas" | "asia" | "sea",
+            region as MatchRegion,
           );
 
     const info = rawMatch.info as { gameVersion?: string; gameCreation?: number; gameDuration?: number; participants?: Array<Record<string, unknown>> } | undefined;
@@ -112,13 +112,12 @@ async function main() {
       normalizeParticipantRole(participant.individualPosition) ??
       normalizeParticipantRole(participant.role) ??
       normalizeParticipantRole(participant.lane);
+    const metadataSlug = (existingMatchData.metadata as Prisma.JsonObject | undefined)?.targetChampionSlug;
     const targetChampionSlug =
       importedMatch.targetChampionSlug ??
-      String(
-        (existingMatchData.metadata as Prisma.JsonObject | undefined)?.targetChampionSlug ??
-          (existingMatchData.playerChampionSlug as string | undefined) ??
-          "",
-      );
+      (typeof metadataSlug === "string" ? metadataSlug : null) ??
+      (existingMatchData.playerChampionSlug as string | undefined) ??
+      "";
 
     await prisma.importedMatch.update({
       where: { id: importedMatch.id },

@@ -1,4 +1,9 @@
 import { PLATFORM_TO_REGION, type RiotPlatform, type RiotRegion } from "./routing.js";
+
+const errorToMessage = (error: unknown): string => {
+  if (error instanceof Error) return error.message;
+  return typeof error === "string" ? error : JSON.stringify(error);
+};
 import {
   type ProPlayerSeed,
 } from "./proSeeds.js";
@@ -274,7 +279,7 @@ function createEliteFailureRecorder(input: {
     },
     record(context: string, error: unknown) {
       consecutiveFailures += 1;
-      const message = error instanceof Error ? error.message : String(error);
+      const message = errorToMessage(error);
       console.warn(
         "[competitive-seeds] elite-request-failed",
         JSON.stringify({
@@ -355,7 +360,7 @@ async function buildEliteSeedsForTier(input: {
           tier: input.tier,
           summonerId: entry.summonerId ?? null,
           puuid: entry.puuid ?? null,
-          message: error instanceof Error ? error.message : String(error),
+          message: errorToMessage(error),
         }),
       );
     }
@@ -411,7 +416,7 @@ export async function fetchEliteLadderSeeds(
     try {
       seeds.push(...(await fetchEliteSeedsForPlatform(platform, resolvedOptions)));
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = errorToMessage(error);
       console.warn(
         "[competitive-seeds] elite-platform-fetch-failed",
         JSON.stringify({

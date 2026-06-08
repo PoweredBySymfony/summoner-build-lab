@@ -54,7 +54,7 @@ const resolveUpgradeFromItemIds = (item: GameItem, byRiotItemId: Map<number, Gam
     .map(toRiotItemId)
     .filter((value): value is number => value !== null)
     .map((riotItemId) => byRiotItemId.get(riotItemId)?.id ?? null)
-    .filter((value): value is string => Boolean(value));
+    .filter((value): value is string => value != null);
 
 const getItemClass = (item: GameItem, upgradeFromItems: GameItem[]): InventoryRuleClass => {
   if (item.isTrinket) return "trinket";
@@ -73,7 +73,7 @@ const getItemClass = (item: GameItem, upgradeFromItems: GameItem[]): InventoryRu
 const deriveItemRule = (item: GameItem, catalog: GameItem[], indexes = buildIndexes(catalog)): DerivedItemRule => {
   const upgradeFromItems = resolveUpgradeFromItemIds(item, indexes.byRiotItemId)
     .map((itemId) => indexes.byId.get(itemId) ?? null)
-    .filter((entry): entry is GameItem => Boolean(entry));
+    .filter((entry): entry is GameItem => entry != null);
 
   const itemClass = getItemClass(item, upgradeFromItems);
   const allowedRoles = itemClass === "tier3-boots" ? (["MID"] satisfies LabRoleKey[]) : undefined;
@@ -108,7 +108,7 @@ const toUniqueHints = (reasonsByItemId: Record<string, InventoryBlockReason[]>, 
 const getInventoryWithoutTargetSlot = (setup: ItemLabSetup, slotIndex: number) =>
   setup.itemIds
     .map((itemId, index) => (index === slotIndex ? null : itemId))
-    .filter((itemId): itemId is string => Boolean(itemId));
+    .filter((itemId): itemId is string => itemId != null);
 
 const getCurrentItem = (setup: ItemLabSetup, catalogIndex: Map<string, GameItem>, slotIndex: number) => {
   const currentItemId = setup.itemIds[slotIndex];
@@ -170,7 +170,7 @@ const validateCandidate = ({
   const derivedRule = deriveItemRule(item, catalog, indexes);
   const currentItem = getCurrentItem(setup, indexes.byId, targetSlotIndex);
   const inventoryWithoutTarget = getInventoryWithoutTargetSlot(setup, targetSlotIndex);
-  const ownedItems = inventoryWithoutTarget.map((itemId) => indexes.byId.get(itemId) ?? null).filter((entry): entry is GameItem => Boolean(entry));
+  const ownedItems = inventoryWithoutTarget.map((itemId) => indexes.byId.get(itemId) ?? null).filter((entry): entry is GameItem => entry != null);
   const ownedIds = new Set(ownedItems.map((entry) => entry.id));
   const reasons: InventoryBlockReason[] = [];
 

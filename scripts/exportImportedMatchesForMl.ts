@@ -43,7 +43,7 @@ function detectCategory(tags: string[] = []) {
 function deriveItemGroups(item: { tags?: string[]; from?: string[] | number[] }) {
   const groups = new Set<string>();
   const tags = new Set(item.tags ?? []);
-  const buildsFrom = (item.from ?? []).map((entry) => Number(entry));
+  const buildsFrom = (item.from ?? []).map(Number);
 
   if (tags.has("Boots")) {
     groups.add("Boots");
@@ -73,7 +73,7 @@ function deriveBootItemIds(summary: DataDragonItemSummary) {
       if (bootItemIds.has(numericItemId)) {
         continue;
       }
-      const buildsFrom = (item.from ?? []).map((entry) => Number(entry));
+      const buildsFrom = (item.from ?? []).map(Number);
       if (buildsFrom.some((entry) => bootItemIds.has(entry))) {
         bootItemIds.add(numericItemId);
         changed = true;
@@ -174,8 +174,8 @@ async function writeCatalogPair(
   ]);
 
   return {
-    itemCatalogPath: path.relative(rawDir, itemCatalogPath).replace(/\\/g, "/"),
-    championCatalogPath: path.relative(rawDir, championCatalogPath).replace(/\\/g, "/"),
+    itemCatalogPath: path.relative(rawDir, itemCatalogPath).replaceAll(/\\/g, "/"),
+    championCatalogPath: path.relative(rawDir, championCatalogPath).replaceAll(/\\/g, "/"),
     ddVersion,
   };
 }
@@ -223,7 +223,7 @@ async function main() {
         : {};
     const gameCreationAt = entry.gameCreationAt instanceof Date ? entry.gameCreationAt : toIsoString(entry.gameCreationAt);
     const patchInfo = canonicalizePatch(
-      typeof info.gameVersion === "string" ? info.gameVersion : String(entry.patch ?? ""),
+      typeof info.gameVersion === "string" ? info.gameVersion : (typeof entry.patch === "string" ? entry.patch : ""),
       gameCreationAt,
     );
     return {

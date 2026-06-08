@@ -591,7 +591,7 @@ function unique<T>(values: T[]) {
 }
 
 function resolveChampionArchetype(tags: unknown): ChampionArchetype {
-  const normalizedTags = Array.isArray(tags) ? tags.map((tag) => String(tag)) : [];
+  const normalizedTags = Array.isArray(tags) ? tags.map(String) : [];
   if (normalizedTags.includes("Marksman")) return "marksman";
   if (normalizedTags.includes("Mage") || normalizedTags.includes("Assassin")) return "mage";
   if (normalizedTags.includes("Support")) return "support";
@@ -911,7 +911,8 @@ export const puzzleGenerationService = {
 
     const matchData = match.matchData as Prisma.JsonObject;
     const metadata = matchData.metadata as Prisma.JsonObject | undefined;
-    const championSlug = String(match.targetChampionSlug ?? metadata?.targetChampionSlug ?? matchData.playerChampionSlug ?? "");
+    const rawSlug = match.targetChampionSlug ?? metadata?.targetChampionSlug ?? matchData.playerChampionSlug;
+    const championSlug = typeof rawSlug === "string" ? rawSlug : "";
     const champion = await prisma.champion.findUnique({ where: { slug: championSlug } });
     if (!champion) {
       throw new HttpError(400, "La partie importée ne référence pas un champion connu.");

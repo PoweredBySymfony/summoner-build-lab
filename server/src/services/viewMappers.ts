@@ -166,7 +166,7 @@ export function translateGeneratedCopy(input: string, championName?: string) {
   value = value.replaceAll("grants a bonus to next attack after spell cast", "Accorde un bonus a la prochaine attaque apres un sort");
 
   if (championName) {
-    value = value.replace(new RegExp(String.raw`\b${championName}\b focused scenario`, "gi"), `Scenario centre sur ${championName}`);
+    value = value.replaceAll(new RegExp(String.raw`\b${championName}\b focused scenario`, "gi"), `Scenario centre sur ${championName}`);
   }
 
   return plainTextLabelMap[value] ?? repairEncodingArtifacts(value);
@@ -268,7 +268,7 @@ export const mapChampionView = (champion: Champion) => ({
   icon: champion.iconImage || champion.image,
   splashImage: champion.splashImage,
   image: champion.image,
-  roles: [champion.rolePrimary, champion.roleSecondary].filter(Boolean).map((role) => roleLabel[role as Role]),
+  roles: [champion.rolePrimary, champion.roleSecondary].filter((r): r is Role => r !== null).map((role) => roleLabel[role]),
   tags: Array.isArray(champion.tags) ? champion.tags : [],
   stats: champion.stats,
   patch: champion.patch,

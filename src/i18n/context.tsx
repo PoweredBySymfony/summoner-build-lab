@@ -2,12 +2,7 @@ import { useState, useCallback, useMemo, type ReactNode } from "react";
 import { LanguageContext, translations, type Language, type TranslationNode } from "./languageContext";
 
 export const LanguageProvider = ({ children }: { children: ReactNode }) => {
-  const [lang, setLangState] = useState<Language>("fr");
-
-  const setLang = useCallback((newLang: Language) => {
-    setLangState(newLang === "en" ? "fr" : newLang);
-    localStorage.setItem("itemforge-lang", "fr");
-  }, []);
+  const [lang, setLang] = useState<Language>("fr");
 
   const t = useCallback((key: string): string => {
     const keys = key.split(".");
@@ -18,7 +13,14 @@ export const LanguageProvider = ({ children }: { children: ReactNode }) => {
     return typeof value === "string" ? value : key;
   }, [lang]);
 
-  const contextValue = useMemo(() => ({ lang, setLang, t }), [lang, setLang, t]);
+  const contextValue = useMemo(() => ({
+    lang,
+    setLang: (newLang: Language) => {
+      setLang(newLang === "en" ? "fr" : newLang);
+      localStorage.setItem("itemforge-lang", "fr");
+    },
+    t,
+  }), [lang, setLang, t]);
 
   return (
     <LanguageContext.Provider value={contextValue}>

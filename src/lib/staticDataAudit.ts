@@ -52,14 +52,14 @@ const championRequiredFields: Array<keyof ChampionView> = [
 function normalizeText(value: string) {
   return value
     .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/\s+/g, " ")
+    .replaceAll(/[\u0300-\u036f]/g, "")
+    .replaceAll(/\s+/g, " ")
     .trim()
     .toLowerCase();
 }
 
 function startsWithStatLeak(effectText: string, label: string, value: string) {
-  const normalizedValue = normalizeText(value).replace(/\s+/g, "");
+  const normalizedValue = normalizeText(value).replaceAll(/\s+/g, "");
   const normalizedLabel = normalizeText(label);
   const normalizedEffect = normalizeText(effectText);
 

@@ -155,11 +155,10 @@ const CarouselItem = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLD
     const { orientation } = useCarousel();
 
     return (
-      // role="group" with aria-roledescription="slide" is the correct WAI-ARIA carousel pattern
       <div
         ref={ref}
-        role="group"
         aria-roledescription="slide"
+        aria-label="Slide"
         className={cn("min-w-0 shrink-0 grow-0 basis-full", orientation === "horizontal" ? "pl-4" : "pt-4", className)}
         {...props}
       />

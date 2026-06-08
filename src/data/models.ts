@@ -17,13 +17,15 @@ export interface User {
   created_at: string;
 }
 
+export type TrainingDifficulty = "beginner" | "intermediate" | "advanced";
+
 export interface TrainingModule {
   id: string;
   title_fr: string;
   title_en: string;
   description_fr: string;
   description_en: string;
-  difficulty: "beginner" | "intermediate" | "advanced";
+  difficulty: TrainingDifficulty;
   duration_minutes: number;
   theme: string;
   patch_version: string;

@@ -95,7 +95,7 @@ export async function persistAiGeneratedPuzzle(input: {
       isDailyEligible: false,
       choices: {
         create: orderedChoices.map(({ item: resolvedItem, isCorrect }, index) => {
-          const item = itemIndex.get(resolveItemSlug(resolvedItem.slug))!;
+          const item = itemIndex.get(resolveItemSlug(resolvedItem.slug));
           return {
             label: item.name,
             choiceType: item.isBoots ? PuzzleChoiceType.BOOTS : PuzzleChoiceType.ITEM,
