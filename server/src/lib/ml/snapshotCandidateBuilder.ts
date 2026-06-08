@@ -89,7 +89,7 @@ function safeInt(value: unknown) {
 }
 
 function normalizeRole(value: unknown): Role | null {
-  const normalized = String(value ?? "")
+  const normalized = (typeof value === "string" ? value : "")
     .trim()
     .toUpperCase();
 
@@ -175,7 +175,7 @@ function replayGoldEvent(input: {
   workingGold: number;
   itemGoldIndex: Map<number, ItemGoldValue>;
 }) {
-  const eventType = String(input.event.type ?? "");
+  const eventType = typeof input.event.type === "string" ? input.event.type : "";
   const itemId = safeInt(input.event.itemId);
 
   if (eventType === "ITEM_PURCHASED" && itemId > 0) {
@@ -309,7 +309,7 @@ function updateCombatStats(
   participantId: number,
   current: { kills: number; deaths: number; assists: number },
 ) {
-  if (String(event.type ?? "") !== "CHAMPION_KILL") {
+  if (event.type !== "CHAMPION_KILL") {
     return current;
   }
 
@@ -324,7 +324,7 @@ function updateCombatStats(
 }
 
 function applyInventoryEvent(inventory: number[], event: Record<string, unknown>) {
-  const eventType = String(event.type ?? "");
+  const eventType = typeof event.type === "string" ? event.type : "";
   const itemId = safeInt(event.itemId);
 
   if ((eventType === "ITEM_SOLD" || eventType === "ITEM_DESTROYED") && itemId > 0) {
@@ -536,7 +536,7 @@ function processParticipantSnapshotEvent(input: {
   itemSlugIndex: Map<number, string>;
   itemGoldIndex: Map<number, ItemGoldValue>;
 }) {
-  const eventType = String(input.event.type ?? "");
+  const eventType = typeof input.event.type === "string" ? input.event.type : "";
   const itemId = safeInt(input.event.itemId);
 
   if (eventType === "ITEM_PURCHASED" && itemId > 0) {
@@ -561,7 +561,7 @@ export function buildSnapshotCandidates(input: {
   itemGoldIndex: Map<number, ItemGoldValue>;
 }) {
   const targetParticipant = input.participants.find(
-    (entry) => String(entry.puuid ?? "") === input.importedMatch.targetPuuid,
+    (entry) => entry.puuid === input.importedMatch.targetPuuid,
   );
   if (!targetParticipant) {
     return {

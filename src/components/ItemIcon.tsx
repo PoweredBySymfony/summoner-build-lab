@@ -24,6 +24,7 @@ interface ItemIconProps {
 }
 
 type Placement = "right" | "left" | "top" | "bottom";
+type TooltipLayoutMode = "compact" | "balanced" | "dense";
 
 const sizeMap = {
   sm: "h-10 w-10",
@@ -31,7 +32,7 @@ const sizeMap = {
   lg: "h-16 w-16",
 };
 
-const getTooltipLayoutMetrics = (layoutMode: "compact" | "balanced" | "dense") => {
+const getTooltipLayoutMetrics = (layoutMode: TooltipLayoutMode) => {
   switch (layoutMode) {
     case "dense":
       return { width: 384, maxHeight: 540 };

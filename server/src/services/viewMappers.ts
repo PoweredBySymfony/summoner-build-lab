@@ -2,6 +2,12 @@ import { Champion, Item, Puzzle, PuzzleChoice, PuzzleDifficulty, PuzzleMode, Rol
 import { resolveItemSlug } from "../lib/itemSlugAliases.js";
 import { getItemGroups } from "../lib/itemGroups.js";
 
+const toStr = (value: unknown): string => {
+  if (typeof value === "string") return value;
+  if (typeof value === "number") return String(value);
+  return "";
+};
+
 const difficultyLabel: Record<PuzzleDifficulty, string> = {
   BEGINNER: "debutant",
   INTERMEDIATE: "intermediaire",
@@ -214,17 +220,17 @@ function mapScenarioItemEntry(
   }
   if (entry && typeof entry === "object") {
     const e = entry as Record<string, unknown>;
-    if ("itemSlug" in e) return resolveIndexedItem(String(e.itemSlug), itemIndex);
-    if ("itemId" in e) return resolveIndexedItem(String(e.itemId), itemIndex);
-    if ("riotItemId" in e) return resolveIndexedItem(String(e.riotItemId), itemIndex);
+    if ("itemSlug" in e) return resolveIndexedItem(toStr(e.itemSlug), itemIndex);
+    if ("itemId" in e) return resolveIndexedItem(toStr(e.itemId), itemIndex);
+    if ("riotItemId" in e) return resolveIndexedItem(toStr(e.riotItemId), itemIndex);
   }
-  return { id: String(entry), name: String(entry) };
+  return { id: toStr(entry), name: toStr(entry) };
 }
 
 function resolveChampionRefFromEntry(e: Record<string, unknown>, fallback: string): string {
-  if ("championId" in e && e.championId) return String(e.championId);
-  if ("riotChampionId" in e && e.riotChampionId) return String(e.riotChampionId);
-  if ("championKey" in e && e.championKey) return String(e.championKey);
+  if ("championId" in e && e.championId) return toStr(e.championId);
+  if ("riotChampionId" in e && e.riotChampionId) return toStr(e.riotChampionId);
+  if ("championKey" in e && e.championKey) return toStr(e.championKey);
   return fallback;
 }
 
@@ -238,17 +244,17 @@ function mapScenarioTeamEntry(
   }
   if (entry && typeof entry === "object" && "championSlug" in entry) {
     const e = entry as Record<string, unknown>;
-    const championSlug = String(e.championSlug);
+    const championSlug = toStr(e.championSlug);
     return {
       id: championSlug,
       name: championSlug,
       champion: resolveIndexedChampion(resolveChampionRefFromEntry(e, championSlug), championIndex),
-      role: "role" in e ? roleLabel[String(e.role) as Role] ?? String(e.role) : null,
+      role: "role" in e ? roleLabel[toStr(e.role) as Role] ?? toStr(e.role) : null,
       items: Array.isArray(e.items) ? e.items.map((item) => mapScenarioItemEntry(item, itemIndex)) : [],
-      note: "note" in e ? String(e.note) : undefined,
+      note: "note" in e ? toStr(e.note) : undefined,
     };
   }
-  return { id: String(entry), name: String(entry) };
+  return { id: toStr(entry), name: toStr(entry) };
 }
 
 export const mapChampionView = (champion: Champion) => ({
@@ -292,7 +298,7 @@ export const mapItemView = (item: Item) => ({
   buildsInto: Array.isArray(item.buildsInto) ? item.buildsInto : [],
   buildsFromIcons: Array.isArray(item.buildsFrom)
     ? item.buildsFrom
-        .map((entry) => Number(entry))
+        .map(Number)
         .filter((entry) => Number.isFinite(entry) && entry > 0)
         .map((riotItemId) => ({
           riotItemId,

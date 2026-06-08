@@ -910,7 +910,7 @@ async function loadCompetitiveImportSetup(options: CliOptions) {
   const remainingTargetMatches = Math.max(0, options.targetMatches - baselineCompetitiveMatchesBefore);
   const classificationBudget = options.maxClassifiedPerRun
     ?? Math.max(300, (options.trancheSize ?? 25) * 12);
-  const checkpoint = (!options.resetCheckpoint ? await loadCompetitiveIngestionCheckpoint(checkpointPath) : null)
+  const checkpoint = (options.resetCheckpoint ? null : await loadCompetitiveIngestionCheckpoint(checkpointPath))
     ?? buildInitialCheckpoint({ manifest, remainingTargetMatches, classificationBudget, policy, startTime, endTime });
 
   const resolvedSeedCache = new Map(checkpoint.resolvedSeeds.map((seed) => [buildCompetitiveSeedKey(seed), seed]));

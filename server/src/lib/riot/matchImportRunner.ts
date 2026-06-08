@@ -138,9 +138,9 @@ async function upsertIndexedParticipants(participants: Array<Record<string, unkn
       )
       .map((entry) =>
         upsertIndexedAccount({
-          puuid: String(entry.puuid),
-          gameName: String(entry.riotIdGameName),
-          tagLine: String(entry.riotIdTagline),
+          puuid: entry.puuid as string,
+          gameName: entry.riotIdGameName as string,
+          tagLine: entry.riotIdTagline as string,
         }),
       ),
   );

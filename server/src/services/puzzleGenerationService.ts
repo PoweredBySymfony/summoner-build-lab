@@ -668,6 +668,12 @@ function enrichEnemyTeam(enemyTeam: ScenarioMember[], variant: ScenarioVariant) 
   }));
 }
 
+function getCsForSlot(playerSlot: ScenarioSlot): number {
+  if (playerSlot === "SUPPORT") return 38;
+  if (playerSlot === "JUNGLE") return 142;
+  return 184;
+}
+
 async function createGeneratedPuzzle(
   championId: string,
   variant: ScenarioVariant,
@@ -751,14 +757,7 @@ async function createGeneratedPuzzle(
     throw new HttpError(500, "Impossible de résoudre l'item correct pour la génération du puzzle.");
   }
   const playerRole = Role[playerSlot];
-  let csForSlot: number;
-  if (playerSlot === "SUPPORT") {
-    csForSlot = 38;
-  } else if (playerSlot === "JUNGLE") {
-    csForSlot = 142;
-  } else {
-    csForSlot = 184;
-  }
+  const csForSlot = getCsForSlot(playerSlot);
 
   const puzzle = await prisma.puzzle.create({
     data: {

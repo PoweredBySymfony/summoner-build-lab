@@ -103,7 +103,7 @@ export function buildPublicPlayerProfile(input: {
 
       return {
         matchId: metadata?.matchId ?? "",
-        championName: participant.championName != null ? String(participant.championName) : "Unknown",
+        championName: typeof participant.championName === "string" ? participant.championName : "Unknown",
         result: participant.win ? "Win" : "Loss",
         kills,
         deaths,

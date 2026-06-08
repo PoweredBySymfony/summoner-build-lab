@@ -422,9 +422,9 @@ export const riotSyncService = {
         return (info?.participants ?? [])
           .filter((entry) => typeof entry.puuid === "string" && typeof entry.riotIdGameName === "string" && typeof entry.riotIdTagline === "string")
           .map((entry) => upsertIndexedAccount({
-            puuid: String(entry.puuid),
-            gameName: String(entry.riotIdGameName),
-            tagLine: String(entry.riotIdTagline),
+            puuid: entry.puuid as string,
+            gameName: entry.riotIdGameName as string,
+            tagLine: entry.riotIdTagline as string,
           }));
       }),
     );

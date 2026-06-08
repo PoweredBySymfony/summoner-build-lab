@@ -89,7 +89,7 @@ const formatDecimal = (value: number) => {
 const toDisplayString = (value: unknown): string => {
   if (value == null) return "Non renseigne";
   if (typeof value === "object") return JSON.stringify(value);
-  return String(value);
+  return String(value as string | number | boolean);
 };
 
 const formatNumber = (value: unknown) => {
