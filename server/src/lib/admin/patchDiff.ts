@@ -86,16 +86,24 @@ const formatDecimal = (value: number) => {
   return String(rounded);
 };
 
+const toDisplayString = (value: unknown): string => {
+  if (value == null) return "Non renseigne";
+  if (typeof value === "object") return JSON.stringify(value);
+  return String(value);
+};
+
 const formatNumber = (value: unknown) => {
   const numericValue = parseNumericStatValue(value);
-  return numericValue === null ? (value != null ? String(value) : "Non renseigne") : formatDecimal(numericValue);
+  if (numericValue === null) return toDisplayString(value);
+  return formatDecimal(numericValue);
 };
 
 const formatDeltaNumber = (value: number) => `${value > 0 ? "+" : ""}${formatDecimal(value)}`;
 
 const formatPercentFromRatio = (value: unknown) => {
   const numericValue = parseNumericStatValue(value);
-  return numericValue === null ? (value != null ? String(value) : "Non renseigne") : `${Math.round(numericValue * 100)}%`;
+  if (numericValue === null) return toDisplayString(value);
+  return `${Math.round(numericValue * 100)}%`;
 };
 
 const formatPercentDeltaFromRatio = (value: number) => `${value > 0 ? "+" : ""}${Math.round(value * 100)}%`;

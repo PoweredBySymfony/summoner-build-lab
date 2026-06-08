@@ -65,11 +65,11 @@ type CampaignSummary = {
 type ArgHandler = (options: CampaignOptions, next: string | undefined) => boolean;
 
 const campaignArgHandlers: Record<string, ArgHandler> = {
-  "--seed-path": (o, v) => { if (v) { o.seedPath = v; } return true; },
-  "--policy-path": (o, v) => { if (v) { o.policyPath = v; } return true; },
-  "--checkpoint-path": (o, v) => { if (v) { o.checkpointPath = v; } return true; },
-  "--quarantine-path": (o, v) => { if (v) { o.quarantinePath = v; } return true; },
-  "--report-dir": (o, v) => { if (v) { o.reportDir = v; } return true; },
+  "--seed-path": (o, v) => { v && (o.seedPath = v); return true; },
+  "--policy-path": (o, v) => { v && (o.policyPath = v); return true; },
+  "--checkpoint-path": (o, v) => { v && (o.checkpointPath = v); return true; },
+  "--quarantine-path": (o, v) => { v && (o.quarantinePath = v); return true; },
+  "--report-dir": (o, v) => { v && (o.reportDir = v); return true; },
   "--owner-user-id": (o, v) => { o.ownerUserId = v; return true; },
   "--owner-email": (o, v) => { o.ownerEmail = v; return true; },
   "--target-matches": (o, v) => { o.targetMatches = Number(v ?? "2000"); return true; },

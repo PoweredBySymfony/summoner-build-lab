@@ -46,7 +46,7 @@ function withCanonicalPatchMetadata(matchData: Prisma.JsonObject | null, canonic
   return {
     ...matchData,
     metadata: {
-      ...(metadata ?? {}),
+      ...metadata,
       patch: canonicalPatch,
     },
   } satisfies Prisma.InputJsonObject;

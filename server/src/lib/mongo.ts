@@ -38,7 +38,10 @@ async function createMongoClient() {
 }
 
 export async function getMongoClient() {
-  clientPromise ??= createMongoClient().catch((error) => {
+  if (clientPromise !== null) {
+    return clientPromise;
+  }
+  clientPromise = createMongoClient().catch((error) => {
     clientPromise = null;
     throw error;
   });
@@ -67,6 +70,6 @@ export async function getMongoHealth() {
 export async function closeMongoClient() {
   const pendingClient = clientPromise;
   clientPromise = null;
-  const client = pendingClient === null ? null : await pendingClient;
+  const client = await pendingClient;
   await client?.close();
 }
