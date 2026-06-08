@@ -174,8 +174,8 @@ async function writeCatalogPair(
   ]);
 
   return {
-    itemCatalogPath: path.relative(rawDir, itemCatalogPath).replaceAll(/\\/g, "/"),
-    championCatalogPath: path.relative(rawDir, championCatalogPath).replaceAll(/\\/g, "/"),
+    itemCatalogPath: path.relative(rawDir, itemCatalogPath).replaceAll("\\", "/"),
+    championCatalogPath: path.relative(rawDir, championCatalogPath).replaceAll("\\", "/"),
     ddVersion,
   };
 }
@@ -222,8 +222,9 @@ async function main() {
         ? (rawMatch.info as Record<string, unknown>)
         : {};
     const gameCreationAt = entry.gameCreationAt instanceof Date ? entry.gameCreationAt : toIsoString(entry.gameCreationAt);
+    const patchFallback = typeof entry.patch === "string" ? entry.patch : "";
     const patchInfo = canonicalizePatch(
-      typeof info.gameVersion === "string" ? info.gameVersion : (typeof entry.patch === "string" ? entry.patch : ""),
+      typeof info.gameVersion === "string" ? info.gameVersion : patchFallback,
       gameCreationAt,
     );
     return {
