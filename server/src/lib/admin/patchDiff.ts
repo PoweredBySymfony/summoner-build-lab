@@ -90,7 +90,8 @@ const toDisplayString = (value: unknown): string => {
   if (value == null) return "Non renseigne";
   if (typeof value === "object") return JSON.stringify(value);
   if (typeof value === "string") return value;
-  return String(value);
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  return JSON.stringify(value);
 };
 
 const formatNumber = (value: unknown) => {
