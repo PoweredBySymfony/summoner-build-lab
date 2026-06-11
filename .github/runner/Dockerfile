@@ -12,9 +12,20 @@ RUN apt-get update \
     gnupg \
     jq \
     libicu74 \
+    software-properties-common \
     sudo \
     tar \
     unzip \
+  && add-apt-repository ppa:deadsnakes/ppa \
+  && apt-get update \
+  && apt-get install -y --no-install-recommends \
+    python3.13 \
+    python3.13-venv \
+    python3.13-dev \
+  && python3.13 -m ensurepip --upgrade \
+  && python3.13 -m pip install --upgrade pip \
+  && update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.13 1 \
+  && update-alternatives --install /usr/bin/python python /usr/bin/python3.13 1 \
   && install -m 0755 -d /etc/apt/keyrings \
   && curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg \
   && chmod a+r /etc/apt/keyrings/docker.gpg \
