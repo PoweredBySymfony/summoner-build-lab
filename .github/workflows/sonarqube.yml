@@ -51,7 +51,7 @@ jobs:
 
       - name: Install ML dependencies
         working-directory: ml
-        run: python -m pip install -e ".[dev]"
+        run: python3 -m pip install -e ".[dev]"
 
       - name: Start local services
         run: docker compose up -d postgres mongo
@@ -73,7 +73,7 @@ jobs:
 
       - name: Test ML with coverage
         working-directory: ml
-        run: python -m pytest --cov=features --cov=inference --cov=models --cov=training --cov-report=xml:coverage.xml
+        run: python3 -m pytest --cov=features --cov=inference --cov=models --cov=training --cov-report=xml:coverage.xml
 
       - name: Build
         run: npm run build
