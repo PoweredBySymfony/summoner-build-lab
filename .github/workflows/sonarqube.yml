@@ -44,6 +44,7 @@ jobs:
         with:
           node-version: 22
           cache: npm
+          cache-dependency-path: package-lock.json
 
       - name: Setup Python
         uses: actions/setup-python@v6
