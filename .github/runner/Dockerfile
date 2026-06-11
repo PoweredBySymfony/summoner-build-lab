@@ -26,7 +26,9 @@ RUN apt-get update \
 
 RUN useradd -m -s /bin/bash runner \
   && usermod -aG sudo runner \
-  && echo "runner ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/runner
+  && echo "runner ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/runner \
+  && mkdir -p /home/runner/.npm /home/runner/.cache \
+  && chown -R runner:runner /home/runner
 
 WORKDIR /opt/actions-runner
 
