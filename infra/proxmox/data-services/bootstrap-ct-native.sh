@@ -406,8 +406,17 @@ const packagePath = process.argv[2];
 const pkg = JSON.parse(fs.readFileSync(packagePath, "utf8"));
 
 pkg.dependencies = pkg.dependencies || {};
-if (pkg.dependencies["mongodb-query-parser"]?.startsWith("patch:")) {
-  pkg.dependencies["mongodb-query-parser"] = "2.4.6";
+for (const [name, version] of Object.entries(pkg.dependencies)) {
+  if (typeof version !== "string" || !version.startsWith("patch:")) {
+    continue;
+  }
+
+  const match = version.match(/^patch:[^@]+@npm%3A([^#]+)#/);
+  if (!match) {
+    throw new Error(`Unsupported patch dependency format for ${name}: ${version}`);
+  }
+
+  pkg.dependencies[name] = decodeURIComponent(match[1]);
 }
 pkg.scripts = {
   ...pkg.scripts,
