@@ -433,7 +433,7 @@ pkg.scripts = {
 fs.writeFileSync(packagePath, `${JSON.stringify(pkg, null, 2)}\n`);
 NODE
 
-  npm --prefix "$MONGO_EXPRESS_DIR" install --omit=dev --no-package-lock
+  npm --prefix "$MONGO_EXPRESS_DIR" install --omit=dev --no-package-lock --ignore-scripts
   chown -R mongo-express:mongo-express "$MONGO_EXPRESS_DIR"
 
   log_info "Writing mongo-express systemd service."
