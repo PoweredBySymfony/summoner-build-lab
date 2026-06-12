@@ -121,6 +121,23 @@ wait_http() {
   die "${name} health check failed at ${url}."
 }
 
+wait_http_basic_auth() {
+  local url="$1"
+  local name="$2"
+  local username="$3"
+  local password="$4"
+  local attempt
+
+  for attempt in {1..30}; do
+    if curl -fsS -u "${username}:${password}" "$url" >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 1
+  done
+
+  die "${name} health check failed at ${url}."
+}
+
 install_base_packages() {
   log_info "Installing base packages."
   export DEBIAN_FRONTEND=noninteractive
@@ -187,6 +204,12 @@ install_mongodb() {
   log_info "Installing MongoDB."
   export DEBIAN_FRONTEND=noninteractive
   apt-get install -y mongodb-org
+  mkdir -p /etc/systemd/system/mongod.service.d
+  cat >/etc/systemd/system/mongod.service.d/override.conf <<'EOF'
+[Service]
+Environment="GLIBC_TUNABLES=glibc.pthread.rseq=1"
+EOF
+  systemctl daemon-reload
   systemctl enable --now mongod
 }
 
@@ -454,6 +477,7 @@ WorkingDirectory=${MONGO_EXPRESS_DIR}
 Environment=PORT=${MONGO_EXPRESS_PORT}
 Environment=ME_CONFIG_MONGODB_URL=mongodb://127.0.0.1:27017/
 Environment=ME_CONFIG_BASICAUTH=false
+Environment=VCAP_APP_HOST=0.0.0.0
 ExecStart=/usr/bin/node app.js
 Restart=always
 RestartSec=5
@@ -682,7 +706,7 @@ verify_services() {
 
   if [[ "$INSTALL_MONGO_EXPRESS" = "true" ]]; then
     systemctl is-active --quiet mongo-express || die "mongo-express is not active."
-    wait_http "http://127.0.0.1:${MONGO_EXPRESS_PORT}/" "mongo-express"
+    wait_http_basic_auth "http://127.0.0.1:${MONGO_EXPRESS_PORT}/" "mongo-express" "admin" "pass"
   fi
 
   if [[ "$INSTALL_PGADMIN" = "true" ]]; then
