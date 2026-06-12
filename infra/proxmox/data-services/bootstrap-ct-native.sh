@@ -26,6 +26,7 @@ ML_API_PORT="${ML_API_PORT:-8001}"
 ML_SERVICE_USER="${ML_SERVICE_USER:-summoner-ml}"
 ML_PYTHON_VERSION="${ML_PYTHON_VERSION:-3.13}"
 ML_VENV_DIR="${ML_VENV_DIR:-/opt/summoner-build-lab-ml-venv}"
+UV_PYTHON_INSTALL_DIR="${UV_PYTHON_INSTALL_DIR:-/opt/uv-python}"
 
 INSTALL_MONGO_EXPRESS="${INSTALL_MONGO_EXPRESS:-true}"
 MONGO_EXPRESS_DIR="${MONGO_EXPRESS_DIR:-/opt/mongo-express}"
@@ -348,13 +349,15 @@ install_ml_api() {
   [[ -f "${APP_SOURCE_DIR}/ml/pyproject.toml" ]] || die "Missing ${APP_SOURCE_DIR}/ml/pyproject.toml."
 
   log_info "Installing Python ${ML_PYTHON_VERSION} for ML API with uv."
-  uv python install "$ML_PYTHON_VERSION"
-  uv venv "$ML_VENV_DIR" --python "$ML_PYTHON_VERSION"
+  mkdir -p "$UV_PYTHON_INSTALL_DIR"
+  UV_PYTHON_INSTALL_DIR="$UV_PYTHON_INSTALL_DIR" uv python install "$ML_PYTHON_VERSION"
+  rm -rf "$ML_VENV_DIR"
+  UV_PYTHON_INSTALL_DIR="$UV_PYTHON_INSTALL_DIR" uv venv "$ML_VENV_DIR" --python "$ML_PYTHON_VERSION"
 
   log_info "Installing ML dependencies into ${ML_VENV_DIR}."
-  (cd "${APP_SOURCE_DIR}/ml" && uv pip install --python "${ML_VENV_DIR}/bin/python" -e .)
+  (cd "${APP_SOURCE_DIR}/ml" && UV_PYTHON_INSTALL_DIR="$UV_PYTHON_INSTALL_DIR" uv pip install --python "${ML_VENV_DIR}/bin/python" -e .)
 
-  chown -R "${ML_SERVICE_USER}:${ML_SERVICE_USER}" "$APP_SOURCE_DIR" "$ML_VENV_DIR"
+  chown -R "${ML_SERVICE_USER}:${ML_SERVICE_USER}" "$APP_SOURCE_DIR" "$ML_VENV_DIR" "$UV_PYTHON_INSTALL_DIR"
 
   log_info "Writing summoner-ml-api systemd service."
   cat >/etc/systemd/system/summoner-ml-api.service <<EOF
