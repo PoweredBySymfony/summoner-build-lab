@@ -350,10 +350,13 @@ async function main() {
   }
 
   if (allPublished[0]) {
-    await prisma.dailyChallenge.create({
-      data: {
+    const challengeDate = new Date(new Date().setHours(0, 0, 0, 0));
+    await prisma.dailyChallenge.upsert({
+      where: { challengeDate },
+      update: { puzzleId: allPublished[0].id },
+      create: {
         puzzleId: allPublished[0].id,
-        challengeDate: new Date(new Date().setHours(0, 0, 0, 0)),
+        challengeDate,
       },
     });
   }
