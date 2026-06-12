@@ -405,19 +405,26 @@ const fs = require("node:fs");
 const packagePath = process.argv[2];
 const pkg = JSON.parse(fs.readFileSync(packagePath, "utf8"));
 
-pkg.dependencies = pkg.dependencies || {};
-for (const [name, version] of Object.entries(pkg.dependencies)) {
-  if (typeof version !== "string" || !version.startsWith("patch:")) {
-    continue;
-  }
+for (const section of ["dependencies", "optionalDependencies", "peerDependencies"]) {
+  pkg[section] = pkg[section] || {};
+  for (const [name, version] of Object.entries(pkg[section])) {
+    if (typeof version !== "string" || !version.startsWith("patch:")) {
+      continue;
+    }
 
-  const match = version.match(/^patch:[^@]+@npm%3A([^#]+)#/);
-  if (!match) {
-    throw new Error(`Unsupported patch dependency format for ${name}: ${version}`);
-  }
+    const match = version.match(/^patch:[^@]+@npm%3A([^#]+)#/);
+    if (!match) {
+      throw new Error(`Unsupported patch dependency format for ${name}: ${version}`);
+    }
 
-  pkg.dependencies[name] = decodeURIComponent(match[1]);
+    pkg[section][name] = decodeURIComponent(match[1]);
+  }
 }
+
+delete pkg.devDependencies;
+delete pkg.resolutions;
+delete pkg.packageManager;
+
 pkg.scripts = {
   ...pkg.scripts,
   start: "node app.js",
