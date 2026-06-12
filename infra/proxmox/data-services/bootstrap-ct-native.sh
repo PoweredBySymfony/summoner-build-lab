@@ -392,19 +392,32 @@ install_mongo_express() {
   ensure_service_user "mongo-express" "/var/lib/mongo-express"
 
   log_info "Installing mongo-express ${MONGO_EXPRESS_VERSION}."
+  rm -rf "$MONGO_EXPRESS_DIR"
   mkdir -p "$MONGO_EXPRESS_DIR"
-  cat >"${MONGO_EXPRESS_DIR}/package.json" <<EOF
-{
-  "private": true,
-  "scripts": {
-    "start": "node node_modules/mongo-express/app.js"
-  },
-  "dependencies": {
-    "mongo-express": "${MONGO_EXPRESS_VERSION}"
-  }
+
+  local mongo_express_tarball
+  mongo_express_tarball="$(npm view "mongo-express@${MONGO_EXPRESS_VERSION}" dist.tarball)"
+  curl -fsSL "$mongo_express_tarball" | tar -xz --strip-components=1 -C "$MONGO_EXPRESS_DIR"
+
+  node - "$MONGO_EXPRESS_DIR/package.json" <<'NODE'
+const fs = require("node:fs");
+
+const packagePath = process.argv[2];
+const pkg = JSON.parse(fs.readFileSync(packagePath, "utf8"));
+
+pkg.dependencies = pkg.dependencies || {};
+if (pkg.dependencies["mongodb-query-parser"]?.startsWith("patch:")) {
+  pkg.dependencies["mongodb-query-parser"] = "2.4.6";
 }
-EOF
-  npm --prefix "$MONGO_EXPRESS_DIR" install --omit=dev
+pkg.scripts = {
+  ...pkg.scripts,
+  start: "node app.js",
+};
+
+fs.writeFileSync(packagePath, `${JSON.stringify(pkg, null, 2)}\n`);
+NODE
+
+  npm --prefix "$MONGO_EXPRESS_DIR" install --omit=dev --no-package-lock
   chown -R mongo-express:mongo-express "$MONGO_EXPRESS_DIR"
 
   log_info "Writing mongo-express systemd service."
@@ -422,7 +435,7 @@ WorkingDirectory=${MONGO_EXPRESS_DIR}
 Environment=PORT=${MONGO_EXPRESS_PORT}
 Environment=ME_CONFIG_MONGODB_URL=mongodb://127.0.0.1:27017/
 Environment=ME_CONFIG_BASICAUTH=false
-ExecStart=/usr/bin/npm start
+ExecStart=/usr/bin/node app.js
 Restart=always
 RestartSec=5
 
