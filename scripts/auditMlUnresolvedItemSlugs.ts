@@ -6,7 +6,7 @@ type CliOptions = {
 };
 
 function parseArgs(argv: string[]): CliOptions {
-  const limitIndex = argv.findIndex((arg) => arg === "--limit");
+  const limitIndex = argv.indexOf("--limit");
   return {
     limit: limitIndex === -1 ? 500 : Number(argv[limitIndex + 1] ?? "500"),
   };
@@ -46,7 +46,7 @@ async function main() {
     const attempts = asArray(attemptsSummary?.attempts);
     for (const attempt of attempts) {
       const attemptRecord = asObject(attempt);
-      const rejectionReasons = asArray(attemptRecord?.rejectionReasons).map((entry) => String(entry));
+      const rejectionReasons = asArray(attemptRecord?.rejectionReasons).map(String);
       if (!rejectionReasons.includes("good-answer-unresolved")) {
         continue;
       }
@@ -98,11 +98,11 @@ async function main() {
   }, null, 2));
 }
 
-main()
-  .catch((error) => {
-    console.error("[audit-ml-unresolved-slugs] failed", error);
-    process.exitCode = 1;
-  })
-  .finally(async () => {
-    await prisma.$disconnect();
-  });
+try {
+  await main();
+} catch (error) {
+  console.error("[audit-ml-unresolved-slugs] failed", error);
+  process.exitCode = 1;
+} finally {
+  await prisma.$disconnect();
+}

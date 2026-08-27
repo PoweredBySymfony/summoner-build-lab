@@ -1,4 +1,4 @@
-import { FormEvent, KeyboardEvent, useDeferredValue, useEffect, useRef, useState } from "react";
+import { FormEvent, KeyboardEvent, type ReactNode, type RefObject, useDeferredValue, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Clock3, Search, X } from "lucide-react";
 import { useNavigate } from "react-router-dom";
@@ -28,14 +28,17 @@ const useDebouncedValue = <T,>(value: T, delayMs: number) => {
 };
 
 type RiotIdSearchProps = {
-  defaultValue?: string;
-  compact?: boolean;
+  readonly defaultValue?: string;
+  readonly compact?: boolean;
 };
 
 type Suggestion =
   | { type: "current"; riotId: string; gameName: string; tagLine: string }
   | ({ type: "recent" } & RecentRiotSearch)
   | ({ type: "remote" } & PlayerAutocompleteSuggestion);
+
+type PanelStyle = { left: number; top: number; width: number };
+type ParsedRiotId = NonNullable<ReturnType<typeof parseRiotIdInput>>;
 
 const RiotIdAvatar = ({ entry }: { entry: Pick<RecentRiotSearch, "gameName" | "profileIconId"> }) => {
   const iconUrl = buildRiotProfileIconUrl(entry.profileIconId);
@@ -58,6 +61,257 @@ const RiotIdAvatar = ({ entry }: { entry: Pick<RecentRiotSearch, "gameName" | "p
   );
 };
 
+function matchesRecentSearch(entry: RecentRiotSearch, normalizedQuery: string) {
+  if (!normalizedQuery) {
+    return true;
+  }
+
+  return [
+    entry.riotId,
+    entry.gameName,
+    entry.tagLine,
+    `${entry.gameName}-${entry.tagLine}`,
+  ].some((value) => value.toLowerCase().includes(normalizedQuery));
+}
+
+function appendUniqueSuggestion(suggestions: Suggestion[], dedupe: Set<string>, suggestion: Suggestion) {
+  const key = suggestion.riotId.toLowerCase();
+  if (dedupe.has(key)) {
+    return;
+  }
+
+  dedupe.add(key);
+  suggestions.push(suggestion);
+}
+
+function buildSuggestions(input: {
+  parsedCurrentInput: ParsedRiotId | null;
+  showRecentSearches: boolean;
+  recentSearches: RecentRiotSearch[];
+  remoteSuggestions: PlayerAutocompleteSuggestion[];
+}) {
+  const dedupe = new Set<string>();
+  const suggestions: Suggestion[] = [];
+
+  if (input.parsedCurrentInput) {
+    appendUniqueSuggestion(suggestions, dedupe, { type: "current", ...input.parsedCurrentInput });
+  }
+
+  if (!input.showRecentSearches) {
+    input.remoteSuggestions.forEach((entry) => appendUniqueSuggestion(suggestions, dedupe, { type: "remote", ...entry }));
+  }
+
+  input.recentSearches.forEach((entry) => appendUniqueSuggestion(suggestions, dedupe, { type: "recent", ...entry }));
+
+  return suggestions;
+}
+
+function getRegionBadge(suggestion: Suggestion) {
+  return suggestion.type === "remote"
+    ? suggestion.platform?.toUpperCase() ?? suggestion.region?.toUpperCase() ?? suggestion.tagLine
+    : suggestion.tagLine;
+}
+
+function CurrentSuggestionButton({
+  suggestion,
+  isActive,
+  onActivate,
+  onSelect,
+}: {
+  readonly suggestion: Extract<Suggestion, { type: "current" }>;
+  readonly isActive: boolean;
+  readonly onActivate: () => void;
+  readonly onSelect: () => void;
+}) {
+  return (
+    <button
+      key={suggestion.riotId}
+      type="button"
+      className={`flex min-h-14 w-full items-center gap-3 rounded-2xl px-3 py-3 text-left transition ${isActive ? "bg-white/8" : "hover:bg-white/5"}`}
+      onMouseEnter={onActivate}
+      onClick={onSelect}
+    >
+      <div className="flex h-11 w-11 items-center justify-center rounded-xl border border-primary/30 bg-primary/10 text-primary">
+        <Search className="h-5 w-5" />
+      </div>
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-base font-semibold text-foreground">{suggestion.gameName}</p>
+        <p className="text-sm text-muted-foreground">#{suggestion.tagLine}</p>
+      </div>
+      <div className="rounded-xl bg-primary/15 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-primary">
+        Recherche exacte
+      </div>
+    </button>
+  );
+}
+
+function KnownSuggestionRow({
+  suggestion,
+  isActive,
+  onActivate,
+  onSelect,
+}: {
+  readonly suggestion: Exclude<Suggestion, { type: "current" }>;
+  readonly isActive: boolean;
+  readonly onActivate: () => void;
+  readonly onSelect: () => void;
+}) {
+  return (
+    <div
+      key={`${suggestion.type}-${suggestion.riotId}`}
+      className={`flex min-h-14 items-center gap-3 rounded-2xl px-3 py-3 transition ${isActive ? "bg-white/8" : "hover:bg-white/5"}`}
+    >
+      <button type="button" className="flex min-w-0 flex-1 items-center gap-3 text-left" onMouseEnter={onActivate} onClick={onSelect}>
+        <RiotIdAvatar entry={suggestion} />
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-base font-semibold text-foreground">{suggestion.gameName}</p>
+          <p className="text-sm text-muted-foreground">#{suggestion.tagLine}</p>
+        </div>
+        <div className="rounded-xl bg-indigo-500 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-white">
+          {getRegionBadge(suggestion)}
+        </div>
+      </button>
+      {suggestion.type === "recent" ? (
+        <button
+          type="button"
+          className="rounded-full p-2.5 text-muted-foreground transition hover:bg-white/8 hover:text-foreground"
+          aria-label={`Remove ${suggestion.riotId} from recent searches`}
+          onMouseEnter={onActivate}
+          onClick={() => removeRecentRiotSearch(suggestion.riotId)}
+        >
+          <X className="h-5 w-5" />
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+function SuggestionRows({
+  suggestions,
+  activeIndex,
+  panelMaxHeight,
+  onActivate,
+  onSelect,
+}: {
+  readonly suggestions: Suggestion[];
+  readonly activeIndex: number;
+  readonly panelMaxHeight: number;
+  readonly onActivate: (index: number) => void;
+  readonly onSelect: (riotId: string) => void;
+}) {
+  return (
+    <div className="overflow-y-auto p-3" style={{ maxHeight: panelMaxHeight }}>
+      {suggestions.map((suggestion, index) => {
+        const isActive = index === activeIndex;
+        const rowProps = {
+          isActive,
+          onActivate: () => onActivate(index),
+          onSelect: () => onSelect(suggestion.riotId),
+        };
+
+        return suggestion.type === "current"
+          ? <CurrentSuggestionButton key={suggestion.riotId} suggestion={suggestion} {...rowProps} />
+          : <KnownSuggestionRow key={`${suggestion.type}-${suggestion.riotId}`} suggestion={suggestion} {...rowProps} />;
+      })}
+    </div>
+  );
+}
+
+function SuggestionStatus({ children }: { readonly children: ReactNode }) {
+  return (
+    <div className="flex items-center gap-3 px-5 py-6 text-sm text-muted-foreground">
+      <Clock3 className="h-4 w-4" />
+      <p>{children}</p>
+    </div>
+  );
+}
+
+function SuggestionPanelContent({
+  suggestions,
+  activeIndex,
+  isLoadingSuggestions,
+  emptyState,
+  panelMaxHeight,
+  onActivate,
+  onSelect,
+}: {
+  readonly suggestions: Suggestion[];
+  readonly activeIndex: number;
+  readonly isLoadingSuggestions: boolean;
+  readonly emptyState: string;
+  readonly panelMaxHeight: number;
+  readonly onActivate: (index: number) => void;
+  readonly onSelect: (riotId: string) => void;
+}) {
+  if (isLoadingSuggestions) {
+    return <SuggestionStatus>Recherche de comptes connus en cours...</SuggestionStatus>;
+  }
+
+  if (suggestions.length === 0) {
+    return <SuggestionStatus>{emptyState}</SuggestionStatus>;
+  }
+
+  return (
+    <SuggestionRows
+      suggestions={suggestions}
+      activeIndex={activeIndex}
+      panelMaxHeight={panelMaxHeight}
+      onActivate={onActivate}
+      onSelect={onSelect}
+    />
+  );
+}
+
+function RiotIdSuggestionPanel({
+  panelRef,
+  panelStyle,
+  hintLabel,
+  suggestions,
+  activeIndex,
+  isLoadingSuggestions,
+  emptyState,
+  panelMaxHeight,
+  onActivate,
+  onSelect,
+}: {
+  panelRef: RefObject<HTMLDivElement>;
+  panelStyle: PanelStyle;
+  hintLabel: string;
+  suggestions: Suggestion[];
+  activeIndex: number;
+  isLoadingSuggestions: boolean;
+  emptyState: string;
+  panelMaxHeight: number;
+  onActivate: (index: number) => void;
+  onSelect: (riotId: string) => void;
+}) {
+  return createPortal(
+    <div
+      ref={panelRef}
+      className="fixed z-[2147483647] overflow-hidden rounded-[28px] border border-border/60 bg-card/95 shadow-2xl shadow-black/50 backdrop-blur"
+      style={{
+        left: panelStyle.left,
+        top: panelStyle.top,
+        width: panelStyle.width,
+      }}
+    >
+      <div className="border-b border-border/60 px-5 py-4">
+        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">{hintLabel}</p>
+      </div>
+      <SuggestionPanelContent
+        suggestions={suggestions}
+        activeIndex={activeIndex}
+        isLoadingSuggestions={isLoadingSuggestions}
+        emptyState={emptyState}
+        panelMaxHeight={panelMaxHeight}
+        onActivate={onActivate}
+        onSelect={onSelect}
+      />
+    </div>,
+    document.body,
+  );
+}
+
 export const RiotIdSearch = ({ defaultValue = "", compact = false }: RiotIdSearchProps) => {
   const navigate = useNavigate();
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -66,7 +320,7 @@ export const RiotIdSearch = ({ defaultValue = "", compact = false }: RiotIdSearc
   const [recentSearches, setRecentSearches] = useState<RecentRiotSearch[]>([]);
   const [isOpen, setIsOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
-  const [panelStyle, setPanelStyle] = useState<{ left: number; top: number; width: number }>({
+  const [panelStyle, setPanelStyle] = useState<PanelStyle>({
     left: 0,
     top: 0,
     width: 0,
@@ -148,59 +402,13 @@ export const RiotIdSearch = ({ defaultValue = "", compact = false }: RiotIdSearc
   const parsedCurrentInput = parseRiotIdInput(trimmedDeferredRiotId);
   const normalizedQuery = normalizeRiotIdInput(trimmedDeferredRiotId).toLowerCase();
   const showRecentSearches = !trimmedDeferredRiotId;
-  const filteredRecentSearches = recentSearches.filter((entry) => {
-    if (!normalizedQuery) {
-      return true;
-    }
-
-    return [
-      entry.riotId,
-      entry.gameName,
-      entry.tagLine,
-      `${entry.gameName}-${entry.tagLine}`,
-    ].some((value) => value.toLowerCase().includes(normalizedQuery));
+  const filteredRecentSearches = recentSearches.filter((entry) => matchesRecentSearch(entry, normalizedQuery));
+  const suggestions = buildSuggestions({
+    parsedCurrentInput,
+    showRecentSearches,
+    recentSearches: filteredRecentSearches,
+    remoteSuggestions: remoteSuggestions.data ?? [],
   });
-
-  const dedupe = new Set<string>();
-  const suggestions: Suggestion[] = [];
-
-  if (parsedCurrentInput) {
-    const currentRiotId = parsedCurrentInput.riotId.toLowerCase();
-    dedupe.add(currentRiotId);
-    suggestions.push({ type: "current", ...parsedCurrentInput });
-  }
-
-  if (showRecentSearches) {
-    for (const entry of filteredRecentSearches) {
-      const key = entry.riotId.toLowerCase();
-      if (dedupe.has(key)) {
-        continue;
-      }
-
-      dedupe.add(key);
-      suggestions.push({ type: "recent", ...entry });
-    }
-  } else {
-    for (const entry of remoteSuggestions.data ?? []) {
-      const key = entry.riotId.toLowerCase();
-      if (dedupe.has(key)) {
-        continue;
-      }
-
-      dedupe.add(key);
-      suggestions.push({ type: "remote", ...entry });
-    }
-
-    for (const entry of filteredRecentSearches) {
-      const key = entry.riotId.toLowerCase();
-      if (dedupe.has(key)) {
-        continue;
-      }
-
-      dedupe.add(key);
-      suggestions.push({ type: "recent", ...entry });
-    }
-  }
 
   useEffect(() => {
     setActiveIndex(0);
@@ -263,103 +471,6 @@ export const RiotIdSearch = ({ defaultValue = "", compact = false }: RiotIdSearc
     ? "Commence par rechercher un Riot ID comme `Hide on bush#KR1`. Les recherches valides apparaitront ici."
     : "Aucune suggestion distante connue pour cette saisie pour l'instant. Essaie un Riot ID complet.";
 
-  const suggestionPanel = isOpen
-    ? createPortal(
-      <div
-        ref={panelRef}
-        className="fixed z-[2147483647] overflow-hidden rounded-[28px] border border-border/60 bg-card/95 shadow-2xl shadow-black/50 backdrop-blur"
-        style={{
-          left: panelStyle.left,
-          top: panelStyle.top,
-          width: panelStyle.width,
-        }}
-      >
-        <div className="border-b border-border/60 px-5 py-4">
-          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">{hintLabel}</p>
-        </div>
-
-        {isLoadingSuggestions ? (
-          <div className="flex items-center gap-3 px-5 py-6 text-sm text-muted-foreground">
-            <Clock3 className="h-4 w-4" />
-            <p>Recherche de comptes connus en cours...</p>
-          </div>
-        ) : suggestions.length > 0 ? (
-          <div className="overflow-y-auto p-3" style={{ maxHeight: panelMaxHeight }}>
-            {suggestions.map((suggestion, index) => {
-              const isActive = index === activeIndex;
-
-              if (suggestion.type === "current") {
-                return (
-                  <button
-                    key={suggestion.riotId}
-                    type="button"
-                    className={`flex min-h-14 w-full items-center gap-3 rounded-2xl px-3 py-3 text-left transition ${isActive ? "bg-white/8" : "hover:bg-white/5"}`}
-                    onMouseEnter={() => setActiveIndex(index)}
-                    onClick={() => goToProfile(suggestion.riotId)}
-                  >
-                    <div className="flex h-11 w-11 items-center justify-center rounded-xl border border-primary/30 bg-primary/10 text-primary">
-                      <Search className="h-5 w-5" />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-base font-semibold text-foreground">{suggestion.gameName}</p>
-                      <p className="text-sm text-muted-foreground">#{suggestion.tagLine}</p>
-                    </div>
-                    <div className="rounded-xl bg-primary/15 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-primary">
-                      Recherche exacte
-                    </div>
-                  </button>
-                );
-              }
-
-              const regionBadge = suggestion.type === "remote"
-                ? suggestion.platform?.toUpperCase() ?? suggestion.region?.toUpperCase() ?? suggestion.tagLine
-                : suggestion.tagLine;
-
-              return (
-                <div
-                  key={`${suggestion.type}-${suggestion.riotId}`}
-                  className={`flex min-h-14 items-center gap-3 rounded-2xl px-3 py-3 transition ${isActive ? "bg-white/8" : "hover:bg-white/5"}`}
-                  onMouseEnter={() => setActiveIndex(index)}
-                >
-                  <button
-                    type="button"
-                    className="flex min-w-0 flex-1 items-center gap-3 text-left"
-                    onClick={() => goToProfile(suggestion.riotId)}
-                  >
-                    <RiotIdAvatar entry={suggestion} />
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-base font-semibold text-foreground">{suggestion.gameName}</p>
-                      <p className="text-sm text-muted-foreground">#{suggestion.tagLine}</p>
-                    </div>
-                    <div className="rounded-xl bg-indigo-500 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-white">
-                      {regionBadge}
-                    </div>
-                  </button>
-                  {suggestion.type === "recent" ? (
-                    <button
-                      type="button"
-                      className="rounded-full p-2.5 text-muted-foreground transition hover:bg-white/8 hover:text-foreground"
-                      aria-label={`Remove ${suggestion.riotId} from recent searches`}
-                      onClick={() => removeRecentRiotSearch(suggestion.riotId)}
-                    >
-                      <X className="h-5 w-5" />
-                    </button>
-                  ) : null}
-                </div>
-              );
-            })}
-          </div>
-        ) : (
-          <div className="flex items-center gap-3 px-5 py-6 text-sm text-muted-foreground">
-            <Clock3 className="h-4 w-4" />
-            <p>{emptyState}</p>
-          </div>
-        )}
-      </div>,
-      document.body,
-    )
-    : null;
-
   return (
     <div ref={containerRef} className="relative z-[70] min-w-0">
       <form onSubmit={submit} className={`rounded-[28px] border border-border/60 bg-background/80 shadow-sm ${compact ? "p-4" : "p-6"}`}>
@@ -383,18 +494,31 @@ export const RiotIdSearch = ({ defaultValue = "", compact = false }: RiotIdSearc
                 }}
               />
             </div>
-            {!compact ? (
+            {compact ? null : (
               <p className="text-sm text-muted-foreground">
                 Au focus: dernieres recherches. Pendant la saisie: suggestions de comptes connus et recherche exacte sur Riot ID complet.
               </p>
-            ) : null}
+            )}
           </div>
           <Button type="submit" variant="gold" className={`${compact ? "h-11 w-full" : "h-14 min-w-44"} rounded-2xl text-base`}>
             Rechercher
           </Button>
         </div>
       </form>
-      {suggestionPanel}
+      {isOpen ? (
+        <RiotIdSuggestionPanel
+          panelRef={panelRef}
+          panelStyle={panelStyle}
+          hintLabel={hintLabel}
+          suggestions={suggestions}
+          activeIndex={activeIndex}
+          isLoadingSuggestions={isLoadingSuggestions}
+          emptyState={emptyState}
+          panelMaxHeight={panelMaxHeight}
+          onActivate={setActiveIndex}
+          onSelect={goToProfile}
+        />
+      ) : null}
     </div>
   );
 };

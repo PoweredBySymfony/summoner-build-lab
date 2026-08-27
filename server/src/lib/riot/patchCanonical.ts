@@ -21,7 +21,7 @@ function normalizeDateInput(value?: Date | string | number | null) {
 
 function parsePatchComponents(patchRaw?: string | null) {
   const normalized = String(patchRaw ?? "").trim();
-  const match = normalized.match(/^(\d{1,2})\.(\d{1,2})/);
+  const match = /^(\d{1,2})\.(\d{1,2})/.exec(normalized);
   if (!match) {
     return null;
   }
@@ -91,7 +91,7 @@ export function buildPatchLookupCandidates(
   }
 
   const values = new Set<string>([patchCanonical]);
-  const match = patchCanonical.match(/^(\d{1,2})\.(\d{1,2})$/);
+  const match = /^(\d{1,2})\.(\d{1,2})$/.exec(patchCanonical);
   if (match) {
     const major = Number(match[1]);
     const minor = Number(match[2]);

@@ -19,6 +19,34 @@ type CliOptions = {
   sourceProfile: ProSeedSourceProfile;
 };
 
+type ValueOptionHandler = (options: CliOptions, next: string | undefined) => void;
+
+const valueOptionHandlers: Record<string, ValueOptionHandler> = {
+  "--output": (options, next) => {
+    if (next) options.outputPath = next;
+  },
+  "--since": (options, next) => {
+    if (next) options.since = next;
+  },
+  "--seeds-cache-path": (options, next) => {
+    if (next) options.seedsCachePath = next;
+  },
+  "--leaguepedia-user-agent": (options, next) => {
+    if (next) options.leaguepediaUserAgent = next;
+  },
+  "--source-profile": (options, next) => {
+    if (next === "canon" || next === "wide") {
+      options.sourceProfile = next;
+    }
+  },
+};
+
+const flagOptionHandlers: Record<string, (options: CliOptions) => void> = {
+  "--enable-leaguepedia": (options) => {
+    options.enableLeaguepedia = true;
+  },
+};
+
 function parseArgs(argv: string[]): CliOptions {
   const options: CliOptions = {
     outputPath: path.join("data", "pro-seeds", "major-pros-recent.json"),
@@ -28,46 +56,22 @@ function parseArgs(argv: string[]): CliOptions {
     sourceProfile: "canon",
   };
 
-  for (let index = 0; index < argv.length; index += 1) {
+  let index = 0;
+  while (index < argv.length) {
     const arg = argv[index];
-    const next = argv[index + 1];
+    index += 1;
+    const next = argv[index];
 
-    switch (arg) {
-      case "--output":
-        if (next) {
-          options.outputPath = next;
-        }
-        index += 1;
-        break;
-      case "--since":
-        if (next) {
-          options.since = next;
-        }
-        index += 1;
-        break;
-      case "--enable-leaguepedia":
-        options.enableLeaguepedia = true;
-        break;
-      case "--seeds-cache-path":
-        if (next) {
-          options.seedsCachePath = next;
-        }
-        index += 1;
-        break;
-      case "--leaguepedia-user-agent":
-        if (next) {
-          options.leaguepediaUserAgent = next;
-        }
-        index += 1;
-        break;
-      case "--source-profile":
-        if (next === "canon" || next === "wide") {
-          options.sourceProfile = next;
-        }
-        index += 1;
-        break;
-      default:
-        break;
+    const valueHandler = valueOptionHandlers[arg];
+    if (valueHandler) {
+      valueHandler(options, next);
+      index += 1;
+      continue;
+    }
+
+    const flagHandler = flagOptionHandlers[arg];
+    if (flagHandler) {
+      flagHandler(options);
     }
   }
 
@@ -118,7 +122,9 @@ async function main() {
   );
 }
 
-main().catch((error) => {
+try {
+  await main();
+} catch (error) {
   console.error("[pro-seeds] failed", error);
   process.exitCode = 1;
-});
+}

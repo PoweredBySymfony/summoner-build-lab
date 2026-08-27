@@ -17,13 +17,13 @@ export function ItemAdminSection({
   onQueryChange,
   onEdit,
   onDelete,
-}: {
+}: Readonly<{
   items: GameItem[];
   query: string;
   onQueryChange: (value: string) => void;
   onEdit: (item: GameItem) => void;
   onDelete: (item: GameItem) => void;
-}) {
+}>) {
   return (
     <div className="space-y-5">
       <SectionHeader title="Catalogue items" description="Inventaire complet des items actuellement sauvegardes, avec image, cout, categorie et patch." />

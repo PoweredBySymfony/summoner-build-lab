@@ -58,6 +58,8 @@ export const SNAPSHOT_SEGMENTS: ReadonlyArray<{
   { segment: "late", minInclusive: 23, maxExclusive: 32.01 },
 ];
 
+const compareText = (left: string, right: string) => left.localeCompare(right);
+
 export function buildSnapshotHistoryKey(input: {
   snapshotIndex: number;
   snapshotMinute: number;
@@ -75,7 +77,7 @@ export function buildSnapshotSignature(input: {
     input.role ?? "FLEX",
     input.snapshotMinute.toFixed(2),
     Math.max(0, Math.round(input.goldAvailable)),
-    [...input.currentItems].sort().join("|"),
+    [...input.currentItems].sort(compareText).join("|"),
   ].join("::");
 }
 
@@ -188,6 +190,281 @@ export function selectBestAttempt<TAttempt extends SnapshotSelectionAttempt>(inp
   };
 }
 
+function compareAttemptsByAdjustedScore<TAttempt extends SnapshotSelectionAttempt>(input: {
+  left: TAttempt;
+  right: TAttempt;
+  previousSnapshots: SnapshotHistoryEntry[];
+  now?: Date;
+}) {
+  const leftPenalty = calculateSnapshotReusePenalty({
+    attempt: input.left,
+    previousSnapshots: input.previousSnapshots,
+    now: input.now,
+  });
+  const rightPenalty = calculateSnapshotReusePenalty({
+    attempt: input.right,
+    previousSnapshots: input.previousSnapshots,
+    now: input.now,
+  });
+
+  if (rightPenalty.adjustedQualityScore !== leftPenalty.adjustedQualityScore) {
+    return rightPenalty.adjustedQualityScore - leftPenalty.adjustedQualityScore;
+  }
+
+  if (input.right.qualityScore !== input.left.qualityScore) {
+    return input.right.qualityScore - input.left.qualityScore;
+  }
+
+  return input.left.snapshot.timestampMinutes - input.right.snapshot.timestampMinutes;
+}
+
+function getPreviousSnapshotForSegment(input: {
+  previousSnapshots: SnapshotHistoryEntry[];
+  segment: SnapshotSegment;
+}) {
+  return input.previousSnapshots
+    .filter((entry) => getSnapshotSegment(entry.snapshotMinute) === input.segment)
+    .sort((left, right) => right.createdAt.getTime() - left.createdAt.getTime())[0];
+}
+
+function getPreviousSnapshotDistanceInput(previous: SnapshotHistoryEntry) {
+  return {
+    snapshotMinute: previous.snapshotMinute,
+    goldAvailable: Number(previous.signature.split("::")[2] ?? 0),
+    currentItems: (previous.signature.split("::")[3] ?? "").split("|").filter(Boolean),
+  };
+}
+
+function getSnapshotDistanceFromPrevious<TAttempt extends SnapshotSelectionAttempt>(
+  attempt: TAttempt,
+  previous: SnapshotHistoryEntry | undefined,
+) {
+  if (!previous) {
+    return 100;
+  }
+
+  return computeSnapshotDistanceScore({
+    current: {
+      snapshotMinute: attempt.snapshot.timestampMinutes,
+      goldAvailable: attempt.snapshot.goldAvailable,
+      currentItems: attempt.snapshot.currentItems,
+    },
+    previous: getPreviousSnapshotDistanceInput(previous),
+  });
+}
+
+function sortSegmentAttempts<TAttempt extends SnapshotSelectionAttempt>(input: {
+  attempts: TAttempt[];
+  segment: SnapshotSegment;
+  previousSnapshots: SnapshotHistoryEntry[];
+  now?: Date;
+}) {
+  const previousForSegment = getPreviousSnapshotForSegment({
+    previousSnapshots: input.previousSnapshots,
+    segment: input.segment,
+  });
+
+  return input.attempts
+    .filter((attempt) => getSnapshotSegment(attempt.snapshot.timestampMinutes) === input.segment)
+    .sort((left, right) => {
+      const leftDistance = getSnapshotDistanceFromPrevious(left, previousForSegment);
+      const rightDistance = getSnapshotDistanceFromPrevious(right, previousForSegment);
+      if (Math.abs(rightDistance - leftDistance) >= 12) {
+        return rightDistance - leftDistance;
+      }
+
+      return compareAttemptsByAdjustedScore({
+        left,
+        right,
+        previousSnapshots: input.previousSnapshots,
+        now: input.now,
+      });
+    });
+}
+
+function collectRepetitionExcluded<TAttempt extends SnapshotSelectionAttempt>(input: {
+  segment: SnapshotSegment;
+  selectedAttempt: TAttempt | null;
+  segmentAttempts: TAttempt[];
+  previousSnapshots: SnapshotHistoryEntry[];
+  now?: Date;
+}) {
+  return input.segmentAttempts
+    .filter((attempt) => attempt.snapshotIndex !== input.selectedAttempt?.snapshotIndex)
+    .filter((attempt) => {
+      const historyMetrics = getSnapshotHistoryMetrics({
+        attempt,
+        previousSnapshots: input.previousSnapshots,
+        now: input.now,
+      });
+      return historyMetrics.signatureMatchCount > 0 || historyMetrics.exactMatchCount > 0;
+    })
+    .map((attempt) => ({
+      segment: input.segment,
+      snapshotIndex: attempt.snapshotIndex,
+      snapshotMinute: Number(attempt.snapshot.timestampMinutes.toFixed(2)),
+      qualityScore: attempt.qualityScore,
+      rerollDistanceScore: attempt.debugSummary.rerollDistanceScore,
+    }));
+}
+
+function buildSegmentSummary<TAttempt extends SnapshotSelectionAttempt>(input: {
+  segment: SnapshotSegment;
+  segmentAttempts: TAttempt[];
+  selectedAttempt: TAttempt | null;
+  previousSnapshots: SnapshotHistoryEntry[];
+  now?: Date;
+}): SegmentEvaluationSummary {
+  const selectedHistoryMetrics = input.selectedAttempt
+    ? getSnapshotHistoryMetrics({
+        attempt: input.selectedAttempt,
+        previousSnapshots: input.previousSnapshots,
+        now: input.now,
+      })
+    : null;
+
+  return {
+    segment: input.segment,
+    totalAccepted: input.segmentAttempts.length,
+    nonLowConfidenceAccepted: input.segmentAttempts.filter((attempt) => !attempt.seed.lowConfidence).length,
+    lowConfidenceAccepted: input.segmentAttempts.filter((attempt) => attempt.seed.lowConfidence).length,
+    selectedSnapshotIndex: input.selectedAttempt?.snapshotIndex ?? null,
+    selectedSnapshotMinute: input.selectedAttempt ? Number(input.selectedAttempt.snapshot.timestampMinutes.toFixed(2)) : null,
+    selectedQualityScore: input.selectedAttempt?.qualityScore ?? null,
+    selectedFromHistoryFallback:
+      Boolean(input.selectedAttempt)
+      && Boolean(selectedHistoryMetrics)
+      && (selectedHistoryMetrics.signatureMatchCount > 0 || selectedHistoryMetrics.exactMatchCount > 0),
+  };
+}
+
+function chooseAttemptsFromPool<TAttempt extends SnapshotSelectionAttempt>(input: {
+  pool: TAttempt[];
+  previousSnapshots: SnapshotHistoryEntry[];
+  now?: Date;
+}) {
+  const selectedAttempts: TAttempt[] = [];
+  const segmentSummaries: SegmentEvaluationSummary[] = [];
+  const repetitionExcluded: SeriesSelectionResult<TAttempt>["repetitionExcluded"] = [];
+
+  for (const segmentConfig of SNAPSHOT_SEGMENTS) {
+    const segmentAttempts = sortSegmentAttempts({
+      attempts: input.pool,
+      segment: segmentConfig.segment,
+      previousSnapshots: input.previousSnapshots,
+      now: input.now,
+    });
+    const selectedAttempt = segmentAttempts[0] ?? null;
+
+    if (selectedAttempt) {
+      selectedAttempt.debugSummary.rerollDistanceScore = getSnapshotDistanceFromPrevious(
+        selectedAttempt,
+        getPreviousSnapshotForSegment({
+          previousSnapshots: input.previousSnapshots,
+          segment: segmentConfig.segment,
+        }),
+      );
+      selectedAttempts.push(selectedAttempt);
+    }
+
+    repetitionExcluded.push(...collectRepetitionExcluded({
+      segment: segmentConfig.segment,
+      selectedAttempt,
+      segmentAttempts,
+      previousSnapshots: input.previousSnapshots,
+      now: input.now,
+    }));
+    segmentSummaries.push(buildSegmentSummary({
+      segment: segmentConfig.segment,
+      segmentAttempts,
+      selectedAttempt,
+      previousSnapshots: input.previousSnapshots,
+      now: input.now,
+    }));
+  }
+
+  return {
+    selectedAttempts,
+    segmentSummaries,
+    repetitionExcluded,
+  };
+}
+
+function orderSelectedAttempts<TAttempt extends SnapshotSelectionAttempt>(input: {
+  selectedAttempts: TAttempt[];
+  previousSnapshots: SnapshotHistoryEntry[];
+  now?: Date;
+}) {
+  const primaryAttempt = [...input.selectedAttempts].sort((left, right) =>
+    compareAttemptsByAdjustedScore({
+      left,
+      right,
+      previousSnapshots: input.previousSnapshots,
+      now: input.now,
+    }))[0] ?? null;
+
+  const orderedAttempts = primaryAttempt
+    ? [
+        primaryAttempt,
+        ...input.selectedAttempts
+          .filter((attempt) => attempt.snapshotIndex !== primaryAttempt.snapshotIndex)
+          .sort((left, right) => left.snapshot.timestampMinutes - right.snapshot.timestampMinutes),
+      ]
+    : [];
+
+  return {
+    primaryAttempt,
+    orderedAttempts,
+  };
+}
+
+function buildSeriesSelectionResult<TAttempt extends SnapshotSelectionAttempt>(input: {
+  selection: ReturnType<typeof chooseAttemptsFromPool<TAttempt>>;
+  draft: boolean;
+  previousSnapshots: SnapshotHistoryEntry[];
+  now?: Date;
+}): SeriesSelectionResult<TAttempt> {
+  const { primaryAttempt, orderedAttempts } = orderSelectedAttempts({
+    selectedAttempts: input.selection.selectedAttempts,
+    previousSnapshots: input.previousSnapshots,
+    now: input.now,
+  });
+
+  return {
+    selectedAttempts: orderedAttempts,
+    primaryAttempt,
+    draft: input.draft,
+    segmentSummaries: input.selection.segmentSummaries,
+    repetitionExcluded: input.selection.repetitionExcluded,
+  };
+}
+
+function buildEmptySeriesSelection<TAttempt extends SnapshotSelectionAttempt>(
+  accepted: TAttempt[],
+): SeriesSelectionResult<TAttempt> {
+  return {
+    selectedAttempts: [],
+    primaryAttempt: null,
+    draft: false,
+    segmentSummaries: SNAPSHOT_SEGMENTS.map((segmentConfig) => {
+      const segmentAttempts = accepted.filter(
+        (attempt) => getSnapshotSegment(attempt.snapshot.timestampMinutes) === segmentConfig.segment,
+      );
+      return {
+        segment: segmentConfig.segment,
+        totalAccepted: segmentAttempts.length,
+        nonLowConfidenceAccepted: segmentAttempts.filter((attempt) => !attempt.seed.lowConfidence).length,
+        lowConfidenceAccepted: segmentAttempts.filter((attempt) => attempt.seed.lowConfidence).length,
+        selectedSnapshotIndex: null,
+        selectedSnapshotMinute: null,
+        selectedQualityScore: null,
+        selectedFromHistoryFallback: false,
+      };
+    }),
+    repetitionExcluded: [],
+  };
+}
+
 export function selectAttemptsForSeries<TAttempt extends SnapshotSelectionAttempt>(input: {
   attempts: Array<TAttempt | { status: "rejected" }>;
   allowLowConfidenceDraft: boolean;
@@ -195,201 +472,38 @@ export function selectAttemptsForSeries<TAttempt extends SnapshotSelectionAttemp
   now?: Date;
 }): SeriesSelectionResult<TAttempt> {
   const accepted = input.attempts.filter((attempt): attempt is TAttempt => attempt.status === "accepted");
-  const byAdjustedScore = (left: TAttempt, right: TAttempt) => {
-    const leftPenalty = calculateSnapshotReusePenalty({
-      attempt: left,
-      previousSnapshots: input.previousSnapshots,
-      now: input.now,
-    });
-    const rightPenalty = calculateSnapshotReusePenalty({
-      attempt: right,
-      previousSnapshots: input.previousSnapshots,
-      now: input.now,
-    });
-    if (rightPenalty.adjustedQualityScore !== leftPenalty.adjustedQualityScore) {
-      return rightPenalty.adjustedQualityScore - leftPenalty.adjustedQualityScore;
-    }
-    if (right.qualityScore !== left.qualityScore) {
-      return right.qualityScore - left.qualityScore;
-    }
-    return left.snapshot.timestampMinutes - right.snapshot.timestampMinutes;
-  };
-
-  const chooseFromPool = (pool: TAttempt[]) => {
-    const selectedAttempts: TAttempt[] = [];
-    const segmentSummaries: SegmentEvaluationSummary[] = [];
-    const repetitionExcluded: SeriesSelectionResult<TAttempt>["repetitionExcluded"] = [];
-
-    for (const segmentConfig of SNAPSHOT_SEGMENTS) {
-      const previousForSegment = input.previousSnapshots
-        .filter((entry) => getSnapshotSegment(entry.snapshotMinute) === segmentConfig.segment)
-        .sort((left, right) => right.createdAt.getTime() - left.createdAt.getTime())[0];
-      const segmentAttempts = pool
-        .filter((attempt) => getSnapshotSegment(attempt.snapshot.timestampMinutes) === segmentConfig.segment)
-        .sort((left, right) => {
-          const leftDistance = previousForSegment
-            ? computeSnapshotDistanceScore({
-                current: {
-                  snapshotMinute: left.snapshot.timestampMinutes,
-                  goldAvailable: left.snapshot.goldAvailable,
-                  currentItems: left.snapshot.currentItems,
-                },
-                previous: {
-                  snapshotMinute: previousForSegment.snapshotMinute,
-                  goldAvailable: Number(previousForSegment.signature.split("::")[2] ?? 0),
-                  currentItems: (previousForSegment.signature.split("::")[3] ?? "").split("|").filter(Boolean),
-                },
-              })
-            : 100;
-          const rightDistance = previousForSegment
-            ? computeSnapshotDistanceScore({
-                current: {
-                  snapshotMinute: right.snapshot.timestampMinutes,
-                  goldAvailable: right.snapshot.goldAvailable,
-                  currentItems: right.snapshot.currentItems,
-                },
-                previous: {
-                  snapshotMinute: previousForSegment.snapshotMinute,
-                  goldAvailable: Number(previousForSegment.signature.split("::")[2] ?? 0),
-                  currentItems: (previousForSegment.signature.split("::")[3] ?? "").split("|").filter(Boolean),
-                },
-              })
-            : 100;
-          if (Math.abs(rightDistance - leftDistance) >= 12) {
-            return rightDistance - leftDistance;
-          }
-          return byAdjustedScore(left, right);
-        });
-      const selectedAttempt = segmentAttempts[0] ?? null;
-      if (selectedAttempt) {
-        selectedAttempt.debugSummary.rerollDistanceScore = previousForSegment
-          ? computeSnapshotDistanceScore({
-              current: {
-                snapshotMinute: selectedAttempt.snapshot.timestampMinutes,
-                goldAvailable: selectedAttempt.snapshot.goldAvailable,
-                currentItems: selectedAttempt.snapshot.currentItems,
-              },
-              previous: {
-                snapshotMinute: previousForSegment.snapshotMinute,
-                goldAvailable: Number(previousForSegment.signature.split("::")[2] ?? 0),
-                currentItems: (previousForSegment.signature.split("::")[3] ?? "").split("|").filter(Boolean),
-              },
-            })
-          : 100;
-        selectedAttempts.push(selectedAttempt);
-      }
-      for (const repeatedAttempt of segmentAttempts) {
-        if (selectedAttempt && repeatedAttempt.snapshotIndex === selectedAttempt.snapshotIndex) {
-          continue;
-        }
-        const historyMetrics = getSnapshotHistoryMetrics({
-          attempt: repeatedAttempt,
-          previousSnapshots: input.previousSnapshots,
-          now: input.now,
-        });
-        if (historyMetrics.signatureMatchCount === 0 && historyMetrics.exactMatchCount === 0) {
-          continue;
-        }
-        repetitionExcluded.push({
-          segment: segmentConfig.segment,
-          snapshotIndex: repeatedAttempt.snapshotIndex,
-          snapshotMinute: Number(repeatedAttempt.snapshot.timestampMinutes.toFixed(2)),
-          qualityScore: repeatedAttempt.qualityScore,
-          rerollDistanceScore: repeatedAttempt.debugSummary.rerollDistanceScore,
-        });
-      }
-      const selectedHistoryMetrics = selectedAttempt
-        ? getSnapshotHistoryMetrics({
-          attempt: selectedAttempt,
-          previousSnapshots: input.previousSnapshots,
-          now: input.now,
-        })
-        : null;
-      segmentSummaries.push({
-        segment: segmentConfig.segment,
-        totalAccepted: segmentAttempts.length,
-        nonLowConfidenceAccepted: segmentAttempts.filter((attempt) => !attempt.seed.lowConfidence).length,
-        lowConfidenceAccepted: segmentAttempts.filter((attempt) => attempt.seed.lowConfidence).length,
-        selectedSnapshotIndex: selectedAttempt?.snapshotIndex ?? null,
-        selectedSnapshotMinute: selectedAttempt ? Number(selectedAttempt.snapshot.timestampMinutes.toFixed(2)) : null,
-        selectedQualityScore: selectedAttempt?.qualityScore ?? null,
-        selectedFromHistoryFallback:
-          Boolean(selectedAttempt)
-          && Boolean(selectedHistoryMetrics)
-          && (selectedHistoryMetrics.signatureMatchCount > 0 || selectedHistoryMetrics.exactMatchCount > 0),
-      });
-    }
-
-    return {
-      selectedAttempts,
-      segmentSummaries,
-      repetitionExcluded,
-    };
-  };
 
   const publishedCandidates = accepted.filter((attempt) => !attempt.seed.lowConfidence);
-  const publishedSelection = chooseFromPool(publishedCandidates);
+  const publishedSelection = chooseAttemptsFromPool({
+    pool: publishedCandidates,
+    previousSnapshots: input.previousSnapshots,
+    now: input.now,
+  });
   if (publishedSelection.selectedAttempts.length > 0) {
-    const primaryAttempt = [...publishedSelection.selectedAttempts].sort(byAdjustedScore)[0] ?? null;
-    const orderedAttempts = primaryAttempt
-      ? [
-          primaryAttempt,
-          ...publishedSelection.selectedAttempts
-            .filter((attempt) => attempt.snapshotIndex !== primaryAttempt.snapshotIndex)
-            .sort((left, right) => left.snapshot.timestampMinutes - right.snapshot.timestampMinutes),
-        ]
-      : [];
-    return {
-      selectedAttempts: orderedAttempts,
-      primaryAttempt,
+    return buildSeriesSelectionResult({
+      selection: publishedSelection,
       draft: false,
-      segmentSummaries: publishedSelection.segmentSummaries,
-      repetitionExcluded: publishedSelection.repetitionExcluded,
-    };
+      previousSnapshots: input.previousSnapshots,
+      now: input.now,
+    });
   }
 
   if (input.allowLowConfidenceDraft) {
     const draftCandidates = accepted.filter((attempt) => attempt.seed.lowConfidence);
-    const draftSelection = chooseFromPool(draftCandidates);
+    const draftSelection = chooseAttemptsFromPool({
+      pool: draftCandidates,
+      previousSnapshots: input.previousSnapshots,
+      now: input.now,
+    });
     if (draftSelection.selectedAttempts.length > 0) {
-      const primaryAttempt = [...draftSelection.selectedAttempts].sort(byAdjustedScore)[0] ?? null;
-      const orderedAttempts = primaryAttempt
-        ? [
-            primaryAttempt,
-            ...draftSelection.selectedAttempts
-              .filter((attempt) => attempt.snapshotIndex !== primaryAttempt.snapshotIndex)
-              .sort((left, right) => left.snapshot.timestampMinutes - right.snapshot.timestampMinutes),
-          ]
-        : [];
-      return {
-        selectedAttempts: orderedAttempts,
-        primaryAttempt,
+      return buildSeriesSelectionResult({
+        selection: draftSelection,
         draft: true,
-        segmentSummaries: draftSelection.segmentSummaries,
-        repetitionExcluded: draftSelection.repetitionExcluded,
-      };
+        previousSnapshots: input.previousSnapshots,
+        now: input.now,
+      });
     }
   }
 
-  return {
-    selectedAttempts: [],
-    primaryAttempt: null,
-    draft: false,
-    segmentSummaries: SNAPSHOT_SEGMENTS.map((segmentConfig) => ({
-      segment: segmentConfig.segment,
-      totalAccepted: accepted.filter((attempt) => getSnapshotSegment(attempt.snapshot.timestampMinutes) === segmentConfig.segment)
-        .length,
-      nonLowConfidenceAccepted: accepted.filter(
-        (attempt) => getSnapshotSegment(attempt.snapshot.timestampMinutes) === segmentConfig.segment && !attempt.seed.lowConfidence,
-      ).length,
-      lowConfidenceAccepted: accepted.filter(
-        (attempt) => getSnapshotSegment(attempt.snapshot.timestampMinutes) === segmentConfig.segment && attempt.seed.lowConfidence,
-      ).length,
-      selectedSnapshotIndex: null,
-      selectedSnapshotMinute: null,
-      selectedQualityScore: null,
-      selectedFromHistoryFallback: false,
-    })),
-    repetitionExcluded: [],
-  };
+  return buildEmptySeriesSelection(accepted);
 }

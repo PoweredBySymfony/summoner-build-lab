@@ -2,6 +2,12 @@ import { Champion, Item, Puzzle, PuzzleChoice, PuzzleDifficulty, PuzzleMode, Rol
 import { resolveItemSlug } from "../lib/itemSlugAliases.js";
 import { getItemGroups } from "../lib/itemGroups.js";
 
+const toStr = (value: unknown): string => {
+  if (typeof value === "string") return value;
+  if (typeof value === "number") return String(value);
+  return "";
+};
+
 const difficultyLabel: Record<PuzzleDifficulty, string> = {
   BEGINNER: "debutant",
   INTERMEDIATE: "intermediaire",
@@ -123,16 +129,16 @@ export function translateGeneratedCopy(input: string, championName?: string) {
     (_match, name: string, role: string, minute: string) =>
       `Tu joues ${name} en ${englishRoleLabel[role.toLowerCase()] ?? role} vers la ${minute}e minute. `,
   );
-  value = value.replace(
-    /Enemy frontline is stacking armor while burst still threatens you\./gi,
+  value = value.replaceAll(
+    "Enemy frontline is stacking armor while burst still threatens you.",
     "La frontline ennemie empile l'armure tandis que le burst reste une menace.",
   );
-  value = value.replace(
-    /Visible enemy items show the type of resistance or burst you need to answer right now\./gi,
+  value = value.replaceAll(
+    "Visible enemy items show the type of resistance or burst you need to answer right now.",
     "Les objets ennemis visibles montrent quel type de resistance ou de burst tu dois gerer tout de suite.",
   );
-  value = value.replace(
-    /Generated from champion-focused OTP heuristics\./gi,
+  value = value.replaceAll(
+    "Generated from champion-focused OTP heuristics.",
     "Genere a partir des heuristiques OTP centrees sur le champion.",
   );
   value = value.replace(
@@ -153,14 +159,14 @@ export function translateGeneratedCopy(input: string, championName?: string) {
   value = value.replace(
     /^(.+?) is the most coherent purchase here\.(.*)$/i,
     (_match, itemName: string, rest: string) =>
-      `${translateItemName(itemName)} est l'achat le plus coherent ici.${rest ? ` ${rest.trim()}` : ""}`,
+      `${translateItemName(itemName)} est l'achat le plus coherent ici.${rest ? " " + rest.trim() : ""}`,
   );
-  value = value.replace(/slightly increases health regen/gi, "Augmente legerement la regeneration de PV");
-  value = value.replace(/increases health/gi, "Augmente les points de vie");
-  value = value.replace(/grants a bonus to next attack after spell cast/gi, "Accorde un bonus a la prochaine attaque apres un sort");
+  value = value.replaceAll("slightly increases health regen", "Augmente legerement la regeneration de PV");
+  value = value.replaceAll("increases health", "Augmente les points de vie");
+  value = value.replaceAll("grants a bonus to next attack after spell cast", "Accorde un bonus a la prochaine attaque apres un sort");
 
   if (championName) {
-    value = value.replace(new RegExp(`\\b${championName}\\b focused scenario`, "gi"), `Scenario centre sur ${championName}`);
+    value = value.replaceAll(new RegExp(String.raw`\b${championName}\b focused scenario`, "gi"), `Scenario centre sur ${championName}`);
   }
 
   return plainTextLabelMap[value] ?? repairEncodingArtifacts(value);
@@ -205,6 +211,52 @@ function resolveIndexedChampion(
   return championIndex.get(championRef) ?? { id: championRef, name: championRef };
 }
 
+function mapScenarioItemEntry(
+  entry: unknown,
+  itemIndex: Map<string, ReturnType<typeof mapItemView>>,
+) {
+  if (typeof entry === "string") {
+    return resolveIndexedItem(entry, itemIndex);
+  }
+  if (entry && typeof entry === "object") {
+    const e = entry as Record<string, unknown>;
+    if ("itemSlug" in e) return resolveIndexedItem(toStr(e.itemSlug), itemIndex);
+    if ("itemId" in e) return resolveIndexedItem(toStr(e.itemId), itemIndex);
+    if ("riotItemId" in e) return resolveIndexedItem(toStr(e.riotItemId), itemIndex);
+  }
+  return { id: toStr(entry), name: toStr(entry) };
+}
+
+function resolveChampionRefFromEntry(e: Record<string, unknown>, fallback: string): string {
+  if ("championId" in e && e.championId) return toStr(e.championId);
+  if ("riotChampionId" in e && e.riotChampionId) return toStr(e.riotChampionId);
+  if ("championKey" in e && e.championKey) return toStr(e.championKey);
+  return fallback;
+}
+
+function mapScenarioTeamEntry(
+  entry: unknown,
+  championIndex: Map<string, ReturnType<typeof mapChampionView>>,
+  itemIndex: Map<string, ReturnType<typeof mapItemView>>,
+) {
+  if (typeof entry === "string") {
+    return championIndex.get(entry) ?? { id: entry, name: entry };
+  }
+  if (entry && typeof entry === "object" && "championSlug" in entry) {
+    const e = entry as Record<string, unknown>;
+    const championSlug = toStr(e.championSlug);
+    return {
+      id: championSlug,
+      name: championSlug,
+      champion: resolveIndexedChampion(resolveChampionRefFromEntry(e, championSlug), championIndex),
+      role: "role" in e ? roleLabel[toStr(e.role) as Role] ?? toStr(e.role) : null,
+      items: Array.isArray(e.items) ? e.items.map((item) => mapScenarioItemEntry(item, itemIndex)) : [],
+      note: "note" in e ? toStr(e.note) : undefined,
+    };
+  }
+  return { id: toStr(entry), name: toStr(entry) };
+}
+
 export const mapChampionView = (champion: Champion) => ({
   id: champion.slug,
   databaseId: champion.id,
@@ -216,7 +268,7 @@ export const mapChampionView = (champion: Champion) => ({
   icon: champion.iconImage || champion.image,
   splashImage: champion.splashImage,
   image: champion.image,
-  roles: [champion.rolePrimary, champion.roleSecondary].filter(Boolean).map((role) => roleLabel[role as Role]),
+  roles: [champion.rolePrimary, champion.roleSecondary].filter((r): r is Role => r !== null).map((role) => roleLabel[role]),
   tags: Array.isArray(champion.tags) ? champion.tags : [],
   stats: champion.stats,
   patch: champion.patch,
@@ -246,7 +298,7 @@ export const mapItemView = (item: Item) => ({
   buildsInto: Array.isArray(item.buildsInto) ? item.buildsInto : [],
   buildsFromIcons: Array.isArray(item.buildsFrom)
     ? item.buildsFrom
-        .map((entry) => Number(entry))
+        .map(Number)
         .filter((entry) => Number.isFinite(entry) && entry > 0)
         .map((riotItemId) => ({
           riotItemId,
@@ -347,118 +399,13 @@ export const mapPuzzleDetailView = (
         assists: puzzle.scenario.assists,
         cs: puzzle.scenario.cs,
         currentBuild: Array.isArray(puzzle.scenario.currentBuild)
-          ? puzzle.scenario.currentBuild.map((entry) => {
-              if (typeof entry === "string") {
-                return resolveIndexedItem(entry, itemIndex);
-              }
-
-              if (entry && typeof entry === "object" && "itemSlug" in entry) {
-                const itemSlug = String(entry.itemSlug);
-                return resolveIndexedItem(itemSlug, itemIndex);
-              }
-
-              if (entry && typeof entry === "object" && "itemId" in entry) {
-                return resolveIndexedItem(String(entry.itemId), itemIndex);
-              }
-
-              if (entry && typeof entry === "object" && "riotItemId" in entry) {
-                return resolveIndexedItem(String(entry.riotItemId), itemIndex);
-              }
-
-              return { id: String(entry), name: String(entry) };
-            })
+          ? puzzle.scenario.currentBuild.map((entry) => mapScenarioItemEntry(entry, itemIndex))
           : [],
         allyTeam: Array.isArray(puzzle.scenario.allyTeam)
-          ? puzzle.scenario.allyTeam.map((entry) => {
-              if (typeof entry === "string") {
-                return championIndex.get(entry) ?? { id: entry, name: entry };
-              }
-
-              if (entry && typeof entry === "object" && "championSlug" in entry) {
-                const championSlug = String(entry.championSlug);
-                const championRef =
-                  ("championId" in entry && entry.championId ? String(entry.championId) : null) ??
-                  ("riotChampionId" in entry && entry.riotChampionId ? String(entry.riotChampionId) : null) ??
-                  ("championKey" in entry && entry.championKey ? String(entry.championKey) : null) ??
-                  championSlug;
-                return {
-                  id: championSlug,
-                  name: championSlug,
-                  champion: resolveIndexedChampion(championRef, championIndex),
-                  role: "role" in entry ? roleLabel[String(entry.role) as Role] ?? String(entry.role) : null,
-                  items: Array.isArray(entry.items)
-                    ? entry.items.map((itemEntry) => {
-                        if (typeof itemEntry === "string") {
-                          return resolveIndexedItem(itemEntry, itemIndex);
-                        }
-
-                        if (itemEntry && typeof itemEntry === "object" && "itemId" in itemEntry) {
-                          return resolveIndexedItem(String(itemEntry.itemId), itemIndex);
-                        }
-
-                        if (itemEntry && typeof itemEntry === "object" && "riotItemId" in itemEntry) {
-                          return resolveIndexedItem(String(itemEntry.riotItemId), itemIndex);
-                        }
-
-                        if (itemEntry && typeof itemEntry === "object" && "itemSlug" in itemEntry) {
-                          return resolveIndexedItem(String(itemEntry.itemSlug), itemIndex);
-                        }
-
-                        return { id: String(itemEntry), name: String(itemEntry) };
-                      })
-                    : [],
-                  note: "note" in entry ? String(entry.note) : undefined,
-                };
-              }
-
-              return { id: String(entry), name: String(entry) };
-            })
+          ? puzzle.scenario.allyTeam.map((entry) => mapScenarioTeamEntry(entry, championIndex, itemIndex))
           : [],
         enemyTeam: Array.isArray(puzzle.scenario.enemyTeam)
-          ? puzzle.scenario.enemyTeam.map((entry) => {
-              if (typeof entry === "string") {
-                return championIndex.get(entry) ?? { id: entry, name: entry };
-              }
-
-              if (entry && typeof entry === "object" && "championSlug" in entry) {
-                const championSlug = String(entry.championSlug);
-                const championRef =
-                  ("championId" in entry && entry.championId ? String(entry.championId) : null) ??
-                  ("riotChampionId" in entry && entry.riotChampionId ? String(entry.riotChampionId) : null) ??
-                  ("championKey" in entry && entry.championKey ? String(entry.championKey) : null) ??
-                  championSlug;
-                return {
-                  id: championSlug,
-                  name: championSlug,
-                  champion: resolveIndexedChampion(championRef, championIndex),
-                  role: "role" in entry ? roleLabel[String(entry.role) as Role] ?? String(entry.role) : null,
-                  items: Array.isArray(entry.items)
-                    ? entry.items.map((itemEntry) => {
-                        if (typeof itemEntry === "string") {
-                          return resolveIndexedItem(itemEntry, itemIndex);
-                        }
-
-                        if (itemEntry && typeof itemEntry === "object" && "itemId" in itemEntry) {
-                          return resolveIndexedItem(String(itemEntry.itemId), itemIndex);
-                        }
-
-                        if (itemEntry && typeof itemEntry === "object" && "riotItemId" in itemEntry) {
-                          return resolveIndexedItem(String(itemEntry.riotItemId), itemIndex);
-                        }
-
-                        if (itemEntry && typeof itemEntry === "object" && "itemSlug" in itemEntry) {
-                          return resolveIndexedItem(String(itemEntry.itemSlug), itemIndex);
-                        }
-
-                        return { id: String(itemEntry), name: String(itemEntry) };
-                      })
-                    : [],
-                  note: "note" in entry ? String(entry.note) : undefined,
-                };
-              }
-
-              return { id: String(entry), name: String(entry) };
-            })
+          ? puzzle.scenario.enemyTeam.map((entry) => mapScenarioTeamEntry(entry, championIndex, itemIndex))
           : [],
         allyItems: puzzle.scenario.allyItems,
         enemyItems: Array.isArray(puzzle.scenario.enemyItems)

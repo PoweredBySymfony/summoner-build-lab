@@ -15,6 +15,8 @@ dist-ssr
 .env.*
 dist-server
 coverage
+ml/.coverage
+ml/coverage.xml
 prisma/dev.db
 ml/.venv/
 ml/.mypy_cache/

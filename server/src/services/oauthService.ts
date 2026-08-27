@@ -1,4 +1,4 @@
-import { randomUUID, timingSafeEqual } from "crypto";
+import { randomUUID, timingSafeEqual } from "node:crypto";
 import { env } from "../config/env.js";
 import { HttpError } from "../utils/http.js";
 import { authService } from "./authService.js";

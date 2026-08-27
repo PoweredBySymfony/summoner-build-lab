@@ -18,12 +18,12 @@ export function ChampionEditDialog({
   open,
   onOpenChange,
   onSave,
-}: {
+}: Readonly<{
   champion: ChampionView | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSave: (payload: AdminChampionUpdatePayload) => Promise<void>;
-}) {
+}>) {
   const [form, setForm] = useState({
     name: "",
     title: "",

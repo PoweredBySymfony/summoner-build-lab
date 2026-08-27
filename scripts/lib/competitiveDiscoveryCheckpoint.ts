@@ -83,6 +83,80 @@ export function canReuseDiscoveryCheckpointState(input: {
   }) && (checkpoint.classificationBudget ?? 0) === classificationBudget && !refreshDiscovery && !hasActiveQuarantine && !checkpoint.discoveryStopReason && checkpoint.discoveredMatches.length > 0;
 }
 
+type CompetitivePolicyDecision = NonNullable<CompetitiveIngestionCheckpoint["policyDecisionByMatchId"]>[string];
+
+function indexDiscoveriesByClassifiedMatchId(input: {
+  discoveredMatches: CompetitiveSeedMatchDiscovery[];
+  classifiedMatchIds: Set<string>;
+}) {
+  const discoveryByMatchId = new Map<string, CompetitiveSeedMatchDiscovery>();
+
+  for (const discovery of input.discoveredMatches) {
+    for (const matchId of discovery.matchIds) {
+      if (!input.classifiedMatchIds.has(matchId) || discoveryByMatchId.has(matchId)) {
+        continue;
+      }
+
+      discoveryByMatchId.set(matchId, discovery);
+      if (discoveryByMatchId.size >= input.classifiedMatchIds.size) {
+        break;
+      }
+    }
+
+    if (discoveryByMatchId.size >= input.classifiedMatchIds.size) {
+      break;
+    }
+  }
+
+  return discoveryByMatchId;
+}
+
+function rebuildDiscoveredMatch(input: {
+  matchId: string;
+  decision: CompetitivePolicyDecision;
+  discovery: CompetitiveSeedMatchDiscovery;
+  seed: CompetitiveResolvedSeed | undefined;
+  metadata: CompetitiveCachedMatchMetadata | undefined;
+}): CompetitiveDiscoveredMatch {
+  const gameCreationAt = input.metadata?.gameCreationAt ?? null;
+  const gameCreationDate = gameCreationAt ? new Date(gameCreationAt) : null;
+
+  return {
+    matchId: input.matchId,
+    seedKey: input.discovery.seedKey,
+    playerName: input.discovery.playerName,
+    team: input.discovery.team,
+    league: input.discovery.league,
+    competition: input.discovery.competition,
+    role: input.discovery.role,
+    priorityTier: input.discovery.priorityTier,
+    priorityScore: input.discovery.priorityScore,
+    platform: input.seed?.platformHint ?? null,
+    cluster: input.discovery.region,
+    queueId: input.metadata?.queueId ?? null,
+    patch: input.metadata?.patch ?? null,
+    gameCreationAt,
+    acceptedByPolicy: input.decision.acceptedByPolicy,
+    acceptedReason: input.decision.acceptedReason,
+    rejectionReason: input.decision.rejectionReason,
+    fallbackReason: input.decision.fallbackReason,
+    policyMode: input.decision.policyMode,
+    policyBucket: input.decision.policyBucket,
+    queueBucket: input.decision.queueBucket,
+    sourceBucket: input.decision.sourceBucket,
+    priorityBand: input.decision.priorityBand,
+    matchPriorityScore: scoreCompetitiveMatch({
+      priorityTier: input.discovery.priorityTier,
+      priorityScore: input.discovery.priorityScore,
+      patch: input.metadata?.patch ?? null,
+      gameCreationAt: gameCreationDate,
+      patchBucket: input.decision.policyBucket,
+      queueBucket: input.decision.queueBucket,
+      priorityBand: input.decision.priorityBand,
+    }),
+  };
+}
+
 export function rebuildDiscoveredMatchesFromCheckpoint(input: {
   checkpoint: CompetitiveIngestionCheckpoint;
   resolvedSeeds: CompetitiveResolvedSeed[];
@@ -98,22 +172,10 @@ export function rebuildDiscoveredMatchesFromCheckpoint(input: {
   const seedIndex = new Map(
     input.resolvedSeeds.map((seed) => [buildCompetitiveSeedKey(seed), seed]),
   );
-  const discoveryByMatchId = new Map<string, CompetitiveSeedMatchDiscovery>();
-
-  for (const discovery of input.checkpoint.discoveredMatches) {
-    for (const matchId of discovery.matchIds) {
-      if (!classifiedMatchIds.has(matchId) || discoveryByMatchId.has(matchId)) {
-        continue;
-      }
-      discoveryByMatchId.set(matchId, discovery);
-      if (discoveryByMatchId.size >= classifiedMatchIds.size) {
-        break;
-      }
-    }
-    if (discoveryByMatchId.size >= classifiedMatchIds.size) {
-      break;
-    }
-  }
+  const discoveryByMatchId = indexDiscoveriesByClassifiedMatchId({
+    discoveredMatches: input.checkpoint.discoveredMatches,
+    classifiedMatchIds,
+  });
 
   const rebuilt: CompetitiveDiscoveredMatch[] = [];
   for (const [matchId, decision] of Object.entries(policyDecisionByMatchId)) {
@@ -124,43 +186,13 @@ export function rebuildDiscoveredMatchesFromCheckpoint(input: {
 
     const seed = seedIndex.get(discovery.seedKey);
     const metadata = input.matchMetadataCache.get(matchId);
-    const gameCreationAt = metadata?.gameCreationAt ?? null;
-    const gameCreationDate = gameCreationAt ? new Date(gameCreationAt) : null;
-
-    rebuilt.push({
+    rebuilt.push(rebuildDiscoveredMatch({
       matchId,
-      seedKey: discovery.seedKey,
-      playerName: discovery.playerName,
-      team: discovery.team,
-      league: discovery.league,
-      competition: discovery.competition,
-      role: discovery.role,
-      priorityTier: discovery.priorityTier,
-      priorityScore: discovery.priorityScore,
-      platform: seed?.platformHint ?? null,
-      cluster: discovery.region,
-      queueId: metadata?.queueId ?? null,
-      patch: metadata?.patch ?? null,
-      gameCreationAt,
-      acceptedByPolicy: decision.acceptedByPolicy,
-      acceptedReason: decision.acceptedReason,
-      rejectionReason: decision.rejectionReason,
-      fallbackReason: decision.fallbackReason,
-      policyMode: decision.policyMode,
-      policyBucket: decision.policyBucket,
-      queueBucket: decision.queueBucket,
-      sourceBucket: decision.sourceBucket,
-      priorityBand: decision.priorityBand,
-      matchPriorityScore: scoreCompetitiveMatch({
-        priorityTier: discovery.priorityTier,
-        priorityScore: discovery.priorityScore,
-        patch: metadata?.patch ?? null,
-        gameCreationAt: gameCreationDate,
-        patchBucket: decision.policyBucket,
-        queueBucket: decision.queueBucket,
-        priorityBand: decision.priorityBand,
-      }),
-    });
+      decision,
+      discovery,
+      seed,
+      metadata,
+    }));
   }
 
   return rebuilt;

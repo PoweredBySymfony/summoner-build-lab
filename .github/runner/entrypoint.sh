@@ -10,7 +10,7 @@ if [[ ! -f ./config.sh ]]; then
   sudo cp -a /opt/actions-runner/. /home/runner/actions-runner/
 fi
 
-sudo chown -R runner:runner /home/runner/actions-runner
+sudo chown -R runner:runner /home/runner
 
 RUNNER_NAME="${RUNNER_NAME:-docker-runner-$(hostname)}"
 RUNNER_LABELS="${RUNNER_LABELS:-self-hosted,linux,x64,local-sonarqube}"

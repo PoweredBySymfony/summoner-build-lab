@@ -1,6 +1,6 @@
 import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react-swc";
-import path from "path";
+import path from "node:path";
 
 export default defineConfig({
   plugins: [react()],
@@ -19,6 +19,9 @@ export default defineConfig({
         "src/**/*.d.ts",
         "src/main.tsx",
         "src/vite-env.d.ts",
+        "src/data/**",
+        "src/i18n/translations/**",
+        "src/types/**",
         "src/components/ui/**",
         "server/src/types/**",
       ],

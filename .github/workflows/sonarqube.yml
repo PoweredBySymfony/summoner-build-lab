@@ -25,11 +25,11 @@ jobs:
       POSTGRES_DB: summoner_build_lab
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
-      DATABASE_URL: postgresql://postgres:postgres@host.docker.internal:5433/summoner_build_lab?schema=public
+      DATABASE_URL: ${{ secrets.CI_DATABASE_URL || vars.CI_DATABASE_URL || 'postgresql://postgres:postgres@localhost:5433/summoner_build_lab?schema=public' }}
       AUTH_SECRET: ci-only-auth-secret-change-me
       CLIENT_URL: http://localhost:8080
       APP_URL: http://localhost:8080
-      MONGODB_URI: mongodb://host.docker.internal:27017/summoner_build_lab
+      MONGODB_URI: ${{ secrets.CI_MONGODB_URI || vars.CI_MONGODB_URI || 'mongodb://localhost:27017/summoner_build_lab' }}
       MONGODB_DB_NAME: summoner_build_lab
       ML_ENABLED: "false"
 
@@ -44,12 +44,58 @@ jobs:
         with:
           node-version: 22
           cache: npm
+          cache-dependency-path: package-lock.json
 
       - name: Install dependencies
         run: npm ci
 
-      - name: Start local services
-        run: docker compose up -d postgres mongo
+      - name: Install ML dependencies
+        working-directory: ml
+        run: python3 -m pip install -e ".[dev]"
+
+      - name: Check database connectivity
+        shell: bash
+        run: |
+          node <<'NODE'
+          const net = require("node:net");
+
+          const checks = [
+            ["Postgres", process.env.DATABASE_URL],
+            ["MongoDB", process.env.MONGODB_URI],
+          ];
+
+          function endpoint(rawUrl) {
+            const url = new URL(rawUrl);
+            const fallbackPort = url.protocol.startsWith("postgres") ? "5432" : "27017";
+            return { host: url.hostname, port: Number(url.port || fallbackPort) };
+          }
+
+          function waitForPort(name, rawUrl) {
+            const { host, port } = endpoint(rawUrl);
+
+            return new Promise((resolve, reject) => {
+              const socket = net.createConnection({ host, port });
+              socket.setTimeout(5000);
+              socket.once("connect", () => {
+                socket.destroy();
+                console.log(`${name} reachable on ${host}:${port}`);
+                resolve();
+              });
+              socket.once("timeout", () => {
+                socket.destroy();
+                reject(new Error(`${name} timeout on ${host}:${port}`));
+              });
+              socket.once("error", (error) => {
+                reject(new Error(`${name} unreachable on ${host}:${port}: ${error.message}`));
+              });
+            });
+          }
+
+          Promise.all(checks.map(([name, url]) => waitForPort(name, url))).catch((error) => {
+            console.error(error.message);
+            process.exit(1);
+          });
+          NODE
 
       - name: Generate Prisma client
         run: npm run prisma:generate
@@ -66,11 +112,15 @@ jobs:
       - name: Test with coverage
         run: npm run test:coverage
 
+      - name: Test ML with coverage
+        working-directory: ml
+        run: python3 -m pytest --cov=features --cov=inference --cov=models --cov=training --cov-report=xml:coverage.xml
+
       - name: Build
         run: npm run build
 
       - name: SonarQube Server scan
-        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/optimization/sonarqube-audit')
         uses: SonarSource/sonarqube-scan-action@v7
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}

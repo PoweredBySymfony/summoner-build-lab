@@ -1,0 +1,4 @@
+interface:
+  display_name: "Code propre"
+  short_description: "Applique KISS, SOLID et une validation proportionnée."
+  default_prompt: "Utilise le skill $clean-code pour concevoir, implémenter et vérifier ce changement."

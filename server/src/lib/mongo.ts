@@ -38,12 +38,13 @@ async function createMongoClient() {
 }
 
 export async function getMongoClient() {
-  if (!clientPromise) {
-    clientPromise = createMongoClient().catch((error) => {
-      clientPromise = null;
-      throw error;
-    });
+  if (clientPromise !== null) {
+    return clientPromise;
   }
+  clientPromise = createMongoClient().catch((error) => {
+    clientPromise = null;
+    throw error;
+  });
   return clientPromise;
 }
 
@@ -67,7 +68,8 @@ export async function getMongoHealth() {
 }
 
 export async function closeMongoClient() {
-  const client = await clientPromise;
+  const pendingClient = clientPromise;
   clientPromise = null;
+  const client = await pendingClient;
   await client?.close();
 }

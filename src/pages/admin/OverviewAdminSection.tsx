@@ -6,10 +6,10 @@ import { SectionHeader, StatTile } from "./shared";
 export function OverviewAdminSection({
   overview,
   onOpenPatchDialog,
-}: {
+}: Readonly<{
   overview: AdminOverviewPayload | undefined;
   onOpenPatchDialog: () => void;
-}) {
+}>) {
   return (
     <>
       <SectionHeader

@@ -52,14 +52,14 @@ const championRequiredFields: Array<keyof ChampionView> = [
 function normalizeText(value: string) {
   return value
     .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/\s+/g, " ")
+    .replaceAll(/[\u0300-\u036f]/g, "")
+    .replaceAll(/\s+/g, " ")
     .trim()
     .toLowerCase();
 }
 
 function startsWithStatLeak(effectText: string, label: string, value: string) {
-  const normalizedValue = normalizeText(value).replace(/\s+/g, "");
+  const normalizedValue = normalizeText(value).replaceAll(/\s+/g, "");
   const normalizedLabel = normalizeText(label);
   const normalizedEffect = normalizeText(effectText);
 
@@ -96,16 +96,99 @@ function pushIssue(issues: StaticDataAuditIssue[], issue: StaticDataAuditIssue) 
   issues.push(issue);
 }
 
+type BaseIssue = Omit<StaticDataAuditIssue, "severity" | "code" | "detail">;
+type ItemStatLineSet = ReturnType<typeof getItemStatLines>;
+type ItemRawStatLineSet = ReturnType<typeof getRawItemStatLines>;
+
+function auditItemDisplayStats(
+  displayStatLines: ItemStatLineSet,
+  seenSignatures: Set<string>,
+  seenLabels: Set<string>,
+  baseIssue: BaseIssue,
+): StaticDataAuditIssue[] {
+  const issues: StaticDataAuditIssue[] = [];
+  for (const statLine of displayStatLines) {
+    const labelKey = normalizeText(statLine.label);
+    const signature = `${labelKey}::${statLine.value}`;
+    if (seenSignatures.has(signature)) {
+      issues.push({ ...baseIssue, severity: "error", code: "duplicate-display-stat", detail: `${statLine.label} ${statLine.value}` });
+    }
+    seenSignatures.add(signature);
+    if (seenLabels.has(labelKey)) {
+      issues.push({ ...baseIssue, severity: "warning", code: "duplicate-display-label", detail: statLine.label });
+    }
+    seenLabels.add(labelKey);
+    if (statLine.icon === "default") {
+      issues.push({ ...baseIssue, severity: "warning", code: "missing-display-icon", detail: `${statLine.label} ${statLine.value}` });
+    }
+    const hasPercent = statLine.value.includes("%");
+    if (hasPercent && flatLabels.has(labelKey)) {
+      issues.push({ ...baseIssue, severity: "error", code: "percent-on-flat-label", detail: `${statLine.label} ${statLine.value}` });
+    }
+    if (!hasPercent && percentLabels.has(labelKey)) {
+      issues.push({ ...baseIssue, severity: "warning", code: "missing-percent-on-percent-label", detail: `${statLine.label} ${statLine.value}` });
+    }
+  }
+  return issues;
+}
+
+function auditItemRawStats(
+  rawStatLines: ItemRawStatLineSet,
+  displayStatLines: ItemStatLineSet,
+  baseIssue: BaseIssue,
+): StaticDataAuditIssue[] {
+  const issues: StaticDataAuditIssue[] = [];
+  const rawByLabel = new Map(rawStatLines.map((line) => [normalizeText(line.label), line]));
+  for (const rawLine of rawStatLines) {
+    const displayLine = rawByLabel.get(normalizeText(rawLine.label));
+    const present = displayStatLines.some((entry) => normalizeText(entry.label) === normalizeText(rawLine.label) && entry.value === rawLine.value);
+    if (!present) {
+      issues.push({ ...baseIssue, severity: "error", code: "raw-stat-missing-from-display", detail: `${rawLine.label} ${rawLine.value}` });
+    }
+    if (!displayLine) {
+      issues.push({ ...baseIssue, severity: "error", code: "raw-stat-label-missing-from-display", detail: rawLine.label });
+    }
+  }
+  return issues;
+}
+
+type ItemEffectBlock = ReturnType<typeof getItemEffectBlocks>[number];
+
+function auditItemEffects(
+  effectBlocks: ItemEffectBlock[],
+  displayStatLines: ItemStatLineSet,
+  baseIssue: BaseIssue,
+): StaticDataAuditIssue[] {
+  const issues: StaticDataAuditIssue[] = [];
+  for (const effectBlock of effectBlocks) {
+    const effectText = [effectBlock.title, effectBlock.body].filter(Boolean).join(" ");
+    for (const statLine of displayStatLines) {
+      if (startsWithStatLeak(effectText, statLine.label, statLine.value)) {
+        issues.push({ ...baseIssue, severity: "error", code: "base-stat-leaked-into-effects", detail: `${statLine.label} ${statLine.value}` });
+      }
+    }
+  }
+  const normalizedEffects = effectBlocks.map((block) => ({
+    text: normalizeText([block.title, block.body].filter(Boolean).join(" ")),
+    icon: block.icon,
+  }));
+  const hasCritDamageEffect = normalizedEffects.some((block) => block.text.includes("degats de coup critique"));
+  if (hasCritDamageEffect && !normalizedEffects.some((block) => block.icon === "crit")) {
+    issues.push({ ...baseIssue, severity: "error", code: "missing-crit-damage-icon", detail: "effet de degats critiques sans icone crit" });
+  }
+  if (hasCritDamageEffect && displayStatLines.some((line) => normalizeText(line.label) === "chances de coup critique" && line.value.includes("30%"))) {
+    issues.push({ ...baseIssue, severity: "error", code: "crit-damage-mislabeled-as-crit-chance", detail: "30% critique detecte sur un libelle de chance critique" });
+  }
+  return issues;
+}
+
 function auditItem(item: GameItem, latestPatch: string | null) {
   const issues: StaticDataAuditIssue[] = [];
   const displayStatLines = getItemStatLines(item);
   const rawStatLines = getRawItemStatLines(item);
   const effectBlocks = getItemEffectBlocks(item);
-  const seenSignatures = new Set<string>();
-  const seenLabels = new Set<string>();
-  const rawByLabel = new Map(rawStatLines.map((line) => [normalizeText(line.label), line]));
 
-  const baseIssue = {
+  const baseIssue: BaseIssue = {
     entityType: "item" as const,
     name: item.name,
     slug: item.slug,
@@ -114,150 +197,46 @@ function auditItem(item: GameItem, latestPatch: string | null) {
   };
 
   if (!item.name.trim() || !item.slug.trim() || !item.image.trim()) {
-    pushIssue(issues, {
-      ...baseIssue,
-      severity: "error",
-      code: "missing-required-field",
-      detail: "name / slug / image manquant",
-    });
+    pushIssue(issues, { ...baseIssue, severity: "error", code: "missing-required-field", detail: "name / slug / image manquant" });
   }
 
   if (!isPatchLike(item.patch)) {
-    pushIssue(issues, {
-      ...baseIssue,
-      severity: "error",
-      code: "invalid-patch-format",
-      detail: item.patch || "(empty)",
-    });
+    pushIssue(issues, { ...baseIssue, severity: "error", code: "invalid-patch-format", detail: item.patch || "(empty)" });
   } else if (latestPatch && item.patch !== latestPatch) {
-    pushIssue(issues, {
-      ...baseIssue,
-      severity: "warning",
-      code: "patch-not-latest",
-      detail: `patch=${item.patch}, latest=${latestPatch}`,
-    });
+    pushIssue(issues, { ...baseIssue, severity: "warning", code: "patch-not-latest", detail: `patch=${item.patch}, latest=${latestPatch}` });
   }
 
-  for (const statLine of displayStatLines) {
-    const labelKey = normalizeText(statLine.label);
-    const signature = `${labelKey}::${statLine.value}`;
-    if (seenSignatures.has(signature)) {
-      pushIssue(issues, {
-        ...baseIssue,
-        severity: "error",
-        code: "duplicate-display-stat",
-        detail: `${statLine.label} ${statLine.value}`,
-      });
-    }
-    seenSignatures.add(signature);
+  const seenSignatures = new Set<string>();
+  const seenLabels = new Set<string>();
+  issues.push(
+    ...auditItemDisplayStats(displayStatLines, seenSignatures, seenLabels, baseIssue),
+    ...auditItemRawStats(rawStatLines, displayStatLines, baseIssue),
+    ...auditItemEffects(effectBlocks, displayStatLines, baseIssue),
+  );
 
-    if (seenLabels.has(labelKey)) {
-      pushIssue(issues, {
-        ...baseIssue,
-        severity: "warning",
-        code: "duplicate-display-label",
-        detail: statLine.label,
-      });
-    }
-    seenLabels.add(labelKey);
+  return issues;
+}
 
-    if (statLine.icon === "default") {
-      pushIssue(issues, {
-        ...baseIssue,
-        severity: "warning",
-        code: "missing-display-icon",
-        detail: `${statLine.label} ${statLine.value}`,
-      });
+function auditChampionStats(stats: unknown, baseIssue: BaseIssue): StaticDataAuditIssue[] {
+  if (!stats || typeof stats !== "object" || Array.isArray(stats)) {
+    return [{ ...baseIssue, severity: "error", code: "invalid-stats-shape", detail: "stats doit etre un objet" }];
+  }
+  const issues: StaticDataAuditIssue[] = [];
+  for (const [key, value] of Object.entries(stats)) {
+    if (value === null || value === undefined) {
+      pushIssue(issues, { ...baseIssue, severity: "warning", code: "null-stat-value", detail: key });
+      continue;
     }
-
-    const hasPercent = statLine.value.includes("%");
-    if (hasPercent && flatLabels.has(labelKey)) {
-      pushIssue(issues, {
-        ...baseIssue,
-        severity: "error",
-        code: "percent-on-flat-label",
-        detail: `${statLine.label} ${statLine.value}`,
-      });
-    }
-    if (!hasPercent && percentLabels.has(labelKey)) {
-      pushIssue(issues, {
-        ...baseIssue,
-        severity: "warning",
-        code: "missing-percent-on-percent-label",
-        detail: `${statLine.label} ${statLine.value}`,
-      });
+    if (typeof value !== "number" || !Number.isFinite(value)) {
+      pushIssue(issues, { ...baseIssue, severity: "error", code: "non-numeric-stat-value", detail: `${key}=${String(value)}` });
     }
   }
-
-  for (const rawLine of rawStatLines) {
-    const displayLine = rawByLabel.get(normalizeText(rawLine.label));
-    const present = displayStatLines.some((entry) => normalizeText(entry.label) === normalizeText(rawLine.label) && entry.value === rawLine.value);
-    if (!present) {
-      pushIssue(issues, {
-        ...baseIssue,
-        severity: "error",
-        code: "raw-stat-missing-from-display",
-        detail: `${rawLine.label} ${rawLine.value}`,
-      });
-    }
-    if (!displayLine) {
-      pushIssue(issues, {
-        ...baseIssue,
-        severity: "error",
-        code: "raw-stat-label-missing-from-display",
-        detail: rawLine.label,
-      });
-    }
-  }
-
-  for (const effectBlock of effectBlocks) {
-    const effectText = [effectBlock.title, effectBlock.body].filter(Boolean).join(" ");
-    for (const statLine of displayStatLines) {
-      if (startsWithStatLeak(effectText, statLine.label, statLine.value)) {
-        pushIssue(issues, {
-          ...baseIssue,
-          severity: "error",
-          code: "base-stat-leaked-into-effects",
-          detail: `${statLine.label} ${statLine.value}`,
-        });
-      }
-    }
-  }
-
-  const normalizedEffects = effectBlocks.map((block) => ({
-    text: normalizeText([block.title, block.body].filter(Boolean).join(" ")),
-    icon: block.icon,
-  }));
-  if (
-    normalizedEffects.some((block) => block.text.includes("degats de coup critique"))
-    && !normalizedEffects.some((block) => block.icon === "crit")
-  ) {
-    pushIssue(issues, {
-      ...baseIssue,
-      severity: "error",
-      code: "missing-crit-damage-icon",
-      detail: "effet de degats critiques sans icone crit",
-    });
-  }
-
-  if (
-    normalizedEffects.some((block) => block.text.includes("degats de coup critique"))
-    && displayStatLines.some((line) => normalizeText(line.label) === "chances de coup critique" && line.value.includes("30%"))
-  ) {
-    pushIssue(issues, {
-      ...baseIssue,
-      severity: "error",
-      code: "crit-damage-mislabeled-as-crit-chance",
-      detail: "30% critique detecte sur un libelle de chance critique",
-    });
-  }
-
   return issues;
 }
 
 function auditChampion(champion: ChampionView, latestPatch: string | null) {
   const issues: StaticDataAuditIssue[] = [];
-  const baseIssue = {
+  const baseIssue: BaseIssue = {
     entityType: "champion" as const,
     name: champion.name,
     slug: champion.slug,
@@ -268,12 +247,7 @@ function auditChampion(champion: ChampionView, latestPatch: string | null) {
   for (const field of championRequiredFields) {
     const value = champion[field];
     if (typeof value !== "string" || !value.trim()) {
-      pushIssue(issues, {
-        ...baseIssue,
-        severity: "error",
-        code: "missing-required-field",
-        detail: String(field),
-      });
+      pushIssue(issues, { ...baseIssue, severity: "error", code: "missing-required-field", detail: String(field) });
     }
   }
 
@@ -287,58 +261,15 @@ function auditChampion(champion: ChampionView, latestPatch: string | null) {
   }
 
   if (!Array.isArray(champion.tags) || champion.tags.length === 0) {
-    pushIssue(issues, {
-      ...baseIssue,
-      severity: "warning",
-      code: "missing-tags",
-      detail: "tags vides",
-    });
+    pushIssue(issues, { ...baseIssue, severity: "warning", code: "missing-tags", detail: "tags vides" });
   }
 
-  if (!champion.stats || typeof champion.stats !== "object" || Array.isArray(champion.stats)) {
-    pushIssue(issues, {
-      ...baseIssue,
-      severity: "error",
-      code: "invalid-stats-shape",
-      detail: "stats doit etre un objet",
-    });
-  } else {
-    for (const [key, value] of Object.entries(champion.stats)) {
-      if (value === null || value === undefined) {
-        pushIssue(issues, {
-          ...baseIssue,
-          severity: "warning",
-          code: "null-stat-value",
-          detail: key,
-        });
-        continue;
-      }
-
-      if (typeof value !== "number" || !Number.isFinite(value)) {
-        pushIssue(issues, {
-          ...baseIssue,
-          severity: "error",
-          code: "non-numeric-stat-value",
-          detail: `${key}=${String(value)}`,
-        });
-      }
-    }
-  }
+  issues.push(...auditChampionStats(champion.stats, baseIssue));
 
   if (!isPatchLike(champion.patch)) {
-    pushIssue(issues, {
-      ...baseIssue,
-      severity: "error",
-      code: "invalid-patch-format",
-      detail: champion.patch || "(empty)",
-    });
+    pushIssue(issues, { ...baseIssue, severity: "error", code: "invalid-patch-format", detail: champion.patch || "(empty)" });
   } else if (latestPatch && champion.patch !== latestPatch) {
-    pushIssue(issues, {
-      ...baseIssue,
-      severity: "warning",
-      code: "patch-not-latest",
-      detail: `patch=${champion.patch}, latest=${latestPatch}`,
-    });
+    pushIssue(issues, { ...baseIssue, severity: "warning", code: "patch-not-latest", detail: `patch=${champion.patch}, latest=${latestPatch}` });
   }
 
   return issues;

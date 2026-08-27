@@ -42,9 +42,11 @@ function parseCliOptions(argv: string[]): CliOptions {
     markdownPath: DEFAULT_MARKDOWN_PATH,
   };
 
-  for (let index = 0; index < argv.length; index += 1) {
+  let index = 0;
+  while (index < argv.length) {
     const arg = argv[index];
-    const next = argv[index + 1];
+    index += 1;
+    const next = argv[index];
     if (arg === "--checkpoint-path" && next) {
       options.checkpointPath = next;
       index += 1;
@@ -278,7 +280,9 @@ async function main() {
   console.info(JSON.stringify(report.summary, null, 2));
 }
 
-main().catch((error) => {
+try {
+  await main();
+} catch (error) {
   console.error(error);
   process.exitCode = 1;
-});
+}

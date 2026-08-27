@@ -12,7 +12,6 @@ import {
 } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { AdminPatchChampionEntry, AdminPatchEntryStatus, AdminPatchItemEntry, AdminPatchStatusPayload, AdminPatchValueLine } from "@/types/domain";
-import { ChampionThumb } from "./shared";
 
 type PatchEntity = AdminPatchChampionEntry | AdminPatchItemEntry;
 type PatchStatusFilter = AdminPatchEntryStatus | "all";
@@ -39,14 +38,14 @@ export function PatchDialog({
   status,
   syncing,
   onSync,
-}: {
+}: Readonly<{
   open: boolean;
   onOpenChange: (open: boolean) => void;
   loading: boolean;
   status?: AdminPatchStatusPayload;
   syncing: boolean;
   onSync: () => Promise<void>;
-}) {
+}>) {
   const [selectedEntity, setSelectedEntity] = useState<PatchEntity | null>(null);
   const [statusFilter, setStatusFilter] = useState<PatchStatusFilter>("changed");
 
@@ -58,53 +57,59 @@ export function PatchDialog({
             <DialogTitle>Nouveau patch sorti, mettre a jour les donnees</DialogTitle>
             <DialogDescription>Cette fenetre montre les entites en retard et les changements detectes dans le patch cible.</DialogDescription>
           </DialogHeader>
-          {loading ? (
-            <div className="rounded-2xl border border-border/60 bg-muted/30 p-6 text-sm text-muted-foreground">Analyse du patch en cours...</div>
-          ) : status ? (
-            <div className="space-y-6">
-              <PatchStatusSummary status={status} />
-              <Tabs defaultValue="items" onValueChange={() => setSelectedEntity(null)}>
-                <TabsList className="bg-muted/60">
-                  <TabsTrigger value="champions">Champions</TabsTrigger>
-                  <TabsTrigger value="items">Items</TabsTrigger>
-                </TabsList>
-                <TabsContent value="champions">
-                  <PatchStatusFilters
-                    entries={status.champions}
-                    value={statusFilter}
-                    onChange={(nextStatus) => {
-                      setSelectedEntity(null);
-                      setStatusFilter(nextStatus);
-                    }}
-                  />
-                  <PatchEntityGrid
-                    entries={status.champions}
-                    statusFilter={statusFilter}
-                    emptyLabel="Aucun champion en retard."
-                    onSelectDetails={(entry) => setSelectedEntity(entry)}
-                    renderThumb={(entry: AdminPatchChampionEntry) => <ChampionPatchIcon champion={entry} size="md" />}
-                  />
-                </TabsContent>
-                <TabsContent value="items">
-                  <PatchStatusFilters
-                    entries={status.items}
-                    value={statusFilter}
-                    onChange={(nextStatus) => {
-                      setSelectedEntity(null);
-                      setStatusFilter(nextStatus);
-                    }}
-                  />
-                  <PatchEntityGrid
-                    entries={status.items}
-                    statusFilter={statusFilter}
-                    emptyLabel="Aucun item en retard."
-                    onSelectDetails={(entry) => setSelectedEntity(entry)}
-                    renderThumb={(entry: AdminPatchItemEntry) => <ItemIcon item={entry} size="md" showTooltip interactive={false} />}
-                  />
-                </TabsContent>
-              </Tabs>
-            </div>
-          ) : null}
+          {(() => {
+            if (loading) {
+              return <div className="rounded-2xl border border-border/60 bg-muted/30 p-6 text-sm text-muted-foreground">Analyse du patch en cours...</div>;
+            }
+            if (status) {
+              return (
+                <div className="space-y-6">
+                  <PatchStatusSummary status={status} />
+                  <Tabs defaultValue="items" onValueChange={() => setSelectedEntity(null)}>
+                    <TabsList className="bg-muted/60">
+                      <TabsTrigger value="champions">Champions</TabsTrigger>
+                      <TabsTrigger value="items">Items</TabsTrigger>
+                    </TabsList>
+                    <TabsContent value="champions">
+                      <PatchStatusFilters
+                        entries={status.champions}
+                        value={statusFilter}
+                        onChange={(nextStatus) => {
+                          setSelectedEntity(null);
+                          setStatusFilter(nextStatus);
+                        }}
+                      />
+                      <PatchEntityGrid
+                        entries={status.champions}
+                        statusFilter={statusFilter}
+                        emptyLabel="Aucun champion en retard."
+                        onSelectDetails={(entry) => setSelectedEntity(entry)}
+                        renderThumb={(entry: AdminPatchChampionEntry) => <ChampionPatchIcon champion={entry} size="md" />}
+                      />
+                    </TabsContent>
+                    <TabsContent value="items">
+                      <PatchStatusFilters
+                        entries={status.items}
+                        value={statusFilter}
+                        onChange={(nextStatus) => {
+                          setSelectedEntity(null);
+                          setStatusFilter(nextStatus);
+                        }}
+                      />
+                      <PatchEntityGrid
+                        entries={status.items}
+                        statusFilter={statusFilter}
+                        emptyLabel="Aucun item en retard."
+                        onSelectDetails={(entry) => setSelectedEntity(entry)}
+                        renderThumb={(entry: AdminPatchItemEntry) => <ItemIcon item={entry} size="md" showTooltip interactive={false} />}
+                      />
+                    </TabsContent>
+                  </Tabs>
+                </div>
+              );
+            }
+            return null;
+          })()}
           <DialogFooter>
             <Button variant="outline" onClick={() => onOpenChange(false)}>Fermer</Button>
             <Button variant="gold" disabled={syncing} onClick={() => void onSync()}>
@@ -119,7 +124,7 @@ export function PatchDialog({
   );
 }
 
-function PatchStatusSummary({ status }: { status: AdminPatchStatusPayload }) {
+function PatchStatusSummary({ status }: Readonly<{ status: AdminPatchStatusPayload }>) {
   return (
     <div className="grid gap-4 md:grid-cols-3 xl:grid-cols-5">
       <div className="rounded-2xl border border-border/60 bg-muted/20 p-5">
@@ -152,11 +157,11 @@ function PatchStatusFilters<TEntry extends PatchEntity>({
   entries,
   value,
   onChange,
-}: {
+}: Readonly<{
   entries: TEntry[];
   value: PatchStatusFilter;
   onChange: (value: PatchStatusFilter) => void;
-}) {
+}>) {
   const countByStatus = (status: PatchStatusFilter) =>
     status === "all" ? entries.length : entries.filter((entry) => entry.patchStatus === status).length;
 
@@ -184,13 +189,13 @@ function PatchEntityGrid<TEntry extends PatchEntity>({
   emptyLabel,
   onSelectDetails,
   renderThumb,
-}: {
+}: Readonly<{
   entries: TEntry[];
   statusFilter: PatchStatusFilter;
   emptyLabel: string;
   onSelectDetails: (entry: TEntry) => void;
   renderThumb: (entry: TEntry) => JSX.Element;
-}) {
+}>) {
   const filteredEntries = entries
     .filter((entry) => statusFilter === "all" || entry.patchStatus === statusFilter)
     .sort((left, right) => left.name.localeCompare(right.name));
@@ -230,7 +235,7 @@ function PatchEntityGrid<TEntry extends PatchEntity>({
   );
 }
 
-function PatchEntityDetailDialog({ entry, onOpenChange }: { entry: PatchEntity | null; onOpenChange: (open: boolean) => void }) {
+function PatchEntityDetailDialog({ entry, onOpenChange }: Readonly<{ entry: PatchEntity | null; onOpenChange: (open: boolean) => void }>) {
   const itemEntry = entry && isPatchItem(entry) ? entry : null;
   const championEntry = entry && !isPatchItem(entry) ? entry : null;
 
@@ -270,7 +275,7 @@ function isPatchItem(entry: PatchEntity): entry is AdminPatchItemEntry {
   return "riotItemId" in entry;
 }
 
-function PatchChangeDetails({ entry }: { entry: PatchEntity }) {
+function PatchChangeDetails({ entry }: Readonly<{ entry: PatchEntity }>) {
   return (
     <div className="space-y-3">
       <div>
@@ -295,7 +300,7 @@ function PatchChangeDetails({ entry }: { entry: PatchEntity }) {
   );
 }
 
-function PatchChangeComparison({ change }: { change: PatchEntity["changes"][number] }) {
+function PatchChangeComparison({ change }: Readonly<{ change: PatchEntity["changes"][number] }>) {
   const hasStructuredLines = Boolean(change.beforeLines?.length || change.afterLines?.length);
 
   if (change.field === "abilities") {
@@ -334,7 +339,7 @@ function PatchChangeComparison({ change }: { change: PatchEntity["changes"][numb
   );
 }
 
-function ChampionPatchIcon({ champion, size }: { champion: AdminPatchChampionEntry; size: "md" | "lg" }) {
+function ChampionPatchIcon({ champion, size }: Readonly<{ champion: AdminPatchChampionEntry; size: "md" | "lg" }>) {
   const sizeClass = size === "lg" ? "h-16 w-16" : "h-12 w-12";
 
   return (
@@ -346,7 +351,7 @@ function ChampionPatchIcon({ champion, size }: { champion: AdminPatchChampionEnt
   );
 }
 
-function ChampionPreviewPanel({ champion }: { champion: AdminPatchChampionEntry }) {
+function ChampionPreviewPanel({ champion }: Readonly<{ champion: AdminPatchChampionEntry }>) {
   if (!champion.patchPreview) {
     return null;
   }
@@ -366,9 +371,9 @@ function ChampionPreviewPanel({ champion }: { champion: AdminPatchChampionEntry 
 
 function ChampionAbilityPreview({
   ability,
-}: {
+}: Readonly<{
   ability: NonNullable<AdminPatchChampionEntry["patchPreview"]>["spells"][number];
-}) {
+}>) {
   return (
     <div className="flex gap-3 rounded-lg border border-border/50 bg-muted/30 p-3">
       <img src={ability.icon} alt="" className="h-9 w-9 shrink-0 rounded-md border border-border/60 object-cover" loading="lazy" />
@@ -383,10 +388,10 @@ function ChampionAbilityPreview({
 }
 
 function stripHtml(value: string) {
-  return value.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+  return value.replaceAll(/<[^>]*>/g, " ").replaceAll(/\s+/g, " ").trim();
 }
 
-function PatchRawValue({ title, value }: { title: string; value: string }) {
+function PatchRawValue({ title, value }: Readonly<{ title: string; value: string }>) {
   return (
     <div className="rounded-lg border border-border/50 bg-background/60 p-3">
       <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">{title}</p>
@@ -395,7 +400,7 @@ function PatchRawValue({ title, value }: { title: string; value: string }) {
   );
 }
 
-function PatchLongTextLines({ title, lines, fallback }: { title: string; lines: Array<{ key: string; label: string; value: string }>; fallback: string }) {
+function PatchLongTextLines({ title, lines, fallback }: Readonly<{ title: string; lines: Array<{ key: string; label: string; value: string }>; fallback: string }>) {
   return (
     <div className="rounded-lg border border-border/50 bg-background/60 p-3">
       <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">{title}</p>
@@ -436,7 +441,7 @@ function getBuildPathExplanation(field: string, line: AdminPatchValueLine) {
   return null;
 }
 
-function PatchLineStatus({ line }: { line: AdminPatchValueLine }) {
+function PatchLineStatus({ line }: Readonly<{ line: AdminPatchValueLine }>) {
   if (!line.changeType) {
     return null;
   }
@@ -452,7 +457,7 @@ function PatchLineStatus({ line }: { line: AdminPatchValueLine }) {
   );
 }
 
-function PatchValueLines({ title, lines, fallback, field }: { title: string; lines: AdminPatchValueLine[]; fallback: string; field: string }) {
+function PatchValueLines({ title, lines, fallback, field }: Readonly<{ title: string; lines: AdminPatchValueLine[]; fallback: string; field: string }>) {
   return (
     <div className="rounded-lg border border-border/50 bg-background/60 p-3">
       <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">{title}</p>
@@ -478,7 +483,7 @@ function PatchValueLines({ title, lines, fallback, field }: { title: string; lin
                   </dt>
                   <dd className="flex flex-wrap items-center gap-2 text-sm font-semibold text-foreground sm:justify-end">
                     <PatchLineStatus line={line} />
-                    {!line.item ? <span>{line.value}</span> : null}
+                    {line.item ? null : <span>{line.value}</span>}
                     {line.delta ? (
                       <span className={`rounded-md border px-2 py-1 text-xs ${line.delta.startsWith("-") ? "border-destructive/30 bg-destructive/10 text-destructive" : "border-primary/30 bg-primary/10 text-primary"}`}>
                         {line.delta}

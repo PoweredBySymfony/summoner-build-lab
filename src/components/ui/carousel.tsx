@@ -102,24 +102,26 @@ const Carousel = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivEl
       };
     }, [api, onSelect]);
 
+    const ctxValue = React.useMemo(
+      () => ({
+        carouselRef,
+        api: api,
+        opts,
+        orientation: orientation || (opts?.axis === "y" ? "vertical" : "horizontal"),
+        scrollPrev,
+        scrollNext,
+        canScrollPrev,
+        canScrollNext,
+      }),
+      [carouselRef, api, opts, orientation, scrollPrev, scrollNext, canScrollPrev, canScrollNext],
+    );
+
     return (
-      <CarouselContext.Provider
-        value={{
-          carouselRef,
-          api: api,
-          opts,
-          orientation: orientation || (opts?.axis === "y" ? "vertical" : "horizontal"),
-          scrollPrev,
-          scrollNext,
-          canScrollPrev,
-          canScrollNext,
-        }}
-      >
+      <CarouselContext.Provider value={ctxValue}>
         <div
           ref={ref}
           onKeyDownCapture={handleKeyDown}
           className={cn("relative", className)}
-          role="region"
           aria-roledescription="carousel"
           {...props}
         >
@@ -155,8 +157,8 @@ const CarouselItem = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLD
     return (
       <div
         ref={ref}
-        role="group"
         aria-roledescription="slide"
+        aria-label="Slide"
         className={cn("min-w-0 shrink-0 grow-0 basis-full", orientation === "horizontal" ? "pl-4" : "pt-4", className)}
         {...props}
       />

@@ -29,6 +29,98 @@ export type CliOptions = {
   refreshDiscovery: boolean;
 };
 
+type ValueOptionHandler = (options: CliOptions, next: string | undefined) => void;
+
+const parseFiniteNumberList = (value: string) =>
+  value.split(",").map((entry) => Number(entry.trim())).filter(Number.isFinite);
+
+const parseStringList = (value: string) =>
+  value.split(",").map((entry) => entry.trim()).filter(Boolean);
+
+const valueOptionHandlers: Record<string, ValueOptionHandler> = {
+  "--owner-user-id": (options, next) => {
+    options.ownerUserId = next;
+  },
+  "--owner-email": (options, next) => {
+    options.ownerEmail = next;
+  },
+  "--seed-path": (options, next) => {
+    if (next) options.seedPath = next;
+  },
+  "--policy-path": (options, next) => {
+    if (next) options.policyPath = next;
+  },
+  "--checkpoint-path": (options, next) => {
+    if (next) options.checkpointPath = next;
+  },
+  "--quarantine-path": (options, next) => {
+    if (next) options.quarantinePath = next;
+  },
+  "--report-path": (options, next) => {
+    if (next) options.reportPath = next;
+  },
+  "--markdown-report-path": (options, next) => {
+    if (next) options.markdownReportPath = next;
+  },
+  "--target-matches": (options, next) => {
+    options.targetMatches = Number(next ?? "2000");
+  },
+  "--count-per-seed": (options, next) => {
+    options.countPerSeed = Number(next ?? "30");
+  },
+  "--max-ids-per-seed": (options, next) => {
+    options.maxIdsPerSeed = Number(next ?? "300");
+  },
+  "--start-time": (options, next) => {
+    options.startTime = Number(next ?? "0");
+  },
+  "--end-time": (options, next) => {
+    options.endTime = next ? Number(next) : null;
+  },
+  "--preferred-queues": (options, next) => {
+    if (next) options.preferredQueues = parseFiniteNumberList(next);
+  },
+  "--fallback-queues": (options, next) => {
+    if (next) options.fallbackQueues = parseFiniteNumberList(next);
+  },
+  "--preferred-patch-prefixes": (options, next) => {
+    if (next) options.preferredPatchPrefixes = parseStringList(next);
+  },
+  "--adjacent-patch-prefixes": (options, next) => {
+    if (next) options.adjacentPatchPrefixes = parseStringList(next);
+  },
+  "--max-attempts-per-run": (options, next) => {
+    options.maxAttemptsPerRun = Number(next ?? "0");
+  },
+  "--max-created-per-run": (options, next) => {
+    options.maxCreatedPerRun = Number(next ?? "0");
+  },
+  "--max-auth-failures-per-run": (options, next) => {
+    options.maxAuthFailuresPerRun = Number(next ?? "0");
+  },
+  "--tranche-size": (options, next) => {
+    options.trancheSize = Number(next ?? "0");
+  },
+  "--max-classified-per-run": (options, next) => {
+    options.maxClassifiedPerRun = Number(next ?? "0");
+  },
+  "--max-seed-discovery-failures": (options, next) => {
+    options.maxSeedDiscoveryFailures = Number(next ?? "3");
+  },
+};
+
+const flagOptionHandlers: Record<string, (options: CliOptions) => void> = {
+  "--refresh-discovery": (options) => {
+    options.refreshDiscovery = true;
+  },
+  "--dry-run": (options) => {
+    options.dryRun = true;
+  },
+  "--reset-checkpoint": (options) => {
+    options.resetCheckpoint = true;
+  },
+};
+
 export function parseArgs(argv: string[]): CliOptions {
   const options: CliOptions = {
     seedPath: path.join("data", "seeds", "competitive-seeds-2026.json"),
@@ -46,121 +138,22 @@ export function parseArgs(argv: string[]): CliOptions {
     refreshDiscovery: false,
   };
 
-  for (let index = 0; index < argv.length; index += 1) {
+  let index = 0;
+  while (index < argv.length) {
     const arg = argv[index];
-    const next = argv[index + 1];
-    switch (arg) {
-      case "--owner-user-id":
-        options.ownerUserId = next;
-        index += 1;
-        break;
-      case "--owner-email":
-        options.ownerEmail = next;
-        index += 1;
-        break;
-      case "--seed-path":
-        if (next) options.seedPath = next;
-        index += 1;
-        break;
-      case "--policy-path":
-        if (next) options.policyPath = next;
-        index += 1;
-        break;
-      case "--checkpoint-path":
-        if (next) options.checkpointPath = next;
-        index += 1;
-        break;
-      case "--quarantine-path":
-        if (next) options.quarantinePath = next;
-        index += 1;
-        break;
-      case "--report-path":
-        if (next) options.reportPath = next;
-        index += 1;
-        break;
-      case "--markdown-report-path":
-        if (next) options.markdownReportPath = next;
-        index += 1;
-        break;
-      case "--target-matches":
-        options.targetMatches = Number(next ?? "2000");
-        index += 1;
-        break;
-      case "--count-per-seed":
-        options.countPerSeed = Number(next ?? "30");
-        index += 1;
-        break;
-      case "--max-ids-per-seed":
-        options.maxIdsPerSeed = Number(next ?? "300");
-        index += 1;
-        break;
-      case "--start-time":
-        options.startTime = Number(next ?? "0");
-        index += 1;
-        break;
-      case "--end-time":
-        options.endTime = next ? Number(next) : null;
-        index += 1;
-        break;
-      case "--preferred-queues":
-        if (next) {
-          options.preferredQueues = next.split(",").map((value) => Number(value.trim())).filter(Number.isFinite);
-        }
-        index += 1;
-        break;
-      case "--fallback-queues":
-        if (next) {
-          options.fallbackQueues = next.split(",").map((value) => Number(value.trim())).filter(Number.isFinite);
-        }
-        index += 1;
-        break;
-      case "--preferred-patch-prefixes":
-        if (next) {
-          options.preferredPatchPrefixes = next.split(",").map((value) => value.trim()).filter(Boolean);
-        }
-        index += 1;
-        break;
-      case "--adjacent-patch-prefixes":
-        if (next) {
-          options.adjacentPatchPrefixes = next.split(",").map((value) => value.trim()).filter(Boolean);
-        }
-        index += 1;
-        break;
-      case "--max-attempts-per-run":
-        options.maxAttemptsPerRun = Number(next ?? "0");
-        index += 1;
-        break;
-      case "--max-created-per-run":
-        options.maxCreatedPerRun = Number(next ?? "0");
-        index += 1;
-        break;
-      case "--max-auth-failures-per-run":
-        options.maxAuthFailuresPerRun = Number(next ?? "0");
-        index += 1;
-        break;
-      case "--tranche-size":
-        options.trancheSize = Number(next ?? "0");
-        index += 1;
-        break;
-      case "--max-classified-per-run":
-        options.maxClassifiedPerRun = Number(next ?? "0");
-        index += 1;
-        break;
-      case "--max-seed-discovery-failures":
-        options.maxSeedDiscoveryFailures = Number(next ?? "3");
-        index += 1;
-        break;
-      case "--refresh-discovery":
-        options.refreshDiscovery = true;
-        break;
-      case "--dry-run":
-        options.dryRun = true;
-        break;
-      case "--reset-checkpoint":
-        options.resetCheckpoint = true;
-        break;
-      default:
-        break;
+    index += 1;
+    const next = argv[index];
+
+    const valueHandler = valueOptionHandlers[arg];
+    if (valueHandler) {
+      valueHandler(options, next);
+      index += 1;
+      continue;
+    }
+
+    const flagHandler = flagOptionHandlers[arg];
+    if (flagHandler) {
+      flagHandler(options);
     }
   }
 

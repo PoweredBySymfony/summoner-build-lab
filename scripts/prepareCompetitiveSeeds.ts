@@ -36,6 +36,65 @@ type CliOptions = {
   sourceProfile: ProSeedSourceProfile;
 };
 
+type ValueOptionHandler = (options: CliOptions, next: string | undefined) => void;
+
+const parsePlatformList = (value: string) =>
+  value.split(",").map((entry) => entry.trim() as RiotPlatform).filter(Boolean);
+
+const valueOptionHandlers: Record<string, ValueOptionHandler> = {
+  "--output": (options, next) => {
+    if (next) options.outputPath = next;
+  },
+  "--season": (options, next) => {
+    if (next) options.season = next;
+  },
+  "--seed-set-version": (options, next) => {
+    if (next) options.seedSetVersion = next;
+  },
+  "--elite-platforms": (options, next) => {
+    if (next) options.elitePlatforms = parsePlatformList(next);
+  },
+  "--elite-max-entries-per-tier": (options, next) => {
+    options.eliteMaxEntriesPerTier = Number(next ?? String(DEFAULT_ELITE_SEED_OPTIONS.maxEntriesPerTier));
+  },
+  "--elite-max-consecutive-failures": (options, next) => {
+    options.eliteMaxConsecutiveFailures = Number(
+      next ?? String(DEFAULT_ELITE_SEED_OPTIONS.maxConsecutiveFailures),
+    );
+  },
+  "--curated-pro-path": (options, next) => {
+    if (next) options.curatedProPath = next;
+  },
+  "--seeds-cache-path": (options, next) => {
+    if (next) options.seedsCachePath = next;
+  },
+  "--leaguepedia-user-agent": (options, next) => {
+    if (next) options.leaguepediaUserAgent = next;
+  },
+  "--leaguepedia-since": (options, next) => {
+    if (next) options.leaguepediaSince = next;
+  },
+  "--source-profile": (options, next) => {
+    if (next !== "canon" && next !== "wide") {
+      return;
+    }
+
+    options.sourceProfile = next;
+    if (next === "wide") {
+      options.includeElite = false;
+    }
+  },
+};
+
+const flagOptionHandlers: Record<string, (options: CliOptions) => void> = {
+  "--pro-only": (options) => {
+    options.includeElite = false;
+  },
+  "--enable-leaguepedia": (options) => {
+    options.enableLeaguepedia = true;
+  },
+};
+
 function parseArgs(argv: string[]): CliOptions {
   const options: CliOptions = {
     outputPath: path.join("data", "seeds", "competitive-seeds-2026.json"),
@@ -52,86 +111,22 @@ function parseArgs(argv: string[]): CliOptions {
     sourceProfile: "canon",
   };
 
-  for (let index = 0; index < argv.length; index += 1) {
+  let index = 0;
+  while (index < argv.length) {
     const arg = argv[index];
-    const next = argv[index + 1];
+    index += 1;
+    const next = argv[index];
 
-    switch (arg) {
-      case "--output":
-        if (next) {
-          options.outputPath = next;
-        }
-        index += 1;
-        break;
-      case "--season":
-        if (next) {
-          options.season = next;
-        }
-        index += 1;
-        break;
-      case "--seed-set-version":
-        if (next) {
-          options.seedSetVersion = next;
-        }
-        index += 1;
-        break;
-      case "--pro-only":
-        options.includeElite = false;
-        break;
-      case "--elite-platforms":
-        if (next) {
-          options.elitePlatforms = next.split(",").map((value) => value.trim() as RiotPlatform).filter(Boolean);
-        }
-        index += 1;
-        break;
-      case "--elite-max-entries-per-tier":
-        options.eliteMaxEntriesPerTier = Number(next ?? String(DEFAULT_ELITE_SEED_OPTIONS.maxEntriesPerTier));
-        index += 1;
-        break;
-      case "--elite-max-consecutive-failures":
-        options.eliteMaxConsecutiveFailures = Number(
-          next ?? String(DEFAULT_ELITE_SEED_OPTIONS.maxConsecutiveFailures),
-        );
-        index += 1;
-        break;
-      case "--curated-pro-path":
-        if (next) {
-          options.curatedProPath = next;
-        }
-        index += 1;
-        break;
-      case "--enable-leaguepedia":
-        options.enableLeaguepedia = true;
-        break;
-      case "--seeds-cache-path":
-        if (next) {
-          options.seedsCachePath = next;
-        }
-        index += 1;
-        break;
-      case "--leaguepedia-user-agent":
-        if (next) {
-          options.leaguepediaUserAgent = next;
-        }
-        index += 1;
-        break;
-      case "--leaguepedia-since":
-        if (next) {
-          options.leaguepediaSince = next;
-        }
-        index += 1;
-        break;
-      case "--source-profile":
-        if (next === "canon" || next === "wide") {
-          options.sourceProfile = next;
-          if (next === "wide") {
-            options.includeElite = false;
-          }
-        }
-        index += 1;
-        break;
-      default:
-        break;
+    const valueHandler = valueOptionHandlers[arg];
+    if (valueHandler) {
+      valueHandler(options, next);
+      index += 1;
+      continue;
+    }
+
+    const flagHandler = flagOptionHandlers[arg];
+    if (flagHandler) {
+      flagHandler(options);
     }
   }
 
@@ -172,10 +167,10 @@ function logSeedQualityReport(report: ReturnType<typeof buildSeedQualityReport>)
     `[competitive-seeds] quality resolved=${report.resolvedSeedsPercent.toFixed(2)}% riotIdCandidates=${report.seedsWithRiotIdCandidatesPercent.toFixed(2)}%`,
   );
   console.info(
-    `[competitive-seeds] quality leagues=${report.leagueDistribution.slice(0, 8).map((entry) => `${entry.league}:${entry.count}`).join(", ")}`,
+    `[competitive-seeds] quality leagues=${report.leagueDistribution.slice(0, 8).map((entry) => entry.league + ":" + entry.count).join(", ")}`,
   );
   console.info(
-    `[competitive-seeds] quality regions=${report.regionDistribution.slice(0, 8).map((entry) => `${entry.region}:${entry.count}`).join(", ")}`,
+    `[competitive-seeds] quality regions=${report.regionDistribution.slice(0, 8).map((entry) => entry.region + ":" + entry.count).join(", ")}`,
   );
 }
 
@@ -230,7 +225,9 @@ async function main() {
   );
 }
 
-main().catch((error) => {
+try {
+  await main();
+} catch (error) {
   console.error("[competitive-seeds] failed", error);
   process.exitCode = 1;
-});
+}

@@ -351,10 +351,12 @@ function extractScenarioItemSlugs(currentBuild: unknown) {
         return entry;
       }
       if (entry && typeof entry === "object" && "itemSlug" in entry) {
-        return String((entry as Record<string, unknown>).itemSlug ?? "");
+        const slug = (entry as Record<string, unknown>).itemSlug;
+        return typeof slug === "string" ? slug : "";
       }
       if (entry && typeof entry === "object" && "id" in entry) {
-        return String((entry as Record<string, unknown>).id ?? "");
+        const id = (entry as Record<string, unknown>).id;
+        return typeof id === "string" ? id : "";
       }
       return "";
     })

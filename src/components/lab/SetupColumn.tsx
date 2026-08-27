@@ -30,6 +30,11 @@ interface SetupColumnProps {
   onItemRemove: (slotIndex: number) => void;
 }
 
+function matchesItemQuery(item: GameItem, query: string): boolean {
+  if (!query) return true;
+  return item.name.toLowerCase().includes(query) || item.tags.some((tag) => tag.toLowerCase().includes(query));
+}
+
 const accentClass = {
   gold: "from-primary/15 via-primary/5 to-transparent border-primary/20",
   cyan: "from-cyan-500/15 via-cyan-500/5 to-transparent border-cyan-400/20",
@@ -39,6 +44,59 @@ const profileBarClass = {
   gold: "from-primary/70 to-primary",
   cyan: "from-cyan-500/70 to-cyan-300",
 };
+
+interface ChampionRoleBadgesProps {
+  readonly side: SetupColumnProps["side"];
+  readonly roles: ChampionView["roles"];
+}
+
+function ChampionRoleBadges({ side, roles }: ChampionRoleBadgesProps) {
+  const visibleRoles = roles.length > 0 ? roles : ["Flex"];
+
+  return (
+    <div className="mt-3 flex flex-wrap items-center gap-2">
+      {visibleRoles.map((role) => (
+        <Badge key={`${side}-${role}`} variant="secondary" className="bg-secondary/80 text-foreground">
+          {role}
+        </Badge>
+      ))}
+    </div>
+  );
+}
+
+interface RoleSelectorProps {
+  readonly side: SetupColumnProps["side"];
+  readonly selectedRole: LabRoleKey;
+  readonly roleOptions: LabRoleKey[];
+  readonly disabled: boolean;
+  readonly onRoleChange: (role: LabRoleKey) => void;
+}
+
+function RoleSelector({ side, selectedRole, roleOptions, disabled, onRoleChange }: RoleSelectorProps) {
+  if (roleOptions.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      {roleOptions.map((role) => (
+        <button
+          key={`${side}-role-${role}`}
+          type="button"
+          disabled={disabled}
+          onClick={() => onRoleChange(role)}
+          className={`rounded-full border px-3 py-1.5 text-xs transition-colors ${
+            selectedRole === role
+              ? "border-primary/40 bg-primary/10 text-primary"
+              : "border-border/60 bg-card/60 text-muted-foreground hover:border-primary/30"
+          }`}
+        >
+          {role}
+        </button>
+      ))}
+    </div>
+  );
+}
 
 const SetupColumn = ({
   side,
@@ -73,15 +131,11 @@ const SetupColumn = ({
       ),
     [analysis.champion, items, setup],
   );
-  const activeSlotValidation = activeItemSlot !== null ? slotValidations[activeItemSlot] : null;
+  const activeSlotValidation = activeItemSlot === null ? null : slotValidations[activeItemSlot];
   const itemOptions = useMemo(() => {
-    if (!activeSlotValidation) {
-      return [];
-    }
+    if (!activeSlotValidation) return [];
     const query = itemSearch.trim().toLowerCase();
-    return activeSlotValidation.allowedItems.filter(
-      (item) => !query || item.name.toLowerCase().includes(query) || item.tags.some((tag) => tag.toLowerCase().includes(query)),
-    );
+    return activeSlotValidation.allowedItems.filter((item) => matchesItemQuery(item, query));
   }, [activeSlotValidation, itemSearch]);
   const buildValidation = useMemo(
     () =>
@@ -104,13 +158,7 @@ const SetupColumn = ({
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.25em] text-primary">{title}</p>
             <h2 className="mt-2 font-heading text-3xl font-bold text-foreground">{analysis.champion.name}</h2>
-            <div className="mt-3 flex flex-wrap items-center gap-2">
-              {(analysis.champion.roles.length > 0 ? analysis.champion.roles : ["Flex"]).map((role) => (
-                <Badge key={`${side}-${role}`} variant="secondary" className="bg-secondary/80 text-foreground">
-                  {role}
-                </Badge>
-              ))}
-            </div>
+            <ChampionRoleBadges side={side} roles={analysis.champion.roles} />
           </div>
           <ChampionPortrait champion={analysis.champion} size="lg" />
         </div>
@@ -159,25 +207,7 @@ const SetupColumn = ({
                   </Popover>
                 </div>
 
-                {roleOptions.length > 0 ? (
-                  <div className="flex flex-wrap items-center gap-2">
-                    {roleOptions.map((role) => (
-                      <button
-                        key={`${side}-role-${role}`}
-                        type="button"
-                        disabled={disableChampionSelection}
-                        onClick={() => onRoleChange(role)}
-                        className={`rounded-full border px-3 py-1.5 text-xs transition-colors ${
-                          setup.role === role
-                            ? "border-primary/40 bg-primary/10 text-primary"
-                            : "border-border/60 bg-card/60 text-muted-foreground hover:border-primary/30"
-                        }`}
-                      >
-                        {role}
-                      </button>
-                    ))}
-                  </div>
-                ) : null}
+                <RoleSelector side={side} selectedRole={setup.role} roleOptions={roleOptions} disabled={disableChampionSelection} onRoleChange={onRoleChange} />
 
                 <div className="rounded-2xl border border-border/60 bg-card/70 p-4">
                   <div className="mb-3 flex items-center justify-between gap-3">
@@ -239,13 +269,15 @@ const SetupColumn = ({
                     return (
                       <Popover key={`${side}-slot-${slotIndex}`} open={activeItemSlot === slotIndex} onOpenChange={(open) => setActiveItemSlot(open ? slotIndex : null)}>
                         <PopoverTrigger asChild>
-                          <div role="button" tabIndex={0} className="group item-slot-lg relative w-full rounded-xl border border-border/60 bg-card/80 transition-colors hover:border-primary/40">
+                          <button
+                            type="button"
+                            className="group item-slot-lg relative w-full rounded-xl border border-border/60 bg-card/80 transition-colors hover:border-primary/40"
+                          >
                             {currentItem ? (
                               <>
                                 <ItemIcon item={currentItem} size="lg" showTooltip className="h-full w-full border-0" interactive={false} />
-                                <span
-                                  role="button"
-                                  tabIndex={0}
+                                <button
+                                  type="button"
                                   className="absolute right-1 top-1 rounded-full bg-background/80 p-1 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100"
                                   onClick={(event) => {
                                     event.stopPropagation();
@@ -253,14 +285,14 @@ const SetupColumn = ({
                                   }}
                                 >
                                   <CircleX className="h-3 w-3" />
-                                </span>
+                                </button>
                               </>
                             ) : (
                               <div className="flex h-full w-full items-center justify-center text-muted-foreground">
                                 <Plus className="h-5 w-5" />
                               </div>
                             )}
-                          </div>
+                          </button>
                         </PopoverTrigger>
                         <PopoverContent align="start" sideOffset={10} className="w-[360px] border-border/60 bg-card/95 p-3">
                           <div className="mb-3 flex items-center justify-between">
@@ -319,11 +351,11 @@ const SetupColumn = ({
               </div>
             </div>
 
-            {!buildValidation.isValid ? (
+            {buildValidation.isValid ? null : (
               <div className="mt-4 rounded-2xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
                 {buildValidation.issues[0].itemName} n'est plus valide avec le role ou l'etat actuel du build. Remplace cet item pour revenir sur un setup legal.
               </div>
-            ) : null}
+            )}
 
             <div className="mt-4 grid gap-3 lg:grid-cols-2">
               <div className="rounded-2xl border border-border/60 bg-card/70 p-4">

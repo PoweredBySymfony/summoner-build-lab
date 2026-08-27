@@ -3,7 +3,6 @@ import cors from "cors";
 import express from "express";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
-import type {} from "./types/express.js";
 import { env } from "./config/env.js";
 import { adminRoutes } from "./routes/adminRoutes.js";
 import { appRoutes } from "./routes/appRoutes.js";

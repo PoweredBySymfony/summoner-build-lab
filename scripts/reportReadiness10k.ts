@@ -1,6 +1,74 @@
 import { prisma } from "../server/src/lib/prisma.js";
 import { closeMongoClient, getMongoDb } from "../server/src/lib/mongo.js";
 
+type RequestParameters = {
+  generationStatus?: string;
+  attemptsSummary?: {
+    snapshotsEvaluated?: number;
+    attempts?: Array<{ rejectionReasons?: string[] }>;
+  };
+  viableSnapshots?: number;
+  publishableSnapshots?: number;
+  nonPublishableButViableSnapshots?: number;
+  dominantRejectionReasons?: string[];
+};
+
+type ReadinessCounters = {
+  snapshotsEvaluated: number;
+  viableSnapshots: number;
+  publishableSnapshots: number;
+  nonPublishableButViableSnapshots: number;
+  noViableSnapshotRequests: number;
+  rejectionReasonCounts: Record<string, number>;
+};
+
+function getRequestParameters(parameters: unknown): RequestParameters {
+  return typeof parameters === "object" && parameters !== null && !Array.isArray(parameters)
+    ? parameters as RequestParameters
+    : {};
+}
+
+function isNoViableSnapshotStatus(status: string | undefined) {
+  return status === "no_viable_snapshot_found" || status === "no_publishable_snapshot_found";
+}
+
+function incrementRejectionReasonCounts(counts: Record<string, number>, reasons: string[] | undefined) {
+  for (const reason of reasons ?? []) {
+    counts[reason] = (counts[reason] ?? 0) + 1;
+  }
+}
+
+function createReadinessCounters(): ReadinessCounters {
+  return {
+    snapshotsEvaluated: 0,
+    viableSnapshots: 0,
+    publishableSnapshots: 0,
+    nonPublishableButViableSnapshots: 0,
+    noViableSnapshotRequests: 0,
+    rejectionReasonCounts: {},
+  };
+}
+
+function addRequestToReadinessCounters(counters: ReadinessCounters, parameters: RequestParameters) {
+  if (isNoViableSnapshotStatus(parameters.generationStatus)) {
+    counters.noViableSnapshotRequests += 1;
+  }
+
+  counters.snapshotsEvaluated += Number(parameters.attemptsSummary?.snapshotsEvaluated ?? 0);
+  counters.viableSnapshots += Number(parameters.viableSnapshots ?? 0);
+  counters.publishableSnapshots += Number(parameters.publishableSnapshots ?? 0);
+  counters.nonPublishableButViableSnapshots += Number(parameters.nonPublishableButViableSnapshots ?? 0);
+
+  incrementRejectionReasonCounts(counters.rejectionReasonCounts, parameters.dominantRejectionReasons);
+  for (const attempt of parameters.attemptsSummary?.attempts ?? []) {
+    incrementRejectionReasonCounts(counters.rejectionReasonCounts, attempt.rejectionReasons);
+  }
+}
+
+function calculatePercent(numerator: number, denominator: number) {
+  return denominator > 0 ? Number(((numerator / denominator) * 100).toFixed(2)) : 0;
+}
+
 async function main() {
   const targetMatches = 10_000;
   const db = await getMongoDb();
@@ -23,53 +91,13 @@ async function main() {
     },
   });
 
-  let snapshotsEvaluated = 0;
-  let viableSnapshots = 0;
-  let publishableSnapshots = 0;
-  let nonPublishableButViableSnapshots = 0;
-  let noViableSnapshotRequests = 0;
-  const rejectionReasonCounts: Record<string, number> = {};
+  const counters = createReadinessCounters();
 
   for (const request of recentRequests) {
-    const parameters =
-      typeof request.parameters === "object" && request.parameters !== null && !Array.isArray(request.parameters)
-        ? (request.parameters as {
-            generationStatus?: string;
-            attemptsSummary?: {
-              snapshotsEvaluated?: number;
-              attempts?: Array<{ rejectionReasons?: string[] }>;
-            };
-            viableSnapshots?: number;
-            publishableSnapshots?: number;
-            nonPublishableButViableSnapshots?: number;
-            dominantRejectionReasons?: string[];
-          })
-        : {};
-
-    if (
-      parameters.generationStatus === "no_viable_snapshot_found"
-      || parameters.generationStatus === "no_publishable_snapshot_found"
-    ) {
-      noViableSnapshotRequests += 1;
-    }
-
-    snapshotsEvaluated += Number(parameters.attemptsSummary?.snapshotsEvaluated ?? 0);
-    viableSnapshots += Number(parameters.viableSnapshots ?? 0);
-    publishableSnapshots += Number(parameters.publishableSnapshots ?? 0);
-    nonPublishableButViableSnapshots += Number(parameters.nonPublishableButViableSnapshots ?? 0);
-
-    for (const reason of parameters.dominantRejectionReasons ?? []) {
-      rejectionReasonCounts[reason] = (rejectionReasonCounts[reason] ?? 0) + 1;
-    }
-
-    for (const attempt of parameters.attemptsSummary?.attempts ?? []) {
-      for (const reason of attempt.rejectionReasons ?? []) {
-        rejectionReasonCounts[reason] = (rejectionReasonCounts[reason] ?? 0) + 1;
-      }
-    }
+    addRequestToReadinessCounters(counters, getRequestParameters(request.parameters));
   }
 
-  const dominantRejectionReasons = Object.entries(rejectionReasonCounts)
+  const dominantRejectionReasons = Object.entries(counters.rejectionReasonCounts)
     .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
     .slice(0, 10)
     .map(([reason, count]) => ({ reason, count }));
@@ -82,17 +110,17 @@ async function main() {
         totalImportedMatches,
         mongoMatchCount,
         mongoTimelineCount,
-        targetCompletionPercent: Number(((mongoMatchCount / targetMatches) * 100).toFixed(2)),
-        mongoBackedMatchCoverage: totalImportedMatches > 0 ? Number(((mongoBackedMatches / totalImportedMatches) * 100).toFixed(2)) : 0,
+        targetCompletionPercent: calculatePercent(mongoMatchCount, targetMatches),
+        mongoBackedMatchCoverage: calculatePercent(mongoBackedMatches, totalImportedMatches),
         recentGeneratedMatchRequests: recentRequests.length,
-        noViableSnapshotRequests,
-        noViableSnapshotRate: recentRequests.length > 0 ? Number(((noViableSnapshotRequests / recentRequests.length) * 100).toFixed(2)) : 0,
-        snapshotsEvaluated,
-        viableSnapshots,
-        viableSnapshotRate: snapshotsEvaluated > 0 ? Number(((viableSnapshots / snapshotsEvaluated) * 100).toFixed(2)) : 0,
-        publishableSnapshots,
-        publishableSnapshotRate: snapshotsEvaluated > 0 ? Number(((publishableSnapshots / snapshotsEvaluated) * 100).toFixed(2)) : 0,
-        nonPublishableButViableSnapshots,
+        noViableSnapshotRequests: counters.noViableSnapshotRequests,
+        noViableSnapshotRate: calculatePercent(counters.noViableSnapshotRequests, recentRequests.length),
+        snapshotsEvaluated: counters.snapshotsEvaluated,
+        viableSnapshots: counters.viableSnapshots,
+        viableSnapshotRate: calculatePercent(counters.viableSnapshots, counters.snapshotsEvaluated),
+        publishableSnapshots: counters.publishableSnapshots,
+        publishableSnapshotRate: calculatePercent(counters.publishableSnapshots, counters.snapshotsEvaluated),
+        nonPublishableButViableSnapshots: counters.nonPublishableButViableSnapshots,
         dominantRejectionReasons,
       },
       null,
@@ -101,12 +129,12 @@ async function main() {
   );
 }
 
-main()
-  .catch((error) => {
-    console.error("[readiness-10k] failed", error);
-    process.exitCode = 1;
-  })
-  .finally(async () => {
-    await closeMongoClient();
-    await prisma.$disconnect();
-  });
+try {
+  await main();
+} catch (error) {
+  console.error("[readiness-10k] failed", error);
+  process.exitCode = 1;
+} finally {
+  try { await closeMongoClient(); } catch { /* ignore */ }
+  try { await prisma.$disconnect(); } catch { /* ignore */ }
+}

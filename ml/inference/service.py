@@ -50,6 +50,50 @@ def clear_model_cache() -> None:
     load_prediction_bundle.cache_clear()
 
 
+def _get_owned_item_slugs(payload: dict[str, Any]) -> list[str]:
+    return [
+        str(item_slug)
+        for item_slug in payload.get("current_items", [])
+        if str(item_slug).strip()
+    ]
+
+
+def _resolve_candidate_pool(payload: dict[str, Any], catalog: Any) -> list[Any]:
+    candidate_pool = payload.get("candidate_pool")
+    if isinstance(candidate_pool, list) and candidate_pool:
+        return candidate_pool
+
+    return build_candidate_pool(
+        catalog,
+        owned_item_slugs=_get_owned_item_slugs(payload),
+        gold_available=int(payload.get("gold_available", 0) or 0),
+        role=str(payload.get("role") or "").strip().upper() or None,
+    )
+
+
+def _get_list_length(value: Any) -> int:
+    return len(value) if isinstance(value, list) else 0
+
+
+def _build_ranking_row(
+    payload: dict[str, Any],
+    catalog: Any,
+    candidate_item_slug: Any,
+) -> dict[str, Any]:
+    item_meta = catalog.item_meta_by_slug.get(str(candidate_item_slug), {})
+    return {
+        **payload,
+        "candidate_item_slug": str(candidate_item_slug),
+        "item_cost": int(item_meta.get("goldTotal", 0) or 0),
+        "item_category": str(item_meta.get("category") or "unknown"),
+        "item_is_boots": bool(item_meta.get("isBoots", False)),
+        "item_is_legendary": bool(item_meta.get("isLegendary", False)),
+        "item_builds_from_count": _get_list_length(item_meta.get("buildsFrom", [])),
+        "item_builds_into_count": _get_list_length(item_meta.get("buildsInto", [])),
+        "item_tags": item_meta.get("tags", []),
+    }
+
+
 def predict_next_item(payload: dict[str, Any], config: AppConfig | None = None) -> PredictionOutput:
     active_config = config or get_config()
     if not active_config.paths.baseline_model_path.exists():
@@ -72,18 +116,7 @@ def predict_next_item(payload: dict[str, Any], config: AppConfig | None = None) 
         active_config.paths.item_catalog_path,
         active_config.paths.champion_catalog_path,
     )
-    candidate_pool = payload.get("candidate_pool")
-    if not isinstance(candidate_pool, list) or not candidate_pool:
-        candidate_pool = build_candidate_pool(
-            catalog,
-            owned_item_slugs=[
-                str(item_slug)
-                for item_slug in payload.get("current_items", [])
-                if str(item_slug).strip()
-            ],
-            gold_available=int(payload.get("gold_available", 0) or 0),
-            role=str(payload.get("role") or "").strip().upper() or None,
-        )
+    candidate_pool = _resolve_candidate_pool(payload, catalog)
 
     if not candidate_pool:
         return PredictionOutput(
@@ -95,26 +128,10 @@ def predict_next_item(payload: dict[str, Any], config: AppConfig | None = None) 
             candidate_pool_size=0,
         )
 
-    ranking_rows = []
-    for candidate_item_slug in candidate_pool:
-        item_meta = catalog.item_meta_by_slug.get(str(candidate_item_slug), {})
-        ranking_rows.append(
-            {
-                **payload,
-                "candidate_item_slug": str(candidate_item_slug),
-                "item_cost": int(item_meta.get("goldTotal", 0) or 0),
-                "item_category": str(item_meta.get("category") or "unknown"),
-                "item_is_boots": bool(item_meta.get("isBoots", False)),
-                "item_is_legendary": bool(item_meta.get("isLegendary", False)),
-                "item_builds_from_count": len(item_meta.get("buildsFrom", []))
-                if isinstance(item_meta.get("buildsFrom"), list)
-                else 0,
-                "item_builds_into_count": len(item_meta.get("buildsInto", []))
-                if isinstance(item_meta.get("buildsInto"), list)
-                else 0,
-                "item_tags": item_meta.get("tags", []),
-            }
-        )
+    ranking_rows = [
+        _build_ranking_row(payload, catalog, candidate_item_slug)
+        for candidate_item_slug in candidate_pool
+    ]
 
     feature_vector = vectorizer.transform(
         [build_ranking_feature_dict(row) for row in ranking_rows]

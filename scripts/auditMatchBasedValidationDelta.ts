@@ -22,9 +22,11 @@ function parseArgs(argv: string[]): CliOptions {
     outputMarkdownPath: path.join("reports", "match-based-validation-delta-report.md"),
   };
 
-  for (let index = 0; index < argv.length; index += 1) {
+  let index = 0;
+  while (index < argv.length) {
     const arg = argv[index];
-    const next = argv[index + 1];
+    index += 1;
+    const next = argv[index];
 
     switch (arg) {
       case "--sample10-before":
@@ -112,20 +114,21 @@ function extractTopReasons(summary: JsonRecord | null, limit = 3) {
 }
 
 function extractSegmentDistribution(summary: JsonRecord | null) {
-  if (!summary) {
+  if (summary) {
+    const counts = new Map<string, number>();
+    for (const entry of asArray(summary?.snapshotSegmentCounts)) {
+      const record = asObject(entry);
+      if (!record) {
+        continue;
+      }
+      counts.set(asString(record.segment) ?? "unknown", asNumber(record.count) ?? 0);
+    }
+    return ["early", "mid", "late", "none"]
+      .map((segment) => `${segment}:${counts.get(segment) ?? 0}`)
+      .join(", ");
+  } else {
     return "n/a";
   }
-  const counts = new Map<string, number>();
-  for (const entry of asArray(summary?.snapshotSegmentCounts)) {
-    const record = asObject(entry);
-    if (!record) {
-      continue;
-    }
-    counts.set(asString(record.segment) ?? "unknown", asNumber(record.count) ?? 0);
-  }
-  return ["early", "mid", "late", "none"]
-    .map((segment) => `${segment}:${counts.get(segment) ?? 0}`)
-    .join(", ");
 }
 
 function buildComparison(label: string, beforeReport: JsonRecord | null, afterReport: JsonRecord | null) {
@@ -169,7 +172,7 @@ function buildComparison(label: string, beforeReport: JsonRecord | null, afterRe
         ? {
             threshold: 0.4,
             completedRate: afterCompletedRate,
-            passed: afterCompletedRate !== null ? afterCompletedRate >= 0.4 : null,
+            passed: afterCompletedRate === null ? null : afterCompletedRate >= 0.4,
             nextStep:
               afterCompletedRate !== null && afterCompletedRate >= 0.4
                 ? "OK pour relancer import vers 2000"
@@ -191,22 +194,30 @@ function buildMarkdown(input: {
   ];
 
   for (const comparison of input.comparisons) {
-    lines.push(`## ${comparison.label}`);
-    lines.push("");
-    lines.push("| Metric | Before | After | Delta |");
-    lines.push("|---|---:|---:|---:|");
     lines.push(
+      `## ${comparison.label}`,
+      "",
+      "| Metric | Before | After | Delta |",
+      "|---|---:|---:|---:|",
       `| completedRate | ${formatNumber(comparison.completedRate.before)} | ${formatNumber(comparison.completedRate.after)} | ${formatNumber(comparison.completedRate.delta)} |`,
-    );
-    lines.push(
       `| patch-catalog-fallback occurrences | ${formatNumber(comparison.patchCatalogFallbackOccurrences.before)} | ${formatNumber(comparison.patchCatalogFallbackOccurrences.after)} | ${formatNumber(comparison.patchCatalogFallbackOccurrences.delta)} |`,
+      `| top rejection reasons | ${comparison.topRejectionReasons.before.join(", ") || "n/a"} | ${comparison.topRejectionReasons.after.join(", ") || "n/a"} | n/a |`,
+      `| segments | ${comparison.segmentDistribution.before} | ${comparison.segmentDistribution.after} | n/a |`,
     );
-    lines.push(`| top rejection reasons | ${comparison.topRejectionReasons.before.join(", ") || "n/a"} | ${comparison.topRejectionReasons.after.join(", ") || "n/a"} | n/a |`);
-    lines.push(`| segments | ${comparison.segmentDistribution.before} | ${comparison.segmentDistribution.after} | n/a |`);
     if (comparison.gate) {
-      lines.push(`| gate >= 0.4 on 20 | ${comparison.gate.threshold} | ${formatNumber(comparison.gate.completedRate)} | ${comparison.gate.passed === null ? "n/a" : comparison.gate.passed ? "PASS" : "FAIL"} |`);
-      lines.push("");
-      lines.push(`Decision: ${comparison.gate.nextStep}`);
+      let gatePassedLabel: string;
+      if (comparison.gate.passed === null) {
+        gatePassedLabel = "n/a";
+      } else if (comparison.gate.passed) {
+        gatePassedLabel = "PASS";
+      } else {
+        gatePassedLabel = "FAIL";
+      }
+      lines.push(
+        `| gate >= 0.4 on 20 | ${comparison.gate.threshold} | ${formatNumber(comparison.gate.completedRate)} | ${gatePassedLabel} |`,
+        "",
+        `Decision: ${comparison.gate.nextStep}`,
+      );
     }
     lines.push("");
   }
@@ -245,7 +256,9 @@ async function main() {
   }, null, 2));
 }
 
-main().catch((error) => {
+try {
+  await main();
+} catch (error) {
   console.error("[match-based-validation-delta] failed", error);
   process.exitCode = 1;
-});
+}

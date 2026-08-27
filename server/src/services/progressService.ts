@@ -154,6 +154,88 @@ const syncGlobalDailyProgress = async (userId: string) => {
   return metrics;
 };
 
+const completeLatestDailyChallengeForCorrectAttempt = async (input: {
+  userId: string;
+  puzzleId: string;
+  isCorrect: boolean;
+}) => {
+  if (!input.isCorrect) {
+    return;
+  }
+
+  const activeDailyChallenge = await prisma.dailyChallenge.findFirst({
+    orderBy: { challengeDate: "desc" },
+    include: {
+      completions: {
+        where: {
+          userId: input.userId,
+        },
+      },
+    },
+  });
+
+  if (activeDailyChallenge?.puzzleId !== input.puzzleId || activeDailyChallenge.completions.length > 0) {
+    return;
+  }
+
+  await progressService.completeDailyChallenge({
+    userId: input.userId,
+    dailyChallengeId: activeDailyChallenge.id,
+    isCorrect: true,
+  });
+};
+
+const calculateChampionMasteryScore = (input: {
+  totalAttempts: number;
+  totalCorrect: number;
+  isCorrect: boolean;
+}) =>
+  Math.max(
+    0,
+    Math.round(
+      (((input.totalCorrect + (input.isCorrect ? 1 : 0)) / Math.max(input.totalAttempts + 1, 1)) * 100),
+    ),
+  );
+
+const updateChampionProgressForAttempt = async (input: {
+  userId: string;
+  championId: string | null;
+  isCorrect: boolean;
+  globalProgress: {
+    totalAttempts: number;
+    totalCorrect: number;
+  };
+}) => {
+  if (!input.championId) {
+    return;
+  }
+
+  await prisma.userChampionProgress.upsert({
+    where: {
+      userId_championId: {
+        userId: input.userId,
+        championId: input.championId,
+      },
+    },
+    update: {
+      totalAttempts: { increment: 1 },
+      correctAttempts: input.isCorrect ? { increment: 1 } : undefined,
+      masteryScore: calculateChampionMasteryScore({
+        totalAttempts: input.globalProgress.totalAttempts,
+        totalCorrect: input.globalProgress.totalCorrect,
+        isCorrect: input.isCorrect,
+      }),
+    },
+    create: {
+      userId: input.userId,
+      championId: input.championId,
+      totalAttempts: 1,
+      correctAttempts: input.isCorrect ? 1 : 0,
+      masteryScore: input.isCorrect ? 100 : 0,
+    },
+  });
+};
+
 export const progressService = {
   async recordAttempt(input: {
     userId: string;
@@ -177,26 +259,7 @@ export const progressService = {
       data: input,
     });
 
-    if (input.isCorrect) {
-      const activeDailyChallenge = await prisma.dailyChallenge.findFirst({
-        orderBy: { challengeDate: "desc" },
-        include: {
-          completions: {
-            where: {
-              userId: input.userId,
-            },
-          },
-        },
-      });
-
-      if (activeDailyChallenge?.puzzleId === input.puzzleId && activeDailyChallenge.completions.length === 0) {
-        await this.completeDailyChallenge({
-          userId: input.userId,
-          dailyChallengeId: activeDailyChallenge.id,
-          isCorrect: true,
-        });
-      }
-    }
+    await completeLatestDailyChallengeForCorrectAttempt(input);
 
     const globalProgress = await prisma.userGlobalProgress.upsert({
       where: { userId: input.userId },
@@ -211,33 +274,12 @@ export const progressService = {
       },
     });
 
-    if (puzzle.championId) {
-      await prisma.userChampionProgress.upsert({
-        where: {
-          userId_championId: {
-            userId: input.userId,
-            championId: puzzle.championId,
-          },
-        },
-        update: {
-          totalAttempts: { increment: 1 },
-          correctAttempts: input.isCorrect ? { increment: 1 } : undefined,
-          masteryScore: Math.max(
-            0,
-            Math.round(
-              (((globalProgress.totalCorrect + (input.isCorrect ? 1 : 0)) / Math.max(globalProgress.totalAttempts + 1, 1)) * 100),
-            ),
-          ),
-        },
-        create: {
-          userId: input.userId,
-          championId: puzzle.championId,
-          totalAttempts: 1,
-          correctAttempts: input.isCorrect ? 1 : 0,
-          masteryScore: input.isCorrect ? 100 : 0,
-        },
-      });
-    }
+    await updateChampionProgressForAttempt({
+      userId: input.userId,
+      championId: puzzle.championId,
+      isCorrect: input.isCorrect,
+      globalProgress,
+    });
 
     return attempt;
   },

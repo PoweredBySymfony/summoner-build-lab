@@ -9,7 +9,7 @@ type CliOptions = {
 };
 
 function parseArgs(argv: string[]): CliOptions {
-  const checkpointIndex = argv.findIndex((arg) => arg === "--checkpoint-path");
+  const checkpointIndex = argv.indexOf("--checkpoint-path");
   return {
     checkpointPath:
       checkpointIndex === -1
@@ -99,11 +99,11 @@ async function main() {
   }, null, 2));
 }
 
-main()
-  .catch((error) => {
-    console.error("[competitive-throughput-report] failed", error);
-    process.exitCode = 1;
-  })
-  .finally(async () => {
-    await prisma.$disconnect();
-  });
+try {
+  await main();
+} catch (error) {
+  console.error("[competitive-throughput-report] failed", error);
+  process.exitCode = 1;
+} finally {
+  await prisma.$disconnect();
+}

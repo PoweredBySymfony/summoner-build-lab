@@ -602,7 +602,7 @@ export function buildMlPuzzleBusinessRules(
   const availableBySlug = new Map(input.availableItems.map((item) => [item.slug, item]));
   const ownedItems = input.snapshot.currentItems
     .map((slug) => availableBySlug.get(resolveItemSlug(slug)) ?? null)
-    .filter((item): item is MlChoiceItem => Boolean(item));
+    .filter((item): item is MlChoiceItem => !!item);
   const goodAnswerRuleDecision = getMlCandidateRuleDecision(input.goodAnswer, {
     role: input.snapshot.role,
     catalog: input.availableItems,

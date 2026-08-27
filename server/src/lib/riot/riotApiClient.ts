@@ -12,6 +12,13 @@ type RequestOptions = {
 
 type QueueEntry<T> = () => Promise<T>;
 
+type RetryAction = "try-next-api-key" | "retry-attempt";
+
+type RequestAttemptResult<T> =
+  | { type: "success"; value: T }
+  | { type: "retry-attempt" }
+  | { type: "exhausted-api-keys" };
+
 type RiotApiClientMetrics = {
   totalRequests: number;
   successfulRequests: number;
@@ -21,6 +28,19 @@ type RiotApiClientMetrics = {
   totalBackoffMs: number;
   authFallbackResponses: number;
   authFallbackRecoveries: number;
+};
+
+type RiotErrorDetails = {
+  statusText: string;
+  retryAfterSeconds?: number;
+  retryAfterMs?: number;
+};
+
+type RequestRetryContext = {
+  scopeKey: string;
+  apiKeyIndex: number;
+  apiKeysLength: number;
+  attempt: number;
 };
 
 const DEFAULT_RATE_LIMIT_BACKOFF_MS = 5_000;
@@ -140,127 +160,221 @@ export class RiotApiClient {
     return this.getScheduler(scopeKey).schedule(task);
   }
 
+  private canRetry(attempt: number) {
+    return attempt < this.retryCount;
+  }
+
+  private getTransientBackoffMs(attempt: number) {
+    return Math.max(this.baseDelayMs, DEFAULT_TRANSIENT_BACKOFF_MS * (attempt + 1));
+  }
+
+  private buildErrorDetails(response: Response): RiotErrorDetails {
+    const retryAfter = response.headers.get("Retry-After");
+    const retryAfterSeconds = retryAfter && Number.isFinite(Number(retryAfter)) ? Number(retryAfter) : undefined;
+    const retryAfterMs = response.status === 429
+      ? resolveRetryAfterMs(retryAfter, DEFAULT_RATE_LIMIT_BACKOFF_MS)
+      : undefined;
+
+    return {
+      statusText: response.statusText,
+      retryAfterSeconds,
+      retryAfterMs,
+    };
+  }
+
+  private async fetchWithApiKey(path: string, options: RequestOptions, apiKey: string) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), options.timeoutMs ?? 8000);
+
+    try {
+      return await fetch(this.buildUrl(path, options), {
+        headers: {
+          "X-Riot-Token": apiKey,
+        },
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  private handleAuthFailure(response: Response, context: RequestRetryContext, details: RiotErrorDetails): RetryAction {
+    const hasFallbackApiKey = context.apiKeyIndex < context.apiKeysLength - 1;
+
+    if (hasFallbackApiKey) {
+      this.metrics.authFallbackResponses += 1;
+      return "try-next-api-key";
+    }
+
+    throw new HttpError(
+      response.status,
+      response.status === 401
+        ? "Riot API authentication failed."
+        : "Riot API access forbidden for this key or route.",
+      details,
+    );
+  }
+
+  private async handleRateLimit(response: Response, context: RequestRetryContext, details: RiotErrorDetails): Promise<RetryAction> {
+    this.metrics.rateLimitResponses += 1;
+
+    if (context.apiKeyIndex < context.apiKeysLength - 1) {
+      this.metrics.rateLimitFallbackResponses += 1;
+      return "try-next-api-key";
+    }
+
+    const retryAfter = response.headers.get("Retry-After");
+    const backoffMs = details.retryAfterMs ?? DEFAULT_RATE_LIMIT_BACKOFF_MS;
+    if (!retryAfter) {
+      this.metrics.retryAfterFallbacks += 1;
+    }
+
+    this.metrics.totalBackoffMs += backoffMs;
+    this.getScheduler(context.scopeKey).defer(backoffMs);
+
+    if (this.canRetry(context.attempt)) {
+      await sleep(backoffMs);
+      return "retry-attempt";
+    }
+
+    throw new HttpError(429, "Riot API rate limit exceeded.", details);
+  }
+
+  private async handleTransientResponse(response: Response, attempt: number, details: RiotErrorDetails): Promise<RetryAction> {
+    if (this.canRetry(attempt)) {
+      await sleep(this.getTransientBackoffMs(attempt));
+      return "retry-attempt";
+    }
+
+    throw new HttpError(response.status, "Riot API request failed after transient upstream errors.", details);
+  }
+
+  private async handleUnsuccessfulResponse(response: Response, context: RequestRetryContext): Promise<RetryAction> {
+    const details = this.buildErrorDetails(response);
+
+    switch (response.status) {
+      case 401:
+      case 403:
+        return this.handleAuthFailure(response, context, details);
+      case 404:
+        throw new HttpError(404, "Riot resource not found.", details);
+      case 429:
+        return this.handleRateLimit(response, context, details);
+      case 500:
+      case 502:
+      case 503:
+      case 504:
+        return this.handleTransientResponse(response, context.attempt, details);
+      default:
+        throw new HttpError(response.status, "Riot API request failed.", details);
+    }
+  }
+
+  private async handleRequestFailure(error: unknown, attempt: number): Promise<RetryAction> {
+    if (error instanceof HttpError) {
+      throw error;
+    }
+
+    if (error instanceof Error && error.name === "AbortError") {
+      if (this.canRetry(attempt)) {
+        await sleep(this.getTransientBackoffMs(attempt));
+        return "retry-attempt";
+      }
+      throw new HttpError(504, "Riot API request timed out.");
+    }
+
+    if (this.canRetry(attempt)) {
+      await sleep(this.getTransientBackoffMs(attempt));
+      return "retry-attempt";
+    }
+
+    throw new HttpError(502, "Unable to reach Riot API.");
+  }
+
   getMetricsSnapshot() {
     return { ...this.metrics };
+  }
+
+  private async runApiKeyAttempt<T>(input: {
+    path: string;
+    options: RequestOptions;
+    scopeKey: string;
+    attempt: number;
+    apiKeys: string[];
+    apiKeyIndex: number;
+  }): Promise<RequestAttemptResult<T> | { type: "try-next-api-key" }> {
+    const apiKey = input.apiKeys[input.apiKeyIndex] ?? "";
+    this.metrics.totalRequests += 1;
+
+    try {
+      const response = await this.fetchWithApiKey(input.path, input.options, apiKey);
+
+      if (!response.ok) {
+        const action = await this.handleUnsuccessfulResponse(response, {
+          scopeKey: input.scopeKey,
+          apiKeyIndex: input.apiKeyIndex,
+          apiKeysLength: input.apiKeys.length,
+          attempt: input.attempt,
+        });
+        return { type: action };
+      }
+
+      if (input.apiKeyIndex > 0) {
+        this.metrics.authFallbackRecoveries += 1;
+      }
+      this.rememberPreferredApiKey(input.path, apiKey);
+      this.metrics.successfulRequests += 1;
+      return { type: "success", value: (await response.json()) as T };
+    } catch (error) {
+      const action = await this.handleRequestFailure(error, input.attempt);
+      return { type: action };
+    }
+  }
+
+  private async runRetryAttempt<T>(path: string, options: RequestOptions, scopeKey: string, attempt: number): Promise<RequestAttemptResult<T>> {
+    const apiKeys = this.getApiKeysForPath(path);
+
+    for (let apiKeyIndex = 0; apiKeyIndex < apiKeys.length; apiKeyIndex += 1) {
+      const result = await this.runApiKeyAttempt<T>({
+        path,
+        options,
+        scopeKey,
+        attempt,
+        apiKeys,
+        apiKeyIndex,
+      });
+
+      if (result.type === "try-next-api-key") {
+        continue;
+      }
+
+      return result;
+    }
+
+    return { type: "exhausted-api-keys" };
+  }
+
+  private async runScheduledRequest<T>(path: string, options: RequestOptions, scopeKey: string) {
+    for (let attempt = 0; attempt <= this.retryCount; attempt += 1) {
+      const result = await this.runRetryAttempt<T>(path, options, scopeKey, attempt);
+
+      if (result.type === "success") {
+        return result.value;
+      }
+
+      if (result.type === "retry-attempt") {
+        continue;
+      }
+    }
+
+    throw new HttpError(502, "Riot API request failed after retries.");
   }
 
   async request<T>(path: string, options: RequestOptions = {}): Promise<T> {
     this.ensureConfigured();
     const scopeKey = this.getScopeKey(path, options);
 
-    return this.schedule(scopeKey, async () => {
-      attemptLoop:
-      for (let attempt = 0; attempt <= this.retryCount; attempt += 1) {
-        const apiKeys = this.getApiKeysForPath(path);
-
-        for (let apiKeyIndex = 0; apiKeyIndex < apiKeys.length; apiKeyIndex += 1) {
-          const apiKey = apiKeys[apiKeyIndex]!;
-          this.metrics.totalRequests += 1;
-          const controller = new AbortController();
-          const timeout = setTimeout(() => controller.abort(), options.timeoutMs ?? 8000);
-
-          try {
-            const response = await fetch(this.buildUrl(path, options), {
-              headers: {
-                "X-Riot-Token": apiKey,
-              },
-              signal: controller.signal,
-            });
-
-            if (!response.ok) {
-              const retryAfter = response.headers.get("Retry-After");
-              const retryAfterSeconds = retryAfter && Number.isFinite(Number(retryAfter)) ? Number(retryAfter) : undefined;
-              const retryAfterMs = response.status === 429
-                ? resolveRetryAfterMs(retryAfter, DEFAULT_RATE_LIMIT_BACKOFF_MS)
-                : undefined;
-              const details = {
-                statusText: response.statusText,
-                retryAfterSeconds,
-                retryAfterMs,
-              };
-
-              switch (response.status) {
-                case 401:
-                case 403: {
-                  const hasFallbackApiKey = apiKeyIndex < apiKeys.length - 1;
-                  if (hasFallbackApiKey) {
-                    this.metrics.authFallbackResponses += 1;
-                    continue;
-                  }
-                  throw new HttpError(
-                    response.status,
-                    response.status === 401
-                      ? "Riot API authentication failed."
-                      : "Riot API access forbidden for this key or route.",
-                    details,
-                  );
-                }
-                case 404:
-                  throw new HttpError(404, "Riot resource not found.", details);
-                case 429:
-                  this.metrics.rateLimitResponses += 1;
-                  if (apiKeyIndex < apiKeys.length - 1) {
-                    this.metrics.rateLimitFallbackResponses += 1;
-                    continue;
-                  }
-                  if (!retryAfter) {
-                    this.metrics.retryAfterFallbacks += 1;
-                  }
-                  this.metrics.totalBackoffMs += retryAfterMs ?? DEFAULT_RATE_LIMIT_BACKOFF_MS;
-                  this.getScheduler(scopeKey).defer(retryAfterMs ?? DEFAULT_RATE_LIMIT_BACKOFF_MS);
-                  if (attempt < this.retryCount) {
-                    await sleep(retryAfterMs ?? DEFAULT_RATE_LIMIT_BACKOFF_MS);
-                    continue attemptLoop;
-                  }
-                  throw new HttpError(429, "Riot API rate limit exceeded.", details);
-                case 500:
-                case 502:
-                case 503:
-                case 504: {
-                  const transientBackoffMs = Math.max(this.baseDelayMs, DEFAULT_TRANSIENT_BACKOFF_MS * (attempt + 1));
-                  if (attempt < this.retryCount) {
-                    await sleep(transientBackoffMs);
-                    continue attemptLoop;
-                  }
-                  throw new HttpError(response.status, "Riot API request failed after transient upstream errors.", details);
-                }
-                default:
-                  throw new HttpError(response.status, "Riot API request failed.", details);
-              }
-            }
-
-            if (apiKeyIndex > 0) {
-              this.metrics.authFallbackRecoveries += 1;
-            }
-            this.rememberPreferredApiKey(path, apiKey);
-            this.metrics.successfulRequests += 1;
-            return (await response.json()) as T;
-          } catch (error) {
-            if (error instanceof HttpError) {
-              throw error;
-            }
-
-            if (error instanceof Error && error.name === "AbortError") {
-              if (attempt < this.retryCount) {
-                await sleep(Math.max(this.baseDelayMs, DEFAULT_TRANSIENT_BACKOFF_MS * (attempt + 1)));
-                continue attemptLoop;
-              }
-              throw new HttpError(504, "Riot API request timed out.");
-            }
-
-            if (attempt < this.retryCount) {
-              await sleep(Math.max(this.baseDelayMs, DEFAULT_TRANSIENT_BACKOFF_MS * (attempt + 1)));
-              continue attemptLoop;
-            }
-            throw new HttpError(502, "Unable to reach Riot API.");
-          } finally {
-            clearTimeout(timeout);
-          }
-        }
-      }
-
-      throw new HttpError(502, "Riot API request failed after retries.");
-    });
+    return this.schedule(scopeKey, () => this.runScheduledRequest<T>(path, options, scopeKey));
   }
 
   getAccountByRiotId(gameName: string, tagLine: string) {

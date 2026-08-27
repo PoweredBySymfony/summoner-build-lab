@@ -33,7 +33,7 @@ const normalizeRecord = (value: Record<string, unknown> | undefined) => value ??
 
 const coerceNullableString = (value: string | null | undefined) => {
   const trimmed = value?.trim();
-  return trimmed ? trimmed : null;
+  return trimmed || null;
 };
 
 const DDRAGON_BASE_URL = "https://ddragon.leagueoflegends.com";

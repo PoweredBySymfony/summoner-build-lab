@@ -115,7 +115,8 @@ export function buildRoundRobinMatchQueue(
       if (!bucket?.length) {
         continue;
       }
-      interleavedDiscoveries.push(bucket.shift()!);
+      const shifted = bucket.shift();
+      if (shifted) interleavedDiscoveries.push(shifted);
       progressed = true;
     }
     if (!progressed) {

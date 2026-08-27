@@ -83,19 +83,29 @@ const parseNumericStatValue = (value: unknown) => {
 
 const formatDecimal = (value: number) => {
   const rounded = Math.round(value * 100) / 100;
-  return Number.isInteger(rounded) ? String(rounded) : String(rounded);
+  return String(rounded);
+};
+
+const toDisplayString = (value: unknown): string => {
+  if (value == null) return "Non renseigne";
+  if (typeof value === "object") return JSON.stringify(value);
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  return JSON.stringify(value);
 };
 
 const formatNumber = (value: unknown) => {
   const numericValue = parseNumericStatValue(value);
-  return numericValue === null ? String(value ?? "Non renseigne") : formatDecimal(numericValue);
+  if (numericValue === null) return toDisplayString(value);
+  return formatDecimal(numericValue);
 };
 
 const formatDeltaNumber = (value: number) => `${value > 0 ? "+" : ""}${formatDecimal(value)}`;
 
 const formatPercentFromRatio = (value: unknown) => {
   const numericValue = parseNumericStatValue(value);
-  return numericValue === null ? String(value ?? "Non renseigne") : `${Math.round(numericValue * 100)}%`;
+  if (numericValue === null) return toDisplayString(value);
+  return `${Math.round(numericValue * 100)}%`;
 };
 
 const formatPercentDeltaFromRatio = (value: number) => `${value > 0 ? "+" : ""}${Math.round(value * 100)}%`;
@@ -151,6 +161,10 @@ const formatBoolean = (value: boolean) => value ? "Oui" : "Non";
 const formatPurchasable = (value: boolean) =>
   value ? "Oui, disponible a l'achat en boutique" : "Non, retire de l'achat direct en boutique";
 
+const compareText = (left: string, right: string) => left.localeCompare(right);
+
+const compareNumericText = (left: string, right: string) => Number(left) - Number(right);
+
 const mapAvailabilityLabels: Record<string, string> = {
   "11": "Faille de l'invocateur",
   "12": "ARAM",
@@ -166,7 +180,7 @@ const formatMapAvailabilityLines = (value: Record<string, unknown>) =>
     .map(([key, entryValue]) => ({
       key,
       label: mapAvailabilityLabels[key] ?? `Carte Riot ${key}`,
-      value: typeof entryValue === "boolean" ? formatBoolean(entryValue) : String(entryValue),
+      value: typeof entryValue === "boolean" ? formatBoolean(entryValue) : toDisplayString(entryValue),
     }));
 
 const formatMapAvailabilityRecord = (value: Record<string, unknown>) => {
@@ -199,7 +213,7 @@ const formatItemReferenceLines = (itemIds: string[], options: ItemPatchDiffOptio
 
   return [...groups.values()]
     .map((group) => {
-      const sortedIds = group.ids.sort((left, right) => Number(left) - Number(right));
+      const sortedIds = [...group.ids].sort((left, right) => Number(left) - Number(right));
       return {
         key: sortedIds.join("|"),
         label: group.label,
@@ -245,7 +259,7 @@ const formatStatLines = (
   keys = Object.keys(value),
   deltaBase?: Record<string, unknown>,
 ) =>
-  keys
+  [...keys]
     .sort((left, right) => {
       const leftLabel = descriptors[left]?.label ?? left;
       const rightLabel = descriptors[right]?.label ?? right;
@@ -269,13 +283,13 @@ const formatStatRecord = (value: Record<string, unknown>, descriptors: Record<st
 
 const normalizeText = (value: string | null | undefined) =>
   (value ?? "")
-    .replace(/<[^>]*>/g, " ")
-    .replace(/\s+/g, " ")
+    .replaceAll(/<[^>]*>/g, " ")
+    .replaceAll(/\s+/g, " ")
     .trim();
 
 const spellSlots = ["Passive", "A", "Z", "E", "R"];
 
-const formatSpellDescription = (value: string | null | undefined) => normalizeText(value).replace(/\{\{[^}]+\}\}/g, "").trim();
+const formatSpellDescription = (value: string | null | undefined) => normalizeText(value).replaceAll(/\{\{[^}]+\}\}/g, "").trim();
 
 const getChampionAbilityEntries = (detail: RemoteChampionDetail | undefined) => {
   if (!detail) {
@@ -290,7 +304,7 @@ const getChampionAbilityEntries = (detail: RemoteChampionDetail | undefined) => 
     },
     ...detail.spells.map((spell, index) => ({
       key: spell.id,
-      label: `${spellSlots[index + 1] ?? `Sort ${index + 1}`} - ${spell.name}`,
+      label: `${spellSlots[index + 1] ?? ("Sort " + String(index + 1))} - ${spell.name}`,
       value: formatSpellDescription(spell.tooltip || spell.description),
     })),
   ];
@@ -317,8 +331,8 @@ const addArrayChange = (
   beforeValue: string[],
   afterValue: string[],
 ) => {
-  const before = formatList([...beforeValue].sort());
-  const after = formatList([...afterValue].sort());
+  const before = formatList([...beforeValue].sort(compareText));
+  const after = formatList([...afterValue].sort(compareText));
   if (before !== after) {
     changes.push({ field, label, before, after });
   }
@@ -334,8 +348,8 @@ const addItemReferenceArrayChange = (
 ) => {
   const beforeIds = new Set(beforeValue);
   const afterIds = new Set(afterValue);
-  const removedIds = beforeValue.filter((itemId) => !afterIds.has(itemId)).sort();
-  const addedIds = afterValue.filter((itemId) => !beforeIds.has(itemId)).sort();
+  const removedIds = beforeValue.filter((itemId) => !afterIds.has(itemId)).sort(compareNumericText);
+  const addedIds = afterValue.filter((itemId) => !beforeIds.has(itemId)).sort(compareNumericText);
 
   if (removedIds.length || addedIds.length) {
     const before = removedIds.length ? `${formatItemReferenceList(removedIds, options)} retires` : "Aucun item retire";

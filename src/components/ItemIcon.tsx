@@ -23,13 +23,16 @@ interface ItemIconProps {
   inspectControls?: string;
 }
 
+type Placement = "right" | "left" | "top" | "bottom";
+type TooltipLayoutMode = "compact" | "balanced" | "dense";
+
 const sizeMap = {
   sm: "h-10 w-10",
   md: "h-12 w-12",
   lg: "h-16 w-16",
 };
 
-const getTooltipLayoutMetrics = (layoutMode: "compact" | "balanced" | "dense") => {
+const getTooltipLayoutMetrics = (layoutMode: TooltipLayoutMode) => {
   switch (layoutMode) {
     case "dense":
       return { width: 384, maxHeight: 540 };
@@ -170,10 +173,10 @@ const TooltipPortal = ({
   anchor: HTMLElement | null;
   preferredWidth: number;
   preferredMaxHeight: number;
-  children: (placement: "right" | "left" | "top" | "bottom") => ReactNode;
+  children: (placement: Placement) => ReactNode;
 }) => {
   const [style, setStyle] = useState<CSSProperties | null>(null);
-  const [placement, setPlacement] = useState<"right" | "left" | "top" | "bottom">("right");
+  const [placement, setPlacement] = useState<Placement>("right");
   const containerRef = useRef<HTMLDivElement | null>(null);
   const viewportPadding = 16;
 
@@ -200,17 +203,17 @@ const TooltipPortal = ({
       const spaceBottom = globalThis.innerHeight - boundaryRect.bottom - viewportPadding;
       const spaceTop = boundaryRect.top - viewportPadding;
 
-      let nextPlacement: "right" | "left" | "top" | "bottom" = "right";
-      if (spaceRight >= width + gap) {
-        nextPlacement = "right";
-      } else if (spaceLeft >= width + gap) {
-        nextPlacement = "left";
-      } else if (spaceTop >= panelHeight + gap) {
-        nextPlacement = "top";
-      } else if (spaceBottom >= panelHeight + gap) {
-        nextPlacement = "bottom";
-      } else {
-        nextPlacement = spaceBottom >= spaceTop ? "bottom" : "top";
+      let nextPlacement: Placement = "right";
+      if (spaceRight < width + gap) {
+        if (spaceLeft >= width + gap) {
+          nextPlacement = "left";
+        } else if (spaceTop >= panelHeight + gap) {
+          nextPlacement = "top";
+        } else if (spaceBottom >= panelHeight + gap) {
+          nextPlacement = "bottom";
+        } else {
+          nextPlacement = spaceBottom >= spaceTop ? "bottom" : "top";
+        }
       }
 
       setPlacement(nextPlacement);
@@ -317,12 +320,14 @@ export const ItemIcon = ({
   const totalEffectLength = effectBlocks.reduce((sum, block) => sum + block.body.length + (block.title?.length ?? 0), 0);
   const longestStatLabel = statLines.reduce((max, entry) => Math.max(max, entry.label.length), 0);
   const hasDenseContent = totalEffectLength > 220 || effectBlocks.length > 1;
-  const layoutMode =
-    hasDenseContent || (effectBlocks.length > 0 && item.buildsFrom.length > 0)
-      ? "dense"
-      : effectBlocks.length > 0 || statLines.length >= 4 || longestStatLabel > 22
-        ? "balanced"
-        : "compact";
+  let layoutMode: "dense" | "balanced" | "compact";
+  if (hasDenseContent || (effectBlocks.length > 0 && item.buildsFrom.length > 0)) {
+    layoutMode = "dense";
+  } else if (effectBlocks.length > 0 || statLines.length >= 4 || longestStatLabel > 22) {
+    layoutMode = "balanced";
+  } else {
+    layoutMode = "compact";
+  }
   const { width: tooltipWidth, maxHeight: tooltipMaxHeight } = getTooltipLayoutMetrics(layoutMode);
 
   useEffect(() => {
@@ -411,12 +416,12 @@ export const ItemIcon = ({
         className={`${sizeMap[size]} overflow-hidden rounded-md border border-border/60 bg-muted/50 ${canInteract ? "cursor-pointer" : ""} transition-all duration-200 hover:border-primary/50 hover:shadow-lg hover:shadow-primary/10 ${active || highlighted ? "border-primary/50 shadow-lg shadow-primary/10" : ""} ${className}`}
         style={{ boxShadow: "inset 0 2px 4px hsl(222 47% 4% / 0.5)" }}
       >
-        {!failed ? (
-          <img src={item.icon} alt={item.name} className="h-full w-full object-cover" loading="lazy" onError={() => setFailed(true)} />
-        ) : (
+        {failed ? (
           <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-primary/15 to-secondary px-1 text-center text-[9px] font-bold text-foreground">
             {item.name.slice(0, 3).toUpperCase()}
           </div>
+        ) : (
+          <img src={item.icon} alt={item.name} className="h-full w-full object-cover" loading="lazy" onError={() => setFailed(true)} />
         )}
       </div>
 
@@ -458,7 +463,6 @@ export const ItemIcon = ({
       ref={(node) => {
         triggerRef.current = node;
       }}
-      role="img"
     >
       {triggerContent}
     </div>
@@ -474,7 +478,7 @@ const ItemTooltip = ({
   layoutMode,
 }: {
   item: GameItem;
-  placement: "right" | "left" | "top" | "bottom";
+  placement: Placement;
   statLines: ReturnType<typeof getItemStatLines>;
   effectBlocks: ReturnType<typeof getItemEffectBlocks>;
   maxHeight: number;

@@ -103,7 +103,7 @@ export function buildPublicPlayerProfile(input: {
 
       return {
         matchId: metadata?.matchId ?? "",
-        championName: String(participant.championName ?? "Unknown"),
+        championName: typeof participant.championName === "string" ? participant.championName : "Unknown",
         result: participant.win ? "Win" : "Loss",
         kills,
         deaths,
@@ -128,7 +128,7 @@ export function buildPublicPlayerProfile(input: {
         }),
       };
     })
-    .filter((match): match is NonNullable<typeof match> => Boolean(match));
+    .filter((match): match is NonNullable<typeof match> => match !== null);
 
   const wins = recentMatches.filter((match) => match.result === "Win").length;
   const losses = recentMatches.length - wins;

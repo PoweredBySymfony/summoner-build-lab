@@ -43,7 +43,7 @@ function detectCategory(tags: string[] = []) {
 function deriveItemGroups(item: { tags?: string[]; from?: string[] | number[] }) {
   const groups = new Set<string>();
   const tags = new Set(item.tags ?? []);
-  const buildsFrom = (item.from ?? []).map((entry) => Number(entry));
+  const buildsFrom = (item.from ?? []).map(Number);
 
   if (tags.has("Boots")) {
     groups.add("Boots");
@@ -73,7 +73,7 @@ function deriveBootItemIds(summary: DataDragonItemSummary) {
       if (bootItemIds.has(numericItemId)) {
         continue;
       }
-      const buildsFrom = (item.from ?? []).map((entry) => Number(entry));
+      const buildsFrom = (item.from ?? []).map(Number);
       if (buildsFrom.some((entry) => bootItemIds.has(entry))) {
         bootItemIds.add(numericItemId);
         changed = true;
@@ -174,8 +174,8 @@ async function writeCatalogPair(
   ]);
 
   return {
-    itemCatalogPath: path.relative(rawDir, itemCatalogPath).replace(/\\/g, "/"),
-    championCatalogPath: path.relative(rawDir, championCatalogPath).replace(/\\/g, "/"),
+    itemCatalogPath: path.relative(rawDir, itemCatalogPath).replaceAll("\\", "/"),
+    championCatalogPath: path.relative(rawDir, championCatalogPath).replaceAll("\\", "/"),
     ddVersion,
   };
 }
@@ -222,8 +222,9 @@ async function main() {
         ? (rawMatch.info as Record<string, unknown>)
         : {};
     const gameCreationAt = entry.gameCreationAt instanceof Date ? entry.gameCreationAt : toIsoString(entry.gameCreationAt);
+    const patchFallback = typeof entry.patch === "string" ? entry.patch : "";
     const patchInfo = canonicalizePatch(
-      typeof info.gameVersion === "string" ? info.gameVersion : String(entry.patch ?? ""),
+      typeof info.gameVersion === "string" ? info.gameVersion : patchFallback,
       gameCreationAt,
     );
     return {
@@ -358,11 +359,11 @@ async function main() {
   );
 }
 
-main()
-  .catch((error) => {
-    console.error("[ml-export] failed to export imported matches for ML", error);
-    process.exitCode = 1;
-  })
-  .finally(async () => {
-    await prisma.$disconnect();
-  });
+try {
+  await main();
+} catch (error) {
+  console.error("[ml-export] failed to export imported matches for ML", error);
+  process.exitCode = 1;
+} finally {
+  try { await prisma.$disconnect(); } catch { /* ignore */ }
+}

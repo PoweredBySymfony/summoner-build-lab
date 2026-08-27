@@ -149,7 +149,7 @@ def train_ranking_model(config: AppConfig) -> RankingTrainingSummary:
         validation_frame,
         vectorizer=vectorizer,
     )
-    x_test, y_test, _ = _vectorize_ranking_frame(test_frame, vectorizer=vectorizer)
+    x_test, _, _unused = _vectorize_ranking_frame(test_frame, vectorizer=vectorizer)
 
     train_group = _build_group_sizes(train_frame)
     validation_group = _build_group_sizes(validation_frame)

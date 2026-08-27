@@ -39,7 +39,7 @@ export const getPuzzleSeries = (): string[] => {
 
 export const getNextPuzzleSlug = (currentSlug: string) => {
   const series = getPuzzleSeries();
-  const currentIndex = series.findIndex((slug) => slug === currentSlug);
+  const currentIndex = series.indexOf(currentSlug);
   if (currentIndex < 0) {
     return null;
   }

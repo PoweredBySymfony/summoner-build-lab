@@ -23,7 +23,6 @@ import {
   importMatchForIdentityInternal,
   importRecentMatchesInternal,
   type RiotImportSourceContext,
-  type RiotImportedMatchDetail,
 } from "../lib/riot/matchImportRunner.js";
 
 const roleMap: Record<string, Role[]> = {
@@ -42,28 +41,27 @@ function inferRoles(tags: string[]) {
 
 function decodeHtmlEntities(input: string) {
   return input
-    .replace(/&nbsp;|&#160;/g, " ")
-    .replace(/&amp;/g, "&")
-    .replace(/&quot;/g, "\"")
-    .replace(/&#39;|&apos;/g, "'")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/\u00a0/g, " ");
+    .replaceAll(/&nbsp;|&#160;/g, " ")
+    .replaceAll("&amp;", "&")
+    .replaceAll("&quot;", "\"")
+    .replaceAll(/&#39;|&apos;/g, "'")
+    .replaceAll("&lt;", "<")
+    .replaceAll("&gt;", ">")
+    .replaceAll("\u00a0", " ");
 }
 
 function formatItemDescription(input: string) {
   return decodeHtmlEntities(
     input
-      .replace(/<br\s*\/?>/gi, "\n")
-      .replace(/<\/(mainText|stats)>/gi, "\n")
-      .replace(/<(mainText|stats)>/gi, "")
-      .replace(/<\/?(attention|passive|active|ornnBonus|rarityLegendary|rarityMythic|scaleLevel|scaleAD|scaleAP|scaleMana|scaleHealth|magicDamage|physicalDamage|trueDamage|healing|OnHit|status|keywordMajor|keywordStealth|speed|shield|rules|itemPassive|itemActive)>/gi, "")
-      .replace(/<li>/gi, "• ")
-      .replace(/<\/li>/gi, "\n")
-      .replace(/<[^>]+>/g, "")
-      .replace(/[ \t]+\n/g, "\n")
-      .replace(/\n{3,}/g, "\n\n")
-      .replace(/[ \t]{2,}/g, " ")
+      .replaceAll(/<br\s*\/?>/gi, "\n")
+      .replaceAll(/<\/(mainText|stats)>/gi, "\n")
+      .replaceAll(/<(mainText|stats)>/gi, "")
+      .replaceAll(/<li>/gi, "• ")
+      .replaceAll(/<\/li>/gi, "\n")
+      .replaceAll(/<[^>]+>/g, "")
+      .replaceAll(/[ \t]+\n/g, "\n")
+      .replaceAll(/\n{3,}/g, "\n\n")
+      .replaceAll(/[ \t]{2,}/g, " ")
       .trim(),
   );
 }
@@ -424,9 +422,9 @@ export const riotSyncService = {
         return (info?.participants ?? [])
           .filter((entry) => typeof entry.puuid === "string" && typeof entry.riotIdGameName === "string" && typeof entry.riotIdTagline === "string")
           .map((entry) => upsertIndexedAccount({
-            puuid: String(entry.puuid),
-            gameName: String(entry.riotIdGameName),
-            tagLine: String(entry.riotIdTagline),
+            puuid: entry.puuid as string,
+            gameName: entry.riotIdGameName as string,
+            tagLine: entry.riotIdTagline as string,
           }));
       }),
     );

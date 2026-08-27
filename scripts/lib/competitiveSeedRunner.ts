@@ -45,6 +45,83 @@ export function mergeResolvedSeed(seed: CompetitiveSeed, cached: CompetitiveReso
   };
 }
 
+function buildUnresolvedSeed(input: {
+  seed: CompetitiveSeed;
+  cached: CompetitiveResolvedSeed | undefined;
+  error: unknown;
+  resolutionSource: CompetitiveResolvedSeed["resolutionSource"];
+}): CompetitiveResolvedSeed {
+  return {
+    ...mergeResolvedSeed(input.seed, input.cached),
+    resolutionStatus: "unresolved",
+    resolutionError: input.error instanceof Error ? input.error.message : String(input.error),
+    resolutionSource: input.resolutionSource,
+  };
+}
+
+async function resolveSeedByPuuid(
+  seed: CompetitiveSeed,
+  cached: CompetitiveResolvedSeed | undefined,
+): Promise<CompetitiveResolvedSeed> {
+  try {
+    const resolved = await riotSyncService.resolveImportIdentity({ type: "puuid", puuid: seed.puuid as string });
+    return {
+      ...mergeResolvedSeed(seed, cached),
+      resolutionStatus: "resolved",
+      resolutionError: null,
+      resolutionSource: "seed-puuid",
+      resolvedRiotId:
+        resolved.gameName && resolved.tagLine ? `${resolved.gameName}#${resolved.tagLine}` : (seed.riotId ?? null),
+      puuid: resolved.puuid,
+      platformHint: resolved.platform,
+      cluster: resolved.region,
+    };
+  } catch (error) {
+    return buildUnresolvedSeed({
+      seed,
+      cached,
+      error,
+      resolutionSource: "seed-puuid",
+    });
+  }
+}
+
+function getSeedRiotIdCandidates(seed: CompetitiveSeed) {
+  return [seed.riotId, ...seed.riotIdCandidates].filter(Boolean);
+}
+
+function getRiotIdResolutionSource(seed: CompetitiveSeed, index: number) {
+  return index === 0 && seed.riotId ? "seed-riot-id" : "candidate-riot-id";
+}
+
+async function resolveSeedByRiotIdCandidate(input: {
+  seed: CompetitiveSeed;
+  cached: CompetitiveResolvedSeed | undefined;
+  candidate: string;
+  index: number;
+}) {
+  const { gameName, tagLine } = splitRiotId(input.candidate);
+  if (!gameName || !tagLine) {
+    return null;
+  }
+
+  const resolved = await riotSyncService.resolveImportIdentity({
+    type: "riot-id",
+    gameName,
+    tagLine,
+  });
+  return {
+    ...mergeResolvedSeed(input.seed, input.cached),
+    resolutionStatus: "resolved",
+    resolutionError: null,
+    resolutionSource: getRiotIdResolutionSource(input.seed, input.index),
+    resolvedRiotId: `${resolved.gameName ?? gameName}#${resolved.tagLine ?? tagLine}`,
+    puuid: resolved.puuid,
+    platformHint: resolved.platform,
+    cluster: resolved.region,
+  } satisfies CompetitiveResolvedSeed;
+}
+
 export async function resolveSeed(
   seed: CompetitiveSeed,
   cached: CompetitiveResolvedSeed | undefined,
@@ -54,30 +131,10 @@ export async function resolveSeed(
   }
 
   if (seed.puuid) {
-    try {
-      const resolved = await riotSyncService.resolveImportIdentity({ type: "puuid", puuid: seed.puuid });
-      return {
-        ...mergeResolvedSeed(seed, cached),
-        resolutionStatus: "resolved",
-        resolutionError: null,
-        resolutionSource: "seed-puuid",
-        resolvedRiotId:
-          resolved.gameName && resolved.tagLine ? `${resolved.gameName}#${resolved.tagLine}` : (seed.riotId ?? null),
-        puuid: resolved.puuid,
-        platformHint: resolved.platform,
-        cluster: resolved.region,
-      };
-    } catch (error) {
-      return {
-        ...mergeResolvedSeed(seed, cached),
-        resolutionStatus: "unresolved",
-        resolutionError: error instanceof Error ? error.message : String(error),
-        resolutionSource: "seed-puuid",
-      };
-    }
+    return resolveSeedByPuuid(seed, cached);
   }
 
-  const candidateRiotIds = [seed.riotId, ...seed.riotIdCandidates].filter((value): value is string => Boolean(value));
+  const candidateRiotIds = getSeedRiotIdCandidates(seed);
   if (candidateRiotIds.length === 0) {
     return {
       ...mergeResolvedSeed(seed, cached),
@@ -88,35 +145,24 @@ export async function resolveSeed(
   }
 
   for (const [index, candidate] of candidateRiotIds.entries()) {
-    const { gameName, tagLine } = splitRiotId(candidate);
-    if (!gameName || !tagLine) {
-      continue;
-    }
-
     try {
-      const resolved = await riotSyncService.resolveImportIdentity({
-        type: "riot-id",
-        gameName,
-        tagLine,
+      const resolved = await resolveSeedByRiotIdCandidate({
+        seed,
+        cached,
+        candidate,
+        index,
       });
-      return {
-        ...mergeResolvedSeed(seed, cached),
-        resolutionStatus: "resolved",
-        resolutionError: null,
-        resolutionSource: index === 0 && seed.riotId ? "seed-riot-id" : "candidate-riot-id",
-        resolvedRiotId: `${resolved.gameName ?? gameName}#${resolved.tagLine ?? tagLine}`,
-        puuid: resolved.puuid,
-        platformHint: resolved.platform,
-        cluster: resolved.region,
-      };
+      if (resolved) {
+        return resolved;
+      }
     } catch (error) {
       if (index === candidateRiotIds.length - 1) {
-        return {
-          ...mergeResolvedSeed(seed, cached),
-          resolutionStatus: "unresolved",
-          resolutionError: error instanceof Error ? error.message : String(error),
-          resolutionSource: index === 0 && seed.riotId ? "seed-riot-id" : "candidate-riot-id",
-        };
+        return buildUnresolvedSeed({
+          seed,
+          cached,
+          error,
+          resolutionSource: getRiotIdResolutionSource(seed, index),
+        });
       }
     }
   }
@@ -157,6 +203,133 @@ export async function resolveSeeds(
   return resolvedSeeds;
 }
 
+function cloneScanStateByQueue(input: {
+  cached?: CompetitiveSeedMatchDiscovery;
+  canReuseCache: boolean;
+}) {
+  return input.canReuseCache
+    ? Object.fromEntries(
+      Object.entries(input.cached?.scanStateByQueue ?? {}).map(([queue, state]) => [queue, { ...state }]),
+    )
+    : {};
+}
+
+function countRequestedDiscoveryIds(scanStateByQueue: Record<string, CompetitiveDiscoveryQueueState>) {
+  return Object.values(scanStateByQueue).reduce((sum, state) => sum + (state.requests ?? 0), 0);
+}
+
+function getOrCreateQueueScanState(
+  scanStateByQueue: Record<string, CompetitiveDiscoveryQueueState>,
+  queue: number,
+) {
+  const queueKey = String(queue);
+  const state = scanStateByQueue[queueKey] ?? {
+    nextStart: 0,
+    requests: 0,
+    exhausted: false,
+  };
+  scanStateByQueue[queueKey] = state;
+  return state;
+}
+
+function calculateDiscoveryRequestCount(input: {
+  allMatchIdsSize: number;
+  maxIdsPerSeed: number;
+  pageSize: number;
+  scanStateByQueue: Record<string, CompetitiveDiscoveryQueueState>;
+  targetIds: number;
+}) {
+  const refreshedTotalRequested = countRequestedDiscoveryIds(input.scanStateByQueue);
+  const refreshedRemainingBudget = input.maxIdsPerSeed - refreshedTotalRequested;
+  const remainingTarget = input.targetIds - input.allMatchIdsSize;
+  return Math.min(input.pageSize, refreshedRemainingBudget, remainingTarget);
+}
+
+async function discoverMatchIdsForQueue(input: {
+  seed: CompetitiveResolvedSeed & { puuid: string; cluster: NonNullable<CompetitiveResolvedSeed["cluster"]> };
+  queue: number;
+  requestCount: number;
+  state: CompetitiveDiscoveryQueueState;
+  startTime: number | null;
+  endTime: number | null;
+}) {
+  console.info(
+    `[competitive-ingestion] discover-match-ids seed=${input.seed.playerName} queue=${input.queue} start=${input.state.nextStart} count=${input.requestCount} startTime=${input.startTime ?? "none"} endTime=${input.endTime ?? "none"}`,
+  );
+
+  const matchIds = await riotApiClient.getMatchIdsByPuuidOnRegion(input.seed.puuid, input.seed.cluster, input.requestCount, {
+    queue: input.queue,
+    start: input.state.nextStart,
+    startTime: input.startTime ?? undefined,
+    endTime: input.endTime ?? undefined,
+  });
+
+  input.state.nextStart += input.requestCount;
+  input.state.requests += input.requestCount;
+  if (matchIds.length < input.requestCount) {
+    input.state.exhausted = true;
+  }
+
+  return matchIds;
+}
+
+function addDiscoveredMatchIds(allMatchIds: Set<string>, matchIds: string[]) {
+  for (const matchId of matchIds) {
+    allMatchIds.add(matchId);
+  }
+}
+
+async function discoverMatchIdsForQueueRound(input: {
+  seed: CompetitiveResolvedSeed & { puuid: string; cluster: NonNullable<CompetitiveResolvedSeed["cluster"]> };
+  uniqueQueues: number[];
+  allMatchIds: Set<string>;
+  scanStateByQueue: Record<string, CompetitiveDiscoveryQueueState>;
+  pageSize: number;
+  maxIdsPerSeed: number;
+  targetIds: number;
+  startTime: number | null;
+  endTime: number | null;
+}) {
+  let progressed = false;
+
+  for (const queue of input.uniqueQueues) {
+    const state = getOrCreateQueueScanState(input.scanStateByQueue, queue);
+
+    if (state.exhausted) {
+      continue;
+    }
+
+    const requestCount = calculateDiscoveryRequestCount({
+      allMatchIdsSize: input.allMatchIds.size,
+      maxIdsPerSeed: input.maxIdsPerSeed,
+      pageSize: input.pageSize,
+      scanStateByQueue: input.scanStateByQueue,
+      targetIds: input.targetIds,
+    });
+    if (requestCount <= 0) {
+      break;
+    }
+
+    const matchIds = await discoverMatchIdsForQueue({
+      seed: input.seed,
+      queue,
+      requestCount,
+      state,
+      startTime: input.startTime,
+      endTime: input.endTime,
+    });
+
+    addDiscoveredMatchIds(input.allMatchIds, matchIds);
+    progressed = progressed || matchIds.length > 0;
+
+    if (input.allMatchIds.size >= input.targetIds) {
+      break;
+    }
+  }
+
+  return progressed;
+}
+
 export async function discoverMatchIdsForSeed(
   seed: CompetitiveResolvedSeed & { puuid: string; cluster: NonNullable<CompetitiveResolvedSeed["cluster"]> },
   input: {
@@ -179,68 +352,29 @@ export async function discoverMatchIdsForSeed(
   });
   const canReuseCache = input.cached?.querySignature === querySignature;
   const allMatchIds = new Set<string>(canReuseCache ? input.cached?.matchIds ?? [] : []);
-  const scanStateByQueue: Record<string, CompetitiveDiscoveryQueueState> = canReuseCache
-    ? Object.fromEntries(
-      Object.entries(input.cached?.scanStateByQueue ?? {}).map(([queue, state]) => [queue, { ...state }]),
-    )
-    : {};
+  const scanStateByQueue: Record<string, CompetitiveDiscoveryQueueState> = cloneScanStateByQueue({
+    cached: input.cached,
+    canReuseCache,
+  });
 
   while (allMatchIds.size < input.targetIds) {
-    let progressed = false;
-    const totalRequested = Object.values(scanStateByQueue).reduce((sum, state) => sum + (state.requests ?? 0), 0);
+    const totalRequested = countRequestedDiscoveryIds(scanStateByQueue);
     const remainingGlobalBudget = input.maxIdsPerSeed - totalRequested;
     if (remainingGlobalBudget <= 0) {
       break;
     }
 
-    for (const queue of uniqueQueues) {
-      const queueKey = String(queue);
-      const state = scanStateByQueue[queueKey] ?? {
-        nextStart: 0,
-        requests: 0,
-        exhausted: false,
-      };
-      scanStateByQueue[queueKey] = state;
-
-      if (state.exhausted) {
-        continue;
-      }
-
-      const refreshedTotalRequested = Object.values(scanStateByQueue).reduce((sum, entry) => sum + (entry.requests ?? 0), 0);
-      const refreshedRemainingBudget = input.maxIdsPerSeed - refreshedTotalRequested;
-      const remainingTarget = input.targetIds - allMatchIds.size;
-      const requestCount = Math.min(input.pageSize, refreshedRemainingBudget, remainingTarget);
-      if (requestCount <= 0) {
-        break;
-      }
-
-      console.info(
-        `[competitive-ingestion] discover-match-ids seed=${seed.playerName} queue=${queue} start=${state.nextStart} count=${requestCount} startTime=${input.startTime ?? "none"} endTime=${input.endTime ?? "none"}`,
-      );
-
-      const matchIds = await riotApiClient.getMatchIdsByPuuidOnRegion(seed.puuid, seed.cluster, requestCount, {
-        queue,
-        start: state.nextStart,
-        startTime: input.startTime ?? undefined,
-        endTime: input.endTime ?? undefined,
-      });
-
-      state.nextStart += requestCount;
-      state.requests += requestCount;
-      if (matchIds.length < requestCount) {
-        state.exhausted = true;
-      }
-
-      for (const matchId of matchIds) {
-        allMatchIds.add(matchId);
-      }
-      progressed = progressed || matchIds.length > 0;
-
-      if (allMatchIds.size >= input.targetIds) {
-        break;
-      }
-    }
-
+    const progressed = await discoverMatchIdsForQueueRound({
+      seed,
+      uniqueQueues,
+      allMatchIds,
+      scanStateByQueue,
+      pageSize: input.pageSize,
+      maxIdsPerSeed: input.maxIdsPerSeed,
+      targetIds: input.targetIds,
+      startTime: input.startTime,
+      endTime: input.endTime,
+    });
     if (!progressed) {
       break;
     }
@@ -270,52 +404,186 @@ export async function discoverMatchIdsForSeed(
   } satisfies CompetitiveSeedMatchDiscovery;
 }
 
+type DiscoverableSeed = CompetitiveResolvedSeed & {
+  puuid: string;
+  cluster: NonNullable<CompetitiveResolvedSeed["cluster"]>;
+};
+
+type DiscoverSeedsInput = {
+  pageSize: number;
+  maxIdsPerSeed: number;
+  targetIdsPerSeed: number;
+  maxDiscoveredUniqueMatches?: number;
+  queues: number[];
+  startTime: number | null;
+  endTime: number | null;
+  maxConsecutiveFailures?: number;
+  quarantinedSeedKeys?: Set<string>;
+  quarantinedRegions?: Set<string>;
+  onProgress?: (snapshot: {
+    processedSeeds: number;
+    totalActiveSeeds: number;
+    discoveries: CompetitiveSeedMatchDiscovery[];
+    seed: DiscoverableSeed;
+  }) => Promise<void> | void;
+};
+
+type DiscoveryFailureState = {
+  consecutiveFailureSignature: string | null;
+  consecutiveFailures: number;
+  lastFailureSeedKey: string | null;
+  lastFailureRegion: string | null;
+  lastFailureReason: string | null;
+};
+
+function isDiscoverableSeed(seed: CompetitiveResolvedSeed): seed is DiscoverableSeed {
+  return seed.resolutionStatus === "resolved" && Boolean(seed.puuid) && Boolean(seed.cluster);
+}
+
+function getUniqueDiscoveredMatchCount(discoveries: CompetitiveSeedMatchDiscovery[]) {
+  return new Set(discoveries.flatMap((entry) => entry.matchIds)).size;
+}
+
+function getUniqueDiscoveryStopReason(
+  discoveries: CompetitiveSeedMatchDiscovery[],
+  maxDiscoveredUniqueMatches: number | undefined,
+) {
+  if (typeof maxDiscoveredUniqueMatches !== "number") {
+    return null;
+  }
+
+  const currentUniqueCount = getUniqueDiscoveredMatchCount(discoveries);
+  return currentUniqueCount >= maxDiscoveredUniqueMatches
+    ? `discovery-unique-budget:${currentUniqueCount}`
+    : null;
+}
+
+function isCachedDiscoveryComplete(
+  cached: CompetitiveSeedMatchDiscovery | undefined,
+  input: DiscoverSeedsInput,
+) {
+  if (cached?.querySignature !== buildDiscoveryQuerySignature(input)) {
+    return false;
+  }
+
+  const scanStates = Object.values(cached.scanStateByQueue ?? {});
+  return cached.matchIds.length >= input.targetIdsPerSeed
+    || (scanStates.length > 0 && scanStates.every((state) => state.exhausted));
+}
+
+async function notifyDiscoveryProgress(input: {
+  onProgress: DiscoverSeedsInput["onProgress"];
+  processedSeeds: number;
+  totalActiveSeeds: number;
+  discoveries: CompetitiveSeedMatchDiscovery[];
+  seed: DiscoverableSeed;
+}) {
+  await input.onProgress?.({
+    processedSeeds: input.processedSeeds,
+    totalActiveSeeds: input.totalActiveSeeds,
+    discoveries: input.discoveries,
+    seed: input.seed,
+  });
+}
+
+function buildEmptyDiscovery(seed: DiscoverableSeed, input: DiscoverSeedsInput, cached?: CompetitiveSeedMatchDiscovery) {
+  return {
+    seedKey: buildCompetitiveSeedKey(seed),
+    playerName: seed.playerName,
+    team: seed.team,
+    league: seed.league,
+    competition: seed.competition,
+    role: seed.role,
+    priorityTier: seed.priorityTier,
+    priorityScore: seed.priorityScore,
+    puuid: seed.puuid,
+    region: seed.cluster,
+    matchIds: [],
+    querySignature: buildDiscoveryQuerySignature(input),
+    appliedFilters: {
+      queues: [...new Set(input.queues)],
+      startTime: input.startTime,
+      endTime: input.endTime,
+      pageSize: input.pageSize,
+      maxIdsPerSeed: input.maxIdsPerSeed,
+    },
+    scanStateByQueue: cached?.scanStateByQueue ?? {},
+  } satisfies CompetitiveSeedMatchDiscovery;
+}
+
+function recordDiscoveryFailure(input: {
+  error: unknown;
+  seed: DiscoverableSeed;
+  seedKey: string;
+  cached?: CompetitiveSeedMatchDiscovery;
+  state: DiscoveryFailureState;
+  authFailureCountsBySeedKey: Map<string, number>;
+  authFailureCountsByRegion: Map<string, number>;
+  maxConsecutiveFailures: number;
+}) {
+  const message = input.error instanceof Error ? input.error.message : String(input.error);
+  const failureSignature = message.toLowerCase().trim();
+  input.state.lastFailureSeedKey = input.seedKey;
+  input.state.lastFailureRegion = input.seed.cluster;
+  input.state.lastFailureReason = failureSignature;
+
+  if (failureSignature.includes("authentication failed")) {
+    input.authFailureCountsBySeedKey.set(
+      input.seedKey,
+      (input.authFailureCountsBySeedKey.get(input.seedKey) ?? 0) + 1,
+    );
+    input.authFailureCountsByRegion.set(
+      input.seed.cluster,
+      (input.authFailureCountsByRegion.get(input.seed.cluster) ?? 0) + 1,
+    );
+  }
+
+  input.state.consecutiveFailures = input.state.consecutiveFailureSignature === failureSignature
+    ? input.state.consecutiveFailures + 1
+    : 1;
+  input.state.consecutiveFailureSignature = failureSignature;
+
+  console.warn(
+    "[competitive-ingestion] discover-seed-failed",
+    JSON.stringify({
+      seed: input.seed.playerName,
+      matchIdsCached: input.cached?.matchIds.length ?? 0,
+      message,
+      consecutiveFailures: input.state.consecutiveFailures,
+      maxConsecutiveFailures: input.maxConsecutiveFailures,
+    }),
+  );
+
+  return input.state.consecutiveFailures >= input.maxConsecutiveFailures
+    ? `discovery-failure-budget:${input.state.consecutiveFailures}`
+    : null;
+}
+
 export async function discoverSeeds(
   seeds: CompetitiveResolvedSeed[],
   discoveryCache: Map<string, CompetitiveSeedMatchDiscovery>,
-  input: {
-    pageSize: number;
-    maxIdsPerSeed: number;
-    targetIdsPerSeed: number;
-    maxDiscoveredUniqueMatches?: number;
-    queues: number[];
-    startTime: number | null;
-    endTime: number | null;
-    maxConsecutiveFailures?: number;
-    quarantinedSeedKeys?: Set<string>;
-    quarantinedRegions?: Set<string>;
-    onProgress?: (snapshot: {
-      processedSeeds: number;
-      totalActiveSeeds: number;
-      discoveries: CompetitiveSeedMatchDiscovery[];
-      seed: CompetitiveResolvedSeed & { puuid: string; cluster: NonNullable<CompetitiveResolvedSeed["cluster"]> };
-    }) => Promise<void> | void;
-  },
+  input: DiscoverSeedsInput,
 ) {
-  const activeSeeds = seeds.filter(
-    (seed): seed is CompetitiveResolvedSeed & { puuid: string; cluster: NonNullable<CompetitiveResolvedSeed["cluster"]> } =>
-      seed.resolutionStatus === "resolved" && Boolean(seed.puuid) && Boolean(seed.cluster),
-  );
+  const activeSeeds = seeds.filter(isDiscoverableSeed);
 
   const discoveries: CompetitiveSeedMatchDiscovery[] = [];
   let processedSeeds = 0;
-  let consecutiveFailureSignature: string | null = null;
-  let consecutiveFailures = 0;
+  const failureState: DiscoveryFailureState = {
+    consecutiveFailureSignature: null,
+    consecutiveFailures: 0,
+    lastFailureSeedKey: null,
+    lastFailureRegion: null,
+    lastFailureReason: null,
+  };
   const maxConsecutiveFailures = input.maxConsecutiveFailures ?? 2;
   let stopReason: string | null = null;
   const authFailureCountsBySeedKey = new Map<string, number>();
   const authFailureCountsByRegion = new Map<string, number>();
-  let lastFailureSeedKey: string | null = null;
-  let lastFailureRegion: string | null = null;
-  let lastFailureReason: string | null = null;
   for (const seed of activeSeeds) {
     processedSeeds += 1;
-    if (typeof input.maxDiscoveredUniqueMatches === "number") {
-      const currentUniqueCount = new Set(discoveries.flatMap((entry) => entry.matchIds)).size;
-      if (currentUniqueCount >= input.maxDiscoveredUniqueMatches) {
-        stopReason = `discovery-unique-budget:${currentUniqueCount}`;
-        break;
-      }
+    stopReason = getUniqueDiscoveryStopReason(discoveries, input.maxDiscoveredUniqueMatches);
+    if (stopReason) {
+      break;
     }
 
     const seedKey = buildCompetitiveSeedKey(seed);
@@ -323,7 +591,8 @@ export async function discoverSeeds(
       console.info(
         `[competitive-ingestion] discover-seed-skipped quarantined seed=${seed.playerName} region=${seed.cluster}`,
       );
-      await input.onProgress?.({
+      await notifyDiscoveryProgress({
+        onProgress: input.onProgress,
         processedSeeds,
         totalActiveSeeds: activeSeeds.length,
         discoveries,
@@ -333,16 +602,13 @@ export async function discoverSeeds(
     }
 
     const cached = discoveryCache.get(seedKey);
-    const hasCachedScanState = Object.keys(cached?.scanStateByQueue ?? {}).length > 0;
-    if (
-      cached?.querySignature === buildDiscoveryQuerySignature(input)
-      && (cached.matchIds.length >= input.targetIdsPerSeed || (hasCachedScanState && Object.values(cached.scanStateByQueue ?? {}).every((state) => state.exhausted)))
-    ) {
+    if (isCachedDiscoveryComplete(cached, input)) {
       discoveries.push(cached);
       console.info(
         `[competitive-ingestion] discover-seed-progress processed=${discoveries.length}/${activeSeeds.length} seed=${seed.playerName} cached=yes matchIds=${cached.matchIds.length}`,
       );
-      await input.onProgress?.({
+      await notifyDiscoveryProgress({
+        onProgress: input.onProgress,
         processedSeeds,
         totalActiveSeeds: activeSeeds.length,
         discoveries,
@@ -361,65 +627,31 @@ export async function discoverSeeds(
         endTime: input.endTime,
         cached,
       }));
-      consecutiveFailures = 0;
+      failureState.consecutiveFailures = 0;
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      const failureSignature = message.toLowerCase().trim();
-      lastFailureSeedKey = seedKey;
-      lastFailureRegion = seed.cluster;
-      lastFailureReason = failureSignature;
-      if (failureSignature.includes("authentication failed")) {
-        authFailureCountsBySeedKey.set(seedKey, (authFailureCountsBySeedKey.get(seedKey) ?? 0) + 1);
-        authFailureCountsByRegion.set(seed.cluster, (authFailureCountsByRegion.get(seed.cluster) ?? 0) + 1);
-      }
-      consecutiveFailures = consecutiveFailureSignature === failureSignature
-        ? consecutiveFailures + 1
-        : 1;
-      consecutiveFailureSignature = failureSignature;
-      console.warn(
-        "[competitive-ingestion] discover-seed-failed",
-        JSON.stringify({
-          seed: seed.playerName,
-          matchIdsCached: cached?.matchIds.length ?? 0,
-          message,
-          consecutiveFailures,
-          maxConsecutiveFailures,
-        }),
-      );
-      if (consecutiveFailures >= maxConsecutiveFailures) {
-        stopReason = `discovery-failure-budget:${consecutiveFailures}`;
+      stopReason = recordDiscoveryFailure({
+        error,
+        seed,
+        seedKey,
+        cached,
+        state: failureState,
+        authFailureCountsBySeedKey,
+        authFailureCountsByRegion,
+        maxConsecutiveFailures,
+      });
+      if (stopReason) {
         console.warn(
           `[competitive-ingestion] discovery-stopped stopReason=${stopReason} lastSeed=${seed.playerName}`,
         );
         break;
       }
-      discoveries.push(cached ?? {
-        seedKey,
-        playerName: seed.playerName,
-        team: seed.team,
-        league: seed.league,
-        competition: seed.competition,
-        role: seed.role,
-        priorityTier: seed.priorityTier,
-        priorityScore: seed.priorityScore,
-        puuid: seed.puuid,
-        region: seed.cluster,
-        matchIds: [],
-        querySignature: buildDiscoveryQuerySignature(input),
-        appliedFilters: {
-          queues: [...new Set(input.queues)],
-          startTime: input.startTime,
-          endTime: input.endTime,
-          pageSize: input.pageSize,
-          maxIdsPerSeed: input.maxIdsPerSeed,
-        },
-        scanStateByQueue: cached?.scanStateByQueue ?? {},
-      });
+      discoveries.push(cached ?? buildEmptyDiscovery(seed, input, cached));
     }
     console.info(
       `[competitive-ingestion] discover-seed-progress processed=${discoveries.length}/${activeSeeds.length} seed=${seed.playerName} cached=no matchIds=${discoveries[discoveries.length - 1]?.matchIds.length ?? 0}`,
     );
-    await input.onProgress?.({
+    await notifyDiscoveryProgress({
+      onProgress: input.onProgress,
       processedSeeds,
       totalActiveSeeds: activeSeeds.length,
       discoveries,
@@ -432,8 +664,8 @@ export async function discoverSeeds(
     stopReason,
     authFailureCountsBySeedKey,
     authFailureCountsByRegion,
-    lastFailureSeedKey,
-    lastFailureRegion,
-    lastFailureReason,
+    lastFailureSeedKey: failureState.lastFailureSeedKey,
+    lastFailureRegion: failureState.lastFailureRegion,
+    lastFailureReason: failureState.lastFailureReason,
   };
 }
