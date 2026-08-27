@@ -1,10 +1,10 @@
 import { FormEvent, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Chrome, LockKeyhole, Mail, ShieldCheck } from "lucide-react";
+import { Globe, LockKeyhole, Mail, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useGoogleAuthUrl, useLogin, useRegister } from "@/api/hooks";
-import { useLanguage } from "@/i18n/context";
+import { useLanguage } from "@/i18n/useLanguage";
 
 const Auth = () => {
   const navigate = useNavigate();
@@ -18,7 +18,7 @@ const Auth = () => {
   const { t } = useLanguage();
 
   const errorMessage = useMemo(
-    () => (login.error as Error | null)?.message ?? (register.error as Error | null)?.message ?? null,
+    () => login.error?.message ?? register.error?.message ?? null,
     [login.error, register.error],
   );
 
@@ -52,7 +52,7 @@ const Auth = () => {
 
             <div className="grid gap-4 sm:grid-cols-3">
               <div className="rounded-2xl border border-border/60 bg-background/50 p-5">
-                <Chrome className="mb-3 h-5 w-5 text-primary" />
+                <Globe className="mb-3 h-5 w-5 text-primary" />
                 <p className="font-semibold text-foreground">{t("auth.googleFirstTitle")}</p>
                 <p className="mt-2 text-sm text-muted-foreground">{t("auth.googleFirstDesc")}</p>
               </div>
@@ -84,15 +84,15 @@ const Auth = () => {
                 disabled={googleUrl.isLoading || !googleUrl.data}
                 onClick={() => {
                   if (googleUrl.data) {
-                    window.location.href = googleUrl.data;
+                    globalThis.location.href = googleUrl.data;
                   }
                 }}
               >
-                <Chrome className="h-5 w-5" />
+                <Globe className="h-5 w-5" />
                 {t("auth.continueWithGoogle")}
               </Button>
               {googleUrl.error ? (
-                <p className="mt-3 text-sm text-destructive">{(googleUrl.error as Error).message}</p>
+                <p className="mt-3 text-sm text-destructive">{googleUrl.error?.message}</p>
               ) : null}
             </div>
 

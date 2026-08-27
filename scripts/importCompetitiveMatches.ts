@@ -1,25 +1,18 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-import type { Prisma } from "@prisma/client";
-
 import { prisma } from "../server/src/lib/prisma.js";
-import { canonicalizePatch } from "../server/src/lib/riot/patchCanonical.js";
 import {
   buildCompetitiveIngestionReport,
   buildCompetitiveMatchQueue,
   buildCompetitiveSeedKey,
   buildSeedSummaries,
   determineOpenedFallbackTiers,
-  evaluateCompetitiveMatchPolicy,
   loadCompetitiveIngestionCheckpoint,
   loadCompetitiveIngestionPolicy,
   resolveCompetitiveIngestionPolicy,
   saveCompetitiveIngestionCheckpoint,
-  scoreCompetitiveMatch,
   type CompetitiveDiscoveredMatch,
-  type CompetitiveCachedMatchMetadata,
-  type CompetitiveDiscoveryQueueState,
   type CompetitiveIngestionAttemptSummary,
   type CompetitiveIngestionCheckpoint,
   type CompetitiveIngestionPolicyConfig,
@@ -37,256 +30,52 @@ import { riotSyncService } from "../server/src/services/riotSyncService.js";
 import {
   mergeCompetitiveSourceMetadata,
 } from "./lib/competitiveImportedMatchProvenance.js";
-
-type CliOptions = {
-  ownerUserId?: string;
-  ownerEmail?: string;
-  seedPath: string;
-  policyPath: string;
-  checkpointPath: string;
-  quarantinePath: string;
-  reportPath: string;
-  markdownReportPath: string;
-  targetMatches: number;
-  countPerSeed: number;
-  maxIdsPerSeed: number;
-  startTime?: number;
-  endTime?: number | null;
-  dryRun: boolean;
-  resetCheckpoint: boolean;
-  preferredQueues?: number[];
-  fallbackQueues?: number[];
-  preferredPatchPrefixes?: string[];
-  adjacentPatchPrefixes?: string[];
-  maxAttemptsPerRun?: number;
-  maxCreatedPerRun?: number;
-  maxAuthFailuresPerRun?: number;
-  trancheSize?: number;
-  maxClassifiedPerRun?: number;
-  maxSeedDiscoveryFailures?: number;
-  refreshDiscovery: boolean;
-};
-
-type CompetitiveDiscoveryQuarantineEntry = {
-  reason: string;
-  count: number;
-  firstSeenAt: string;
-  lastSeenAt: string;
-  quarantinedAt: string;
-};
-
-type CompetitiveDiscoveryQuarantine = {
-  version: 1;
-  generatedAt: string;
-  seedSetVersion: string;
-  seedKeys: Record<string, CompetitiveDiscoveryQuarantineEntry>;
-  regions: Record<string, CompetitiveDiscoveryQuarantineEntry>;
-};
+import { applyTranchePreset, parseArgs, type CliOptions } from "./lib/competitiveImportCli.js";
+import {
+  loadDiscoveryQuarantine,
+  saveDiscoveryQuarantine,
+  type CompetitiveDiscoveryQuarantine,
+  type CompetitiveDiscoveryQuarantineEntry,
+} from "./lib/competitiveDiscoveryQuarantine.js";
+import {
+  canReuseDiscoveryCheckpointState,
+  canReuseResolvedSeedCheckpointState,
+  rebuildDiscoveredMatchesFromCheckpoint,
+} from "./lib/competitiveDiscoveryCheckpoint.js";
+import { renderMarkdownReport } from "./lib/competitiveImportReport.js";
+import {
+  discoverSeeds,
+  resolveSeeds,
+} from "./lib/competitiveSeedRunner.js";
+import {
+  buildRejectedMatches,
+  buildSourceMetadata,
+  classifyDiscoveredMatches,
+} from "./lib/competitiveClassificationRunner.js";
 
 const PROGRESS_PERSIST_ATTEMPT_INTERVAL = 50;
 const PROGRESS_PERSIST_CREATED_INTERVAL = 10;
+const COMPETITIVE_SOURCE_KINDS = ["PRO_SEED", "ELITE_SEED", "FALLBACK_SEED"] as const;
 
-function parseArgs(argv: string[]): CliOptions {
-  const options: CliOptions = {
-    seedPath: path.join("data", "seeds", "competitive-seeds-2026.json"),
-    policyPath: path.join("data", "config", "competitive-ingestion-policy-2026.json"),
-    checkpointPath: path.join("data", "runtime", "competitive-ingestion", "checkpoint.json"),
-    quarantinePath: path.join("data", "runtime", "competitive-ingestion", "quarantine.json"),
-    reportPath: path.join("data", "runtime", "competitive-ingestion", "report.json"),
-    markdownReportPath: path.join("data", "runtime", "competitive-ingestion", "report.md"),
-    ownerEmail: "xtrouche@gmail.com",
-    targetMatches: 10000,
-    countPerSeed: 30,
-    maxIdsPerSeed: 300,
-    dryRun: false,
-    resetCheckpoint: false,
-    refreshDiscovery: false,
-  };
-
-  for (let index = 0; index < argv.length; index += 1) {
-    const arg = argv[index];
-    const next = argv[index + 1];
-    switch (arg) {
-      case "--owner-user-id":
-        options.ownerUserId = next;
-        index += 1;
-        break;
-      case "--owner-email":
-        options.ownerEmail = next;
-        index += 1;
-        break;
-      case "--seed-path":
-        if (next) options.seedPath = next;
-        index += 1;
-        break;
-      case "--policy-path":
-        if (next) options.policyPath = next;
-        index += 1;
-        break;
-      case "--checkpoint-path":
-        if (next) options.checkpointPath = next;
-        index += 1;
-        break;
-      case "--quarantine-path":
-        if (next) options.quarantinePath = next;
-        index += 1;
-        break;
-      case "--report-path":
-        if (next) options.reportPath = next;
-        index += 1;
-        break;
-      case "--markdown-report-path":
-        if (next) options.markdownReportPath = next;
-        index += 1;
-        break;
-      case "--target-matches":
-        options.targetMatches = Number(next ?? "2000");
-        index += 1;
-        break;
-      case "--count-per-seed":
-        options.countPerSeed = Number(next ?? "30");
-        index += 1;
-        break;
-      case "--max-ids-per-seed":
-        options.maxIdsPerSeed = Number(next ?? "300");
-        index += 1;
-        break;
-      case "--start-time":
-        options.startTime = Number(next ?? "0");
-        index += 1;
-        break;
-      case "--end-time":
-        options.endTime = next ? Number(next) : null;
-        index += 1;
-        break;
-      case "--preferred-queues":
-        if (next) {
-          options.preferredQueues = next.split(",").map((value) => Number(value.trim())).filter(Number.isFinite);
-        }
-        index += 1;
-        break;
-      case "--fallback-queues":
-        if (next) {
-          options.fallbackQueues = next.split(",").map((value) => Number(value.trim())).filter(Number.isFinite);
-        }
-        index += 1;
-        break;
-      case "--preferred-patch-prefixes":
-        if (next) {
-          options.preferredPatchPrefixes = next.split(",").map((value) => value.trim()).filter(Boolean);
-        }
-        index += 1;
-        break;
-      case "--adjacent-patch-prefixes":
-        if (next) {
-          options.adjacentPatchPrefixes = next.split(",").map((value) => value.trim()).filter(Boolean);
-        }
-        index += 1;
-        break;
-      case "--max-attempts-per-run":
-        options.maxAttemptsPerRun = Number(next ?? "0");
-        index += 1;
-        break;
-      case "--max-created-per-run":
-        options.maxCreatedPerRun = Number(next ?? "0");
-        index += 1;
-        break;
-      case "--max-auth-failures-per-run":
-        options.maxAuthFailuresPerRun = Number(next ?? "0");
-        index += 1;
-        break;
-      case "--tranche-size":
-        options.trancheSize = Number(next ?? "0");
-        index += 1;
-        break;
-      case "--max-classified-per-run":
-        options.maxClassifiedPerRun = Number(next ?? "0");
-        index += 1;
-        break;
-      case "--max-seed-discovery-failures":
-        options.maxSeedDiscoveryFailures = Number(next ?? "3");
-        index += 1;
-        break;
-      case "--refresh-discovery":
-        options.refreshDiscovery = true;
-        break;
-      case "--dry-run":
-        options.dryRun = true;
-        break;
-      case "--reset-checkpoint":
-        options.resetCheckpoint = true;
-        break;
-      default:
-        break;
-    }
-  }
-
-  return options;
-}
-
-async function loadDiscoveryQuarantine(quarantinePath: string, seedSetVersion: string) {
-  try {
-    const raw = (await readFile(quarantinePath, "utf-8")).replace(/^\uFEFF/, "");
-    const parsed = JSON.parse(raw) as CompetitiveDiscoveryQuarantine;
-    if (parsed.seedSetVersion !== seedSetVersion || parsed.version !== 1) {
-      return null;
-    }
-    return parsed;
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-      return null;
-    }
-    throw error;
-  }
-}
-
-async function saveDiscoveryQuarantine(quarantinePath: string, quarantine: CompetitiveDiscoveryQuarantine) {
-  await mkdir(path.dirname(quarantinePath), { recursive: true });
-  await writeFile(quarantinePath, JSON.stringify(quarantine, null, 2), "utf-8");
-}
-
-function applyTranchePreset(options: CliOptions) {
-  if (!options.trancheSize || !Number.isFinite(options.trancheSize) || options.trancheSize <= 0) {
-    return options;
-  }
-
-  return {
-    ...options,
-    maxCreatedPerRun: options.maxCreatedPerRun ?? options.trancheSize,
-    maxAttemptsPerRun: options.maxAttemptsPerRun ?? Math.max(options.trancheSize * 2, options.trancheSize + 10),
-    maxAuthFailuresPerRun: options.maxAuthFailuresPerRun ?? 3,
-    maxClassifiedPerRun: options.maxClassifiedPerRun ?? Math.max(options.trancheSize * 12, options.trancheSize * 6),
-  };
-}
+type CompetitivePolicy = ReturnType<typeof resolveCompetitiveIngestionPolicy>;
+type ActiveCompetitiveSeed = CompetitiveResolvedSeed & {
+  puuid: string;
+  cluster: NonNullable<CompetitiveResolvedSeed["cluster"]>;
+};
+type CompetitiveQueueCandidate = ReturnType<typeof buildCompetitiveMatchQueue>[number];
+type ImportedCompetitiveMatch = Awaited<ReturnType<typeof riotSyncService.importMatchForIdentity>>;
+type CompetitiveFallbackPlan = ReturnType<typeof determineOpenedFallbackTiers>;
+type ImportAttemptResult = {
+  created: boolean;
+  duplicateLike: boolean;
+  importedMatchId?: string;
+  failure?: CompetitiveIngestionAttemptSummary;
+};
+type ResolutionProgressSnapshot = Parameters<NonNullable<NonNullable<Parameters<typeof resolveSeeds>[2]>["onProgress"]>>[0];
+type DiscoveryProgressSnapshot = Parameters<NonNullable<Parameters<typeof discoverSeeds>[2]["onProgress"]>>[0];
 
 function toUnixSeconds(timestampMs: number | null) {
   return timestampMs === null ? null : Math.floor(timestampMs / 1000);
-}
-
-function buildDiscoveryQuerySignature(input: {
-  queues: number[];
-  startTime: number | null;
-  endTime: number | null;
-  pageSize: number;
-  maxIdsPerSeed: number;
-}) {
-  return JSON.stringify({
-    queues: [...new Set(input.queues)],
-    startTime: input.startTime,
-    endTime: input.endTime,
-    pageSize: input.pageSize,
-    maxIdsPerSeed: input.maxIdsPerSeed,
-  });
-}
-
-function arraysEqualIgnoringOrder<T extends string | number>(left: T[], right: T[]) {
-  if (left.length !== right.length) {
-    return false;
-  }
-
-  const normalizedLeft = [...left].sort();
-  const normalizedRight = [...right].sort();
-  return normalizedLeft.every((value, index) => value === normalizedRight[index]);
 }
 
 function splitRiotId(riotId: string) {
@@ -327,6 +116,14 @@ function withPolicyOverrides(
   policy: CompetitiveIngestionPolicyConfig,
   options: CliOptions,
 ): CompetitiveIngestionPolicyConfig {
+  let seasonWindowEnd: string | null;
+  if (options.endTime === undefined) {
+    seasonWindowEnd = policy.seasonWindowEnd;
+  } else if (options.endTime) {
+    seasonWindowEnd = new Date(options.endTime * 1000).toISOString();
+  } else {
+    seasonWindowEnd = null;
+  }
   return {
     ...policy,
     preferredPatchPrefixes: options.preferredPatchPrefixes ?? policy.preferredPatchPrefixes,
@@ -337,829 +134,149 @@ function withPolicyOverrides(
       typeof options.startTime === "number"
         ? new Date(options.startTime * 1000).toISOString()
         : policy.seasonWindowStart,
-    seasonWindowEnd:
-      typeof options.endTime !== "undefined"
-        ? (options.endTime ? new Date(options.endTime * 1000).toISOString() : null)
-        : policy.seasonWindowEnd,
+    seasonWindowEnd,
   };
-}
-
-function normalizePatch(match: Record<string, unknown>) {
-  const info = match.info as { gameVersion?: string; gameCreation?: number } | undefined;
-  const gameCreationAt = typeof info?.gameCreation === "number" ? new Date(info.gameCreation) : null;
-  return canonicalizePatch(info?.gameVersion, gameCreationAt).patchCanonical;
-}
-
-function normalizeQueueId(match: Record<string, unknown>) {
-  const info = match.info as { queueId?: number } | undefined;
-  const queueId = Number(info?.queueId ?? Number.NaN);
-  return Number.isFinite(queueId) ? queueId : null;
-}
-
-function normalizeGameCreationAt(match: Record<string, unknown>) {
-  const info = match.info as { gameCreation?: number } | undefined;
-  const gameCreation = Number(info?.gameCreation ?? Number.NaN);
-  if (!Number.isFinite(gameCreation)) {
-    return null;
-  }
-  return new Date(gameCreation);
 }
 
 function toSourceKind(priorityTier: CompetitiveSeed["priorityTier"]) {
-  return priorityTier === "pro" ? "PRO_SEED" : priorityTier === "elite" ? "ELITE_SEED" : "FALLBACK_SEED";
+  if (priorityTier === "pro") {
+    return "PRO_SEED";
+  }
+  if (priorityTier === "elite") {
+    return "ELITE_SEED";
+  }
+  return "FALLBACK_SEED";
 }
 
-function mergeResolvedSeed(seed: CompetitiveSeed, cached: CompetitiveResolvedSeed | undefined): CompetitiveResolvedSeed {
+function getErrorMessage(error: unknown) {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function isAuthenticationFailure(message: string) {
+  return message.toLowerCase().includes("authentication failed");
+}
+
+function getCompetitiveSourceWhere() {
   return {
-    ...seed,
-    resolutionStatus: cached?.resolutionStatus ?? "unresolved",
-    resolutionError: cached?.resolutionError ?? null,
-    resolutionSource: cached?.resolutionSource ?? null,
-    resolvedRiotId: cached?.resolvedRiotId ?? seed.riotId ?? null,
-    puuid: cached?.puuid ?? seed.puuid ?? null,
-    platformHint: cached?.platformHint ?? seed.platformHint ?? null,
-    cluster: cached?.cluster ?? seed.cluster ?? null,
+    sourceKind: {
+      in: [...COMPETITIVE_SOURCE_KINDS],
+    },
   };
 }
 
-async function resolveSeed(
-  seed: CompetitiveSeed,
-  cached: CompetitiveResolvedSeed | undefined,
-): Promise<CompetitiveResolvedSeed> {
-  if (cached?.resolutionStatus === "resolved" && cached.puuid && cached.cluster) {
-    return cached;
-  }
-
-  if (seed.puuid) {
-    try {
-      const resolved = await riotSyncService.resolveImportIdentity({ type: "puuid", puuid: seed.puuid });
-      return {
-        ...mergeResolvedSeed(seed, cached),
-        resolutionStatus: "resolved",
-        resolutionError: null,
-        resolutionSource: "seed-puuid",
-        resolvedRiotId:
-          resolved.gameName && resolved.tagLine ? `${resolved.gameName}#${resolved.tagLine}` : (seed.riotId ?? null),
-        puuid: resolved.puuid,
-        platformHint: resolved.platform,
-        cluster: resolved.region,
-      };
-    } catch (error) {
-      return {
-        ...mergeResolvedSeed(seed, cached),
-        resolutionStatus: "unresolved",
-        resolutionError: error instanceof Error ? error.message : String(error),
-        resolutionSource: "seed-puuid",
-      };
-    }
-  }
-
-  const candidateRiotIds = [seed.riotId, ...seed.riotIdCandidates].filter((value): value is string => Boolean(value));
-  if (candidateRiotIds.length === 0) {
-    return {
-      ...mergeResolvedSeed(seed, cached),
-      resolutionStatus: "unresolved",
-      resolutionError: "No Riot ID or PUUID candidate available in the seed.",
-      resolutionSource: null,
-    };
-  }
-
-  for (const [index, candidate] of candidateRiotIds.entries()) {
-    const { gameName, tagLine } = splitRiotId(candidate);
-    if (!gameName || !tagLine) {
-      continue;
-    }
-
-    try {
-      const resolved = await riotSyncService.resolveImportIdentity({
-        type: "riot-id",
-        gameName,
-        tagLine,
-      });
-      return {
-        ...mergeResolvedSeed(seed, cached),
-        resolutionStatus: "resolved",
-        resolutionError: null,
-        resolutionSource: index === 0 && seed.riotId ? "seed-riot-id" : "candidate-riot-id",
-        resolvedRiotId: `${resolved.gameName ?? gameName}#${resolved.tagLine ?? tagLine}`,
-        puuid: resolved.puuid,
-        platformHint: resolved.platform,
-        cluster: resolved.region,
-      };
-    } catch (error) {
-      if (index === candidateRiotIds.length - 1) {
-        return {
-          ...mergeResolvedSeed(seed, cached),
-          resolutionStatus: "unresolved",
-          resolutionError: error instanceof Error ? error.message : String(error),
-          resolutionSource: index === 0 && seed.riotId ? "seed-riot-id" : "candidate-riot-id",
-        };
-      }
-    }
-  }
-
-  return {
-    ...mergeResolvedSeed(seed, cached),
-    resolutionStatus: "unresolved",
-    resolutionError: "Unable to resolve Riot identity.",
-    resolutionSource: null,
-  };
+async function countImportedMatches(dryRun: boolean) {
+  return dryRun ? 0 : prisma.importedMatch.count();
 }
 
-async function resolveSeeds(
-  seeds: CompetitiveSeed[],
-  resolvedSeedCache: Map<string, CompetitiveResolvedSeed>,
-  input?: {
-    onProgress?: (snapshot: {
-      processedSeeds: number;
-      totalSeeds: number;
-      resolvedSeeds: CompetitiveResolvedSeed[];
-      seed: CompetitiveSeed;
-    }) => Promise<void> | void;
-  },
-) {
-  const resolvedSeeds: CompetitiveResolvedSeed[] = [];
-  for (const seed of seeds) {
-    resolvedSeeds.push(await resolveSeed(seed, resolvedSeedCache.get(buildCompetitiveSeedKey(seed))));
-    console.info(
-      `[competitive-ingestion] resolve-seed-progress processed=${resolvedSeeds.length}/${seeds.length} seed=${seed.playerName} status=${resolvedSeeds[resolvedSeeds.length - 1]?.resolutionStatus ?? "unknown"}`,
-    );
-    await input?.onProgress?.({
-      processedSeeds: resolvedSeeds.length,
-      totalSeeds: seeds.length,
-      resolvedSeeds,
-      seed,
+async function countCompetitiveMatches(dryRun: boolean) {
+  return dryRun
+    ? 0
+    : prisma.importedMatch.count({
+      where: getCompetitiveSourceWhere(),
     });
-  }
-  return resolvedSeeds;
 }
 
-function canReuseResolvedSeedCheckpointState(input: {
-  checkpoint: CompetitiveIngestionCheckpoint;
-  manifestSeedSetVersion: string;
-  policy: ReturnType<typeof resolveCompetitiveIngestionPolicy>;
-  startTime: number | null;
-  endTime: number | null;
-}) {
-  const { checkpoint, manifestSeedSetVersion, policy, startTime, endTime } = input;
-  if (checkpoint.seedSetVersion !== manifestSeedSetVersion) {
-    return false;
+async function loadExistingCompetitiveMatchIds(dryRun: boolean) {
+  if (dryRun) {
+    return new Set<string>();
   }
 
-  if ((checkpoint.policyMode ?? "strict_recent_competitive") !== policy.mode) {
-    return false;
-  }
-
-  if (
-    checkpoint.seasonWindow.startTime !== startTime
-    || checkpoint.seasonWindow.endTime !== endTime
-  ) {
-    return false;
-  }
-
-  if (
-    !arraysEqualIgnoringOrder(
-      checkpoint.queueWhitelist ?? [],
-      [...policy.preferredQueues, ...policy.acceptedFallbackQueues],
-    )
-  ) {
-    return false;
-  }
-
-  if (
-    !arraysEqualIgnoringOrder(
-      checkpoint.patchAllowPrefixes ?? [],
-      [...policy.preferredPatchPrefixes, ...policy.acceptedAdjacentPatchPrefixes],
-    )
-  ) {
-    return false;
-  }
-
-  return checkpoint.resolvedSeeds.length > 0;
-}
-
-function canReuseDiscoveryCheckpointState(input: {
-  checkpoint: CompetitiveIngestionCheckpoint;
-  manifestSeedSetVersion: string;
-  policy: ReturnType<typeof resolveCompetitiveIngestionPolicy>;
-  startTime: number | null;
-  endTime: number | null;
-  classificationBudget: number;
-  refreshDiscovery: boolean;
-  hasActiveQuarantine: boolean;
-}) {
-  const { checkpoint, manifestSeedSetVersion, policy, startTime, endTime, classificationBudget, refreshDiscovery, hasActiveQuarantine } = input;
-  return canReuseResolvedSeedCheckpointState({
-    checkpoint,
-    manifestSeedSetVersion,
-    policy,
-    startTime,
-    endTime,
-  }) && (checkpoint.classificationBudget ?? 0) === classificationBudget && !refreshDiscovery && !hasActiveQuarantine && !checkpoint.discoveryStopReason && checkpoint.discoveredMatches.length > 0;
-}
-
-function rebuildDiscoveredMatchesFromCheckpoint(input: {
-  checkpoint: CompetitiveIngestionCheckpoint;
-  resolvedSeeds: CompetitiveResolvedSeed[];
-  policy: ReturnType<typeof resolveCompetitiveIngestionPolicy>;
-  matchMetadataCache: Map<string, CompetitiveCachedMatchMetadata>;
-}) {
-  const policyDecisionByMatchId = input.checkpoint.policyDecisionByMatchId ?? {};
-  const classifiedMatchIds = new Set(Object.keys(policyDecisionByMatchId));
-  if (classifiedMatchIds.size === 0) {
-    return [];
-  }
-
-  const seedIndex = new Map(
-    input.resolvedSeeds.map((seed) => [buildCompetitiveSeedKey(seed), seed]),
-  );
-  const discoveryByMatchId = new Map<string, CompetitiveSeedMatchDiscovery>();
-
-  for (const discovery of input.checkpoint.discoveredMatches) {
-    for (const matchId of discovery.matchIds) {
-      if (!classifiedMatchIds.has(matchId) || discoveryByMatchId.has(matchId)) {
-        continue;
-      }
-      discoveryByMatchId.set(matchId, discovery);
-      if (discoveryByMatchId.size >= classifiedMatchIds.size) {
-        break;
-      }
-    }
-    if (discoveryByMatchId.size >= classifiedMatchIds.size) {
-      break;
-    }
-  }
-
-  const rebuilt: CompetitiveDiscoveredMatch[] = [];
-  for (const [matchId, decision] of Object.entries(policyDecisionByMatchId)) {
-    const discovery = discoveryByMatchId.get(matchId);
-    if (!discovery) {
-      continue;
-    }
-
-    const seed = seedIndex.get(discovery.seedKey);
-    const metadata = input.matchMetadataCache.get(matchId);
-    const gameCreationAt = metadata?.gameCreationAt ?? null;
-    const gameCreationDate = gameCreationAt ? new Date(gameCreationAt) : null;
-
-    rebuilt.push({
-      matchId,
-      seedKey: discovery.seedKey,
-      playerName: discovery.playerName,
-      team: discovery.team,
-      league: discovery.league,
-      competition: discovery.competition,
-      role: discovery.role,
-      priorityTier: discovery.priorityTier,
-      priorityScore: discovery.priorityScore,
-      platform: seed?.platformHint ?? null,
-      cluster: discovery.region,
-      queueId: metadata?.queueId ?? null,
-      patch: metadata?.patch ?? null,
-      gameCreationAt,
-      acceptedByPolicy: decision.acceptedByPolicy,
-      acceptedReason: decision.acceptedReason,
-      rejectionReason: decision.rejectionReason,
-      fallbackReason: decision.fallbackReason,
-      policyMode: decision.policyMode,
-      policyBucket: decision.policyBucket,
-      queueBucket: decision.queueBucket,
-      sourceBucket: decision.sourceBucket,
-      priorityBand: decision.priorityBand,
-      matchPriorityScore: scoreCompetitiveMatch({
-        priorityTier: discovery.priorityTier,
-        priorityScore: discovery.priorityScore,
-        patch: metadata?.patch ?? null,
-        gameCreationAt: gameCreationDate,
-        patchBucket: decision.policyBucket,
-        queueBucket: decision.queueBucket,
-        priorityBand: decision.priorityBand,
-      }),
-    });
-  }
-
-  return rebuilt;
-}
-
-async function discoverMatchIdsForSeed(
-  seed: CompetitiveResolvedSeed & { puuid: string; cluster: NonNullable<CompetitiveResolvedSeed["cluster"]> },
-  input: {
-    pageSize: number;
-    maxIdsPerSeed: number;
-    targetIds: number;
-    queues: number[];
-    startTime: number | null;
-    endTime: number | null;
-    cached?: CompetitiveSeedMatchDiscovery;
-  },
-) {
-  const uniqueQueues = [...new Set(input.queues)];
-  const querySignature = buildDiscoveryQuerySignature({
-    queues: uniqueQueues,
-    startTime: input.startTime,
-    endTime: input.endTime,
-    pageSize: input.pageSize,
-    maxIdsPerSeed: input.maxIdsPerSeed,
+  const rows = await prisma.importedMatch.findMany({
+    where: getCompetitiveSourceWhere(),
+    select: { riotMatchId: true },
   });
-  const canReuseCache = input.cached?.querySignature === querySignature;
-  const allMatchIds = new Set<string>(canReuseCache ? input.cached?.matchIds ?? [] : []);
-  const scanStateByQueue: Record<string, CompetitiveDiscoveryQueueState> = canReuseCache
-    ? Object.fromEntries(
-      Object.entries(input.cached?.scanStateByQueue ?? {}).map(([queue, state]) => [queue, { ...state }]),
-    )
-    : {};
 
-  while (allMatchIds.size < input.targetIds) {
-    let progressed = false;
-    const totalRequested = Object.values(scanStateByQueue).reduce((sum, state) => sum + (state.requests ?? 0), 0);
-    const remainingGlobalBudget = input.maxIdsPerSeed - totalRequested;
-    if (remainingGlobalBudget <= 0) {
-      break;
-    }
+  return new Set(rows.map((row) => row.riotMatchId));
+}
 
-    for (const queue of uniqueQueues) {
-      const queueKey = String(queue);
-      const state = scanStateByQueue[queueKey] ?? {
-        nextStart: 0,
-        requests: 0,
-        exhausted: false,
-      };
-      scanStateByQueue[queueKey] = state;
-
-      if (state.exhausted) {
-        continue;
-      }
-
-      const refreshedTotalRequested = Object.values(scanStateByQueue).reduce((sum, entry) => sum + (entry.requests ?? 0), 0);
-      const refreshedRemainingBudget = input.maxIdsPerSeed - refreshedTotalRequested;
-      const remainingTarget = input.targetIds - allMatchIds.size;
-      const requestCount = Math.min(input.pageSize, refreshedRemainingBudget, remainingTarget);
-      if (requestCount <= 0) {
-        break;
-      }
-
-      console.info(
-        `[competitive-ingestion] discover-match-ids seed=${seed.playerName} queue=${queue} start=${state.nextStart} count=${requestCount} startTime=${input.startTime ?? "none"} endTime=${input.endTime ?? "none"}`,
-      );
-
-      const matchIds = await riotApiClient.getMatchIdsByPuuidOnRegion(seed.puuid, seed.cluster, requestCount, {
-        queue,
-        start: state.nextStart,
-        startTime: input.startTime ?? undefined,
-        endTime: input.endTime ?? undefined,
-      });
-
-      state.nextStart += requestCount;
-      state.requests += requestCount;
-      if (matchIds.length < requestCount) {
-        state.exhausted = true;
-      }
-
-      for (const matchId of matchIds) {
-        allMatchIds.add(matchId);
-      }
-      progressed = progressed || matchIds.length > 0;
-
-      if (allMatchIds.size >= input.targetIds) {
-        break;
-      }
-    }
-
-    if (!progressed) {
-      break;
-    }
-  }
-
+function buildInitialCheckpoint(input: {
+  manifest: CompetitiveSeedManifest;
+  remainingTargetMatches: number;
+  classificationBudget: number;
+  policy: CompetitivePolicy;
+  startTime: number | null;
+  endTime: number | null;
+}): CompetitiveIngestionCheckpoint {
   return {
-    seedKey: buildCompetitiveSeedKey(seed),
-    playerName: seed.playerName,
-    team: seed.team,
-    league: seed.league,
-    competition: seed.competition,
-    role: seed.role,
-    priorityTier: seed.priorityTier,
-    priorityScore: seed.priorityScore,
-    puuid: seed.puuid,
-    region: seed.cluster,
-    matchIds: [...allMatchIds],
-    querySignature,
-    appliedFilters: {
-      queues: uniqueQueues,
+    version: 3,
+    generatedAt: new Date().toISOString(),
+    seedSetVersion: input.manifest.seedSetVersion,
+    targetUniqueMatches: input.remainingTargetMatches,
+    classificationBudget: input.classificationBudget,
+    queueWhitelist: [...input.policy.preferredQueues, ...input.policy.acceptedFallbackQueues],
+    patchAllowPrefixes: [...input.policy.preferredPatchPrefixes, ...input.policy.acceptedAdjacentPatchPrefixes],
+    seasonWindow: {
       startTime: input.startTime,
       endTime: input.endTime,
-      pageSize: input.pageSize,
-      maxIdsPerSeed: input.maxIdsPerSeed,
     },
-    scanStateByQueue,
-  } satisfies CompetitiveSeedMatchDiscovery;
+    policyMode: input.policy.mode,
+    openedFallbackTiers: [],
+    seedResolutionSummary: undefined,
+    seedDiscoverySummary: undefined,
+    policyDecisionByMatchId: {},
+    importCountsByTier: {},
+    importCountsByPatchBucket: {},
+    importCountsByQueueBucket: {},
+    matchMetadataById: {},
+    resolvedSeeds: [],
+    discoveredMatches: [],
+    attemptedMatchIds: [],
+    importedMatchIds: [],
+    rejectedMatchIds: [],
+    failedMatches: [],
+  };
 }
 
-async function discoverSeeds(
-  seeds: CompetitiveResolvedSeed[],
-  discoveryCache: Map<string, CompetitiveSeedMatchDiscovery>,
-  input: {
-    pageSize: number;
-    maxIdsPerSeed: number;
-    targetIdsPerSeed: number;
-    maxDiscoveredUniqueMatches?: number;
-    queues: number[];
-    startTime: number | null;
-    endTime: number | null;
-    maxConsecutiveFailures?: number;
-    quarantinedSeedKeys?: Set<string>;
-    quarantinedRegions?: Set<string>;
-      onProgress?: (snapshot: {
-        processedSeeds: number;
-        totalActiveSeeds: number;
-        discoveries: CompetitiveSeedMatchDiscovery[];
-        seed: CompetitiveResolvedSeed & { puuid: string; cluster: NonNullable<CompetitiveResolvedSeed["cluster"]> };
-      }) => Promise<void> | void;
-    },
-  ) {
-  const activeSeeds = seeds.filter(
-    (seed): seed is CompetitiveResolvedSeed & { puuid: string; cluster: NonNullable<CompetitiveResolvedSeed["cluster"]> } =>
-      seed.resolutionStatus === "resolved" && Boolean(seed.puuid) && Boolean(seed.cluster),
+function isActiveCompetitiveSeed(seed: CompetitiveResolvedSeed): seed is ActiveCompetitiveSeed {
+  return seed.resolutionStatus === "resolved" && Boolean(seed.puuid) && Boolean(seed.cluster);
+}
+
+function buildSeedIndex(resolvedSeeds: CompetitiveResolvedSeed[]) {
+  return new Map(
+    resolvedSeeds
+      .filter(isActiveCompetitiveSeed)
+      .map((seed) => [buildCompetitiveSeedKey(seed), seed]),
   );
+}
 
-  const discoveries: CompetitiveSeedMatchDiscovery[] = [];
-  let processedSeeds = 0;
-  let consecutiveFailureSignature: string | null = null;
-  let consecutiveFailures = 0;
-  const maxConsecutiveFailures = input.maxConsecutiveFailures ?? 2;
-  let stopReason: string | null = null;
-  const authFailureCountsBySeedKey = new Map<string, number>();
-  const authFailureCountsByRegion = new Map<string, number>();
-  let lastFailureSeedKey: string | null = null;
-  let lastFailureRegion: string | null = null;
-  let lastFailureReason: string | null = null;
-  for (const seed of activeSeeds) {
-    processedSeeds += 1;
-    if (typeof input.maxDiscoveredUniqueMatches === "number") {
-      const currentUniqueCount = new Set(discoveries.flatMap((entry) => entry.matchIds)).size;
-      if (currentUniqueCount >= input.maxDiscoveredUniqueMatches) {
-        stopReason = `discovery-unique-budget:${currentUniqueCount}`;
-        break;
-      }
-    }
+function countBy<T>(values: T[], getKey: (value: T) => string) {
+  return values.reduce<Record<string, number>>((accumulator, value) => {
+    const key = getKey(value);
+    accumulator[key] = (accumulator[key] ?? 0) + 1;
+    return accumulator;
+  }, {});
+}
 
-    const seedKey = buildCompetitiveSeedKey(seed);
-    if (input.quarantinedSeedKeys?.has(seedKey)) {
-      console.info(
-        `[competitive-ingestion] discover-seed-skipped quarantined seed=${seed.playerName} region=${seed.cluster}`,
-      );
-      await input.onProgress?.({
-        processedSeeds,
-        totalActiveSeeds: activeSeeds.length,
-        discoveries,
-        seed,
-      });
-      continue;
-    }
+function buildPolicyDecisionByMatchId(discoveredMatches: CompetitiveDiscoveredMatch[]) {
+  return discoveredMatches.reduce<NonNullable<CompetitiveIngestionCheckpoint["policyDecisionByMatchId"]>>(
+    (accumulator, match) => {
+      accumulator[match.matchId] = {
+        acceptedByPolicy: match.acceptedByPolicy,
+        acceptedReason: match.acceptedReason,
+        rejectionReason: match.rejectionReason,
+        fallbackReason: match.fallbackReason,
+        policyMode: match.policyMode,
+        policyBucket: match.policyBucket,
+        queueBucket: match.queueBucket,
+        sourceBucket: match.sourceBucket,
+        priorityBand: match.priorityBand,
+      };
+      return accumulator;
+    },
+    {},
+  );
+}
 
-    const cached = discoveryCache.get(seedKey);
-    const hasCachedScanState = Object.keys(cached?.scanStateByQueue ?? {}).length > 0;
-    if (
-      cached?.querySignature === buildDiscoveryQuerySignature(input)
-      && (cached.matchIds.length >= input.targetIdsPerSeed || (hasCachedScanState && Object.values(cached.scanStateByQueue ?? {}).every((state) => state.exhausted)))
-    ) {
-      discoveries.push(cached);
-      console.info(
-        `[competitive-ingestion] discover-seed-progress processed=${discoveries.length}/${activeSeeds.length} seed=${seed.playerName} cached=yes matchIds=${cached.matchIds.length}`,
-      );
-      await input.onProgress?.({
-        processedSeeds,
-        totalActiveSeeds: activeSeeds.length,
-        discoveries,
-        seed,
-      });
-      continue;
-    }
-
-    try {
-      discoveries.push(await discoverMatchIdsForSeed(seed, {
-        pageSize: input.pageSize,
-        maxIdsPerSeed: input.maxIdsPerSeed,
-        targetIds: input.targetIdsPerSeed,
-        queues: input.queues,
-        startTime: input.startTime,
-        endTime: input.endTime,
-        cached,
-      }));
-      consecutiveFailures = 0;
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      const failureSignature = message.toLowerCase().trim();
-      lastFailureSeedKey = seedKey;
-      lastFailureRegion = seed.cluster;
-      lastFailureReason = failureSignature;
-      if (failureSignature.includes("authentication failed")) {
-        authFailureCountsBySeedKey.set(seedKey, (authFailureCountsBySeedKey.get(seedKey) ?? 0) + 1);
-        authFailureCountsByRegion.set(seed.cluster, (authFailureCountsByRegion.get(seed.cluster) ?? 0) + 1);
-      }
-      consecutiveFailures = consecutiveFailureSignature === failureSignature
-        ? consecutiveFailures + 1
-        : 1;
-      consecutiveFailureSignature = failureSignature;
-      console.warn(
-        "[competitive-ingestion] discover-seed-failed",
-        JSON.stringify({
-          seed: seed.playerName,
-          matchIdsCached: cached?.matchIds.length ?? 0,
-          message,
-          consecutiveFailures,
-          maxConsecutiveFailures,
-        }),
-      );
-      if (consecutiveFailures >= maxConsecutiveFailures) {
-        stopReason = `discovery-failure-budget:${consecutiveFailures}`;
-        console.warn(
-          `[competitive-ingestion] discovery-stopped stopReason=${stopReason} lastSeed=${seed.playerName}`,
-        );
-        break;
-      }
-      discoveries.push(cached ?? {
-        seedKey,
-        playerName: seed.playerName,
-        team: seed.team,
-        league: seed.league,
-        competition: seed.competition,
-        role: seed.role,
-        priorityTier: seed.priorityTier,
-        priorityScore: seed.priorityScore,
-        puuid: seed.puuid,
-        region: seed.cluster,
-        matchIds: [],
-        querySignature: buildDiscoveryQuerySignature(input),
-        appliedFilters: {
-          queues: [...new Set(input.queues)],
-          startTime: input.startTime,
-          endTime: input.endTime,
-          pageSize: input.pageSize,
-          maxIdsPerSeed: input.maxIdsPerSeed,
-        },
-        scanStateByQueue: cached?.scanStateByQueue ?? {},
-      });
-    }
-    console.info(
-      `[competitive-ingestion] discover-seed-progress processed=${discoveries.length}/${activeSeeds.length} seed=${seed.playerName} cached=no matchIds=${discoveries[discoveries.length - 1]?.matchIds.length ?? 0}`,
-    );
-    await input.onProgress?.({
-      processedSeeds,
-      totalActiveSeeds: activeSeeds.length,
-      discoveries,
-      seed,
-    });
-  }
+function buildImportIdentity(seed: ActiveCompetitiveSeed) {
+  const riotId = seed.resolvedRiotId ? splitRiotId(seed.resolvedRiotId) : null;
 
   return {
-    discoveries,
-    stopReason,
-    authFailureCountsBySeedKey,
-    authFailureCountsByRegion,
-    lastFailureSeedKey,
-    lastFailureRegion,
-    lastFailureReason,
+    puuid: seed.puuid,
+    gameName: riotId?.gameName ?? null,
+    tagLine: riotId?.tagLine ?? null,
+    region: seed.cluster,
+    platform: seed.platformHint ?? "euw1",
   };
-}
-
-async function classifyDiscoveredMatches(
-  discoveries: CompetitiveSeedMatchDiscovery[],
-  policy: ReturnType<typeof resolveCompetitiveIngestionPolicy>,
-  matchMetadataCache: Map<string, CompetitiveCachedMatchMetadata>,
-  options?: {
-    maxUniqueMatchesToClassify?: number;
-    concurrency?: number;
-    onProgress?: (snapshot: {
-      classifiedUniqueMatches: number;
-      maxUniqueMatchesToClassify: number;
-      discoveredMatches: CompetitiveDiscoveredMatch[];
-      currentMatchId: string;
-    }) => Promise<void> | void;
-  },
-) {
-  const discoveredMatches: CompetitiveDiscoveredMatch[] = [];
-  const maxUniqueMatchesToClassify = options?.maxUniqueMatchesToClassify ?? Number.POSITIVE_INFINITY;
-  const concurrency = Math.max(1, Math.floor(options?.concurrency ?? 6));
-
-  const prioritizedCandidates = new Map<string, {
-    discovery: CompetitiveSeedMatchDiscovery;
-    matchPriorityScore: number;
-  }>();
-
-  for (const discovery of discoveries) {
-    for (const matchId of discovery.matchIds) {
-      const current = prioritizedCandidates.get(matchId);
-      if (!current || discovery.matchPriorityScore > current.matchPriorityScore) {
-        prioritizedCandidates.set(matchId, {
-          discovery,
-          matchPriorityScore: discovery.matchPriorityScore,
-        });
-      }
-    }
-  }
-
-  const orderedCandidates = [...prioritizedCandidates.entries()]
-    .map(([matchId, entry]) => ({ matchId, ...entry }))
-    .sort((left, right) => right.matchPriorityScore - left.matchPriorityScore || left.matchId.localeCompare(right.matchId))
-    .slice(0, maxUniqueMatchesToClassify);
-
-  let classifiedCount = 0;
-  let nextProgressLogAt = Math.min(100, orderedCandidates.length);
-  let nextIndex = 0;
-
-  const classifyCandidate = async (candidate: { matchId: string; discovery: CompetitiveSeedMatchDiscovery; matchPriorityScore: number }) => {
-    const { matchId, discovery } = candidate;
-    const cachedMetadata = matchMetadataCache.get(matchId);
-    const cachedGameCreationAt = cachedMetadata?.gameCreationAt ? new Date(cachedMetadata.gameCreationAt) : null;
-    let gameCreationAt = cachedGameCreationAt;
-    let effectivePatch = cachedMetadata?.patch ?? null;
-    let effectiveQueueId = cachedMetadata?.queueId ?? null;
-    let hasTargetParticipant = cachedMetadata?.targetParticipantPresent ?? false;
-
-    if (!cachedMetadata || cachedMetadata.targetParticipantPresent !== true) {
-      try {
-        const match = await riotApiClient.getMatchByIdOnRegion(matchId, discovery.region);
-        const info = match as {
-          info?: {
-            participants?: Array<{ puuid?: string }>;
-          };
-        };
-        hasTargetParticipant = Boolean(info.info?.participants?.some((participant) => participant.puuid === discovery.puuid));
-        effectivePatch = normalizePatch(match);
-        effectiveQueueId = normalizeQueueId(match);
-        gameCreationAt = normalizeGameCreationAt(match);
-        matchMetadataCache.set(matchId, {
-          patch: effectivePatch,
-          queueId: effectiveQueueId,
-          gameCreationAt: gameCreationAt?.toISOString() ?? null,
-          targetParticipantPresent: hasTargetParticipant,
-        });
-      } catch (error) {
-        console.warn(
-          "[competitive-ingestion] classify-match-failed",
-          JSON.stringify({
-            matchId,
-            seed: discovery.playerName,
-            region: discovery.region,
-            message: error instanceof Error ? error.message : String(error),
-          }),
-        );
-        return;
-      }
-    }
-
-    const policyResult = evaluateCompetitiveMatchPolicy(
-      {
-        patch: effectivePatch,
-        queueId: effectiveQueueId,
-        gameCreationAt,
-        priorityTier: discovery.priorityTier,
-      },
-      policy,
-    );
-    const matchPriorityScore = scoreCompetitiveMatch({
-      priorityTier: discovery.priorityTier,
-      priorityScore: discovery.priorityScore,
-      patch: effectivePatch,
-      gameCreationAt,
-      patchBucket: policyResult.patchBucket,
-      queueBucket: policyResult.queueBucket,
-      priorityBand: policyResult.priorityBand,
-    });
-
-    discoveredMatches.push({
-      matchId,
-      seedKey: discovery.seedKey,
-      playerName: discovery.playerName,
-      team: discovery.team,
-      league: discovery.league,
-      competition: discovery.competition,
-      role: discovery.role,
-      priorityTier: discovery.priorityTier,
-      priorityScore: discovery.priorityScore,
-      platform: null,
-      cluster: discovery.region,
-      queueId: effectiveQueueId,
-      patch: effectivePatch,
-      gameCreationAt: gameCreationAt?.toISOString() ?? null,
-      acceptedByPolicy: hasTargetParticipant && policyResult.accepted,
-      acceptedReason: hasTargetParticipant ? policyResult.acceptedReason : null,
-      rejectionReason: hasTargetParticipant ? policyResult.rejectionReason : "target-participant-missing",
-      fallbackReason: policyResult.fallbackReason,
-      policyMode: policyResult.policyMode,
-      policyBucket: policyResult.patchBucket,
-      queueBucket: policyResult.queueBucket,
-      sourceBucket: policyResult.sourceBucket,
-      priorityBand: policyResult.priorityBand,
-      matchPriorityScore,
-    });
-  };
-
-  const workers = Array.from({ length: Math.min(concurrency, orderedCandidates.length) }, async () => {
-    for (;;) {
-      const currentIndex = nextIndex;
-      nextIndex += 1;
-      if (currentIndex >= orderedCandidates.length) {
-        break;
-      }
-      const candidate = orderedCandidates[currentIndex]!;
-      classifiedCount += 1;
-      if (classifiedCount >= nextProgressLogAt || classifiedCount === orderedCandidates.length) {
-        console.info(
-          `[competitive-ingestion] classify-progress classified=${classifiedCount}/${orderedCandidates.length} matchId=${candidate.matchId}`,
-        );
-        await options?.onProgress?.({
-          classifiedUniqueMatches: classifiedCount,
-          maxUniqueMatchesToClassify,
-          discoveredMatches,
-          currentMatchId: candidate.matchId,
-        });
-        nextProgressLogAt = Math.min(orderedCandidates.length, nextProgressLogAt + 100);
-      }
-      await classifyCandidate(candidate);
-    }
-  });
-
-  await Promise.all(workers);
-
-  discoveredMatches.sort((left, right) => right.matchPriorityScore - left.matchPriorityScore || left.matchId.localeCompare(right.matchId));
-
-  return discoveredMatches;
-}
-
-function buildRejectedMatches(discoveredMatches: CompetitiveDiscoveredMatch[]) {
-  const rejectedSeen = new Set<string>();
-  return discoveredMatches.flatMap((match) => {
-    if (match.acceptedByPolicy) {
-      return [];
-    }
-    const key = `${match.matchId}:${match.rejectionReason ?? "policy-rejected"}`;
-    if (rejectedSeen.has(key)) {
-      return [];
-    }
-    rejectedSeen.add(key);
-    return [{
-      matchId: match.matchId,
-      seedKey: match.seedKey,
-      reason: match.rejectionReason ?? "policy-rejected",
-      patch: match.patch,
-      queueId: match.queueId,
-      priorityTier: match.priorityTier,
-      gameCreationAt: match.gameCreationAt,
-      policyBucket: match.policyBucket,
-      queueBucket: match.queueBucket,
-      sourceBucket: match.sourceBucket,
-      priorityBand: match.priorityBand,
-    }];
-  });
-}
-
-function buildSourceMetadata(
-  seed: CompetitiveResolvedSeed,
-  candidate: CompetitiveDiscoveredMatch,
-  policy: ReturnType<typeof resolveCompetitiveIngestionPolicy>,
-): Prisma.InputJsonObject {
-  return {
-    seed: {
-      playerName: seed.playerName,
-      playerPage: seed.playerPage ?? null,
-      team: seed.team,
-      league: seed.league,
-      competition: seed.competition,
-      role: seed.role,
-      region: seed.region,
-      riotId: seed.resolvedRiotId,
-      puuid: seed.puuid,
-      platform: seed.platformHint,
-      cluster: seed.cluster,
-      priorityTier: seed.priorityTier,
-      priorityScore: seed.priorityScore,
-      discoverySource: seed.discoverySource,
-      seedSetVersion: seed.seedSetVersion,
-      season: seed.season,
-      sourceTournamentDate: seed.sourceTournamentDate,
-      sourceUrl: seed.sourceUrl ?? null,
-    },
-    ingestion: {
-      queueId: candidate.queueId,
-      matchPriorityScore: candidate.matchPriorityScore,
-      acceptedByPolicy: candidate.acceptedByPolicy,
-      acceptedReason: candidate.acceptedReason,
-      rejectionReason: candidate.rejectionReason,
-      fallbackReason: candidate.fallbackReason,
-      policyMode: candidate.policyMode,
-      patchBucket: candidate.policyBucket,
-      queueBucket: candidate.queueBucket,
-      sourceBucket: candidate.sourceBucket,
-      priorityBand: candidate.priorityBand,
-      preferredPatchPrefixes: policy.preferredPatchPrefixes,
-      acceptedAdjacentPatchPrefixes: policy.acceptedAdjacentPatchPrefixes,
-      preferredQueues: policy.preferredQueues,
-      acceptedFallbackQueues: policy.acceptedFallbackQueues,
-      seasonWindowStart: policy.seasonWindowStart,
-      seasonWindowEnd: policy.seasonWindowEnd,
-    },
-  } as Prisma.InputJsonObject;
 }
 
 async function repairImportedMatchProvenance(input: {
@@ -1182,65 +299,6 @@ async function repairImportedMatchProvenance(input: {
       }),
     },
   });
-}
-
-function renderMarkdownReport(report: Record<string, unknown>) {
-  const patchDistribution = Array.isArray(report.patchDistribution)
-    ? (report.patchDistribution as Array<{ patch: string; count: number }>)
-    : [];
-  const tierDistribution = Array.isArray(report.tierDistribution)
-    ? (report.tierDistribution as Array<{ tier: string; count: number }>)
-    : [];
-  const patchBucketDistribution = Array.isArray(report.patchBucketDistribution)
-    ? (report.patchBucketDistribution as Array<{ bucket: string; count: number }>)
-    : [];
-  const queueDistribution = Array.isArray(report.queueDistribution)
-    ? (report.queueDistribution as Array<{ queueId: string; count: number }>)
-    : [];
-
-  return [
-    "# Competitive Ingestion Report",
-    "",
-    `- Generated at: ${String(report.generatedAt ?? "")}`,
-    `- Policy mode: ${String(report.policyMode ?? "")}`,
-    `- Total seeds: ${String(report.totalSeeds ?? 0)}`,
-    `- Resolved seeds: ${String(report.resolvedSeedCount ?? 0)}`,
-    `- Resolved but no matches: ${String(report.resolvedButNoMatches ?? 0)}`,
-    `- Resolved but rejected by policy: ${String(report.resolvedButRejectedByPolicy ?? 0)}`,
-    `- Discovered: ${String(report.discoveredUniqueMatches ?? 0)}`,
-    `- Discovered after time filter: ${String(report.discoveredUniqueMatchesAfterTimeFilter ?? 0)}`,
-    `- Policy accepted: ${String(report.policyAcceptedMatches ?? 0)}`,
-    `- Attempted: ${String(report.attemptedMatches ?? 0)}`,
-    `- Imported: ${String(report.createdMatches ?? 0)}`,
-    `- Rejected by policy: ${String(report.rejectedMatches ?? 0)}`,
-    `- Failed fetch/import: ${String(report.failedMatchesCount ?? 0)}`,
-    `- Dry run: ${String(report.dryRun ?? false)}`,
-    `- Exact target imports: ${String(report.matchesImportedExactTargetPatch ?? 0)}`,
-    `- Adjacent recent imports: ${String(report.matchesImportedAdjacentRecentPatch ?? 0)}`,
-    `- Pro imports: ${String(report.matchesImportedPro ?? 0)}`,
-    `- Elite imports: ${String(report.matchesImportedElite ?? 0)}`,
-    "",
-    "## Rejection Fractions",
-    `- before-season-window: ${String(((report.rejectedReasonFractions as { beforeSeasonWindow?: number } | undefined)?.beforeSeasonWindow ?? 0).toFixed?.(4) ?? 0)}`,
-    `- patch-not-allowed: ${String(((report.rejectedReasonFractions as { patchNotAllowed?: number } | undefined)?.patchNotAllowed ?? 0).toFixed?.(4) ?? 0)}`,
-    `- queue-not-allowed: ${String(((report.rejectedReasonFractions as { queueNotAllowed?: number } | undefined)?.queueNotAllowed ?? 0).toFixed?.(4) ?? 0)}`,
-    "",
-    "## Patch Buckets",
-    ...patchBucketDistribution.map((entry) => `- ${entry.bucket}: ${entry.count}`),
-    "",
-    "## Queue Distribution",
-    ...queueDistribution.map((entry) => `- ${entry.queueId}: ${entry.count}`),
-    "",
-    "## Tier Distribution",
-    ...tierDistribution.map((entry) => `- ${entry.tier}: ${entry.count}`),
-    "",
-    "## Patch Distribution",
-    ...patchDistribution.slice(0, 12).map((entry) => `- ${entry.patch}: ${entry.count}`),
-    "",
-    `- Why zero before: ${String(report.whyZeroBefore ?? "")}`,
-    `- What was relaxed: ${String(report.whatWasRelaxed ?? "")}`,
-    "",
-  ].join("\n");
 }
 
 async function maybeEnrichEliteSeeds(input: {
@@ -1267,8 +325,573 @@ async function maybeEnrichEliteSeeds(input: {
   return dedupeCompetitiveSeeds([...input.manifestPlayers, ...eliteSeeds]);
 }
 
-async function main() {
-  const options = applyTranchePreset(parseArgs(process.argv.slice(2)));
+function buildSkippedImportFailure(
+  candidate: CompetitiveQueueCandidate,
+  seed: ActiveCompetitiveSeed,
+  imported: ImportedCompetitiveMatch,
+): CompetitiveIngestionAttemptSummary {
+  return {
+    matchId: candidate.matchId,
+    seedKey: candidate.seedKey,
+    playerName: seed.playerName,
+    team: seed.team,
+    league: seed.league,
+    competition: seed.competition,
+    role: seed.role,
+    region: seed.cluster,
+    priorityTier: seed.priorityTier,
+    patch: imported.patch,
+    queueId: candidate.queueId,
+    policyBucket: candidate.policyBucket,
+    queueBucket: candidate.queueBucket,
+    sourceBucket: candidate.sourceBucket,
+    priorityBand: candidate.priorityBand,
+    timelineAvailable: imported.timelineAvailable,
+    timelineMissingReason: imported.timelineMissingReason,
+    targetChampionSlug: imported.targetChampionSlug,
+    targetRole: imported.targetRole,
+    gameCreationAt: imported.gameCreationAt?.toISOString() ?? null,
+    created: imported.created,
+    failureReason: imported.skippedReason,
+  };
+}
+
+function buildErroredImportFailure(
+  candidate: CompetitiveQueueCandidate,
+  failureMessage: string,
+): CompetitiveIngestionAttemptSummary {
+  return {
+    matchId: candidate.matchId,
+    seedKey: candidate.seedKey,
+    playerName: candidate.playerName,
+    team: candidate.team,
+    league: candidate.league,
+    competition: candidate.competition,
+    role: candidate.role,
+    region: candidate.cluster,
+    priorityTier: candidate.priorityTier,
+    patch: candidate.patch,
+    queueId: candidate.queueId,
+    policyBucket: candidate.policyBucket,
+    queueBucket: candidate.queueBucket,
+    sourceBucket: candidate.sourceBucket,
+    priorityBand: candidate.priorityBand,
+    timelineAvailable: false,
+    timelineMissingReason: null,
+    targetChampionSlug: null,
+    targetRole: null,
+    gameCreationAt: candidate.gameCreationAt,
+    created: false,
+    failureReason: failureMessage,
+  };
+}
+
+async function importCompetitiveCandidate(input: {
+  ownerUserId: string;
+  seed: ActiveCompetitiveSeed;
+  candidate: CompetitiveQueueCandidate;
+  policy: CompetitivePolicy;
+  duplicateLikeReasons: Set<string>;
+}) {
+  try {
+    const sourceKind = toSourceKind(input.seed.priorityTier);
+    const sourceMetadata = buildSourceMetadata(input.seed, input.candidate, input.policy);
+    const imported = await riotSyncService.importMatchForIdentity(
+      input.ownerUserId,
+      input.candidate.matchId,
+      buildImportIdentity(input.seed),
+      {
+        sourceKind,
+        sourceMetadata,
+        skipExistingWithDifferentTarget: true,
+      },
+    );
+
+    await repairImportedMatchProvenance({
+      riotMatchId: input.candidate.matchId,
+      sourceKind,
+      sourceRegion: input.seed.region,
+      sourceMetadata,
+    });
+
+    return {
+      created: imported.created,
+      duplicateLike: !imported.created && (imported.skippedReason === null || input.duplicateLikeReasons.has(imported.skippedReason)),
+      importedMatchId: imported.created ? imported.riotMatchId : undefined,
+      failure: imported.skippedReason ? buildSkippedImportFailure(input.candidate, input.seed, imported) : undefined,
+    } satisfies ImportAttemptResult;
+  } catch (error) {
+    return {
+      created: false,
+      duplicateLike: false,
+      failure: buildErroredImportFailure(input.candidate, getErrorMessage(error)),
+    } satisfies ImportAttemptResult;
+  }
+}
+
+function buildCreatedCounts(createdCandidates: CompetitiveDiscoveredMatch[]) {
+  return {
+    byTier: countBy(createdCandidates, (candidate) => candidate.priorityBand ?? "unknown"),
+    byPatchBucket: countBy(createdCandidates, (candidate) => candidate.policyBucket),
+    byQueueBucket: countBy(createdCandidates, (candidate) => candidate.queueBucket),
+  };
+}
+
+function shouldPersistMidPass(input: {
+  attemptedMatchIds: Set<string>;
+  createdCandidates: CompetitiveDiscoveredMatch[];
+  lastPersistedAttemptCount: number;
+  lastPersistedCreatedCount: number;
+}) {
+  return input.attemptedMatchIds.size - input.lastPersistedAttemptCount >= PROGRESS_PERSIST_ATTEMPT_INTERVAL
+    || input.createdCandidates.length - input.lastPersistedCreatedCount >= PROGRESS_PERSIST_CREATED_INTERVAL;
+}
+
+function shouldDeepenDiscovery(input: {
+  remainingTarget: number;
+  currentTargetIdsPerSeed: number;
+  maxIdsPerSeed: number;
+  passCreated: number;
+  queueLength: number;
+  passDuplicateLike: number;
+}) {
+  return input.remainingTarget > 0
+    && input.currentTargetIdsPerSeed < input.maxIdsPerSeed
+    && (
+      input.passCreated === 0
+      || input.queueLength < input.remainingTarget
+      || input.passDuplicateLike >= Math.max(5, input.passCreated * 2)
+    );
+}
+
+function getNextTargetIdsPerSeed(input: {
+  currentTargetIdsPerSeed: number;
+  countPerSeed: number;
+  maxIdsPerSeed: number;
+}) {
+  return Math.min(
+    input.maxIdsPerSeed,
+    Math.max(input.currentTargetIdsPerSeed + input.countPerSeed, Math.ceil(input.currentTargetIdsPerSeed * 1.5)),
+  );
+}
+
+function refreshPersistedCounts(input: {
+  attemptedMatchIds: Set<string>;
+  createdCandidates: CompetitiveDiscoveredMatch[];
+  persistedCounts: {
+    lastPersistedAttemptCount: number;
+    lastPersistedCreatedCount: number;
+  };
+}) {
+  input.persistedCounts.lastPersistedAttemptCount = input.attemptedMatchIds.size;
+  input.persistedCounts.lastPersistedCreatedCount = input.createdCandidates.length;
+}
+
+function shouldStopImportQueue(input: {
+  getStopReason: () => string | null;
+  createdCandidates: CompetitiveDiscoveredMatch[];
+  remainingTargetMatches: number;
+}) {
+  return Boolean(input.getStopReason()) || input.createdCandidates.length >= input.remainingTargetMatches;
+}
+
+function recordSuccessfulImport(input: {
+  candidate: CompetitiveQueueCandidate;
+  attemptedMatchIds: Set<string>;
+  importedMatchIds: Set<string>;
+  createdCandidates: CompetitiveDiscoveredMatch[];
+  remainingTargetMatches: number;
+  importedMatchId?: string;
+}) {
+  input.importedMatchIds.add(input.importedMatchId ?? input.candidate.matchId);
+  input.createdCandidates.push(input.candidate);
+  if (input.createdCandidates.length % PROGRESS_PERSIST_CREATED_INTERVAL === 0) {
+    console.info(
+      `[competitive-ingestion] created-progress created=${input.createdCandidates.length}/${input.remainingTargetMatches} attempted=${input.attemptedMatchIds.size} latest=${input.candidate.matchId} tier=${input.candidate.priorityTier} patch=${input.candidate.patch ?? "unknown"} queue=${input.candidate.queueId ?? "unknown"}`,
+    );
+  }
+}
+
+function recordImportFailure(input: {
+  candidate: CompetitiveQueueCandidate;
+  failure: CompetitiveIngestionAttemptSummary;
+  failedMatches: CompetitiveIngestionAttemptSummary[];
+  authFailureCountsBySeedKey: Map<string, number>;
+  authFailureCountsByRegion: Map<string, number>;
+}) {
+  if (isAuthenticationFailure(input.failure.failureReason ?? "")) {
+    input.authFailureCountsBySeedKey.set(
+      input.candidate.seedKey,
+      (input.authFailureCountsBySeedKey.get(input.candidate.seedKey) ?? 0) + 1,
+    );
+    input.authFailureCountsByRegion.set(
+      input.candidate.cluster,
+      (input.authFailureCountsByRegion.get(input.candidate.cluster) ?? 0) + 1,
+    );
+  }
+  input.failedMatches.push(input.failure);
+}
+
+function recordImportAttempt(input: {
+  candidate: CompetitiveQueueCandidate;
+  importResult: ImportAttemptResult;
+  attemptedMatchIds: Set<string>;
+  importedMatchIds: Set<string>;
+  failedMatches: CompetitiveIngestionAttemptSummary[];
+  createdCandidates: CompetitiveDiscoveredMatch[];
+  remainingTargetMatches: number;
+  authFailureCountsBySeedKey: Map<string, number>;
+  authFailureCountsByRegion: Map<string, number>;
+}) {
+  if (input.importResult.created) {
+    recordSuccessfulImport({
+      candidate: input.candidate,
+      attemptedMatchIds: input.attemptedMatchIds,
+      importedMatchIds: input.importedMatchIds,
+      createdCandidates: input.createdCandidates,
+      remainingTargetMatches: input.remainingTargetMatches,
+      importedMatchId: input.importResult.importedMatchId,
+    });
+  }
+
+  if (input.importResult.failure) {
+    recordImportFailure({
+      candidate: input.candidate,
+      failure: input.importResult.failure,
+      failedMatches: input.failedMatches,
+      authFailureCountsBySeedKey: input.authFailureCountsBySeedKey,
+      authFailureCountsByRegion: input.authFailureCountsByRegion,
+    });
+  }
+
+  return {
+    created: input.importResult.created ? 1 : 0,
+    duplicateLike: input.importResult.duplicateLike ? 1 : 0,
+  };
+}
+
+async function persistQueueProgressIfNeeded(input: {
+  attemptedMatchIds: Set<string>;
+  createdCandidates: CompetitiveDiscoveredMatch[];
+  persistedCounts: {
+    lastPersistedAttemptCount: number;
+    lastPersistedCreatedCount: number;
+  };
+  persistIntermediateProgress: (stage: string) => Promise<void>;
+}) {
+  if (!shouldPersistMidPass({
+    attemptedMatchIds: input.attemptedMatchIds,
+    createdCandidates: input.createdCandidates,
+    lastPersistedAttemptCount: input.persistedCounts.lastPersistedAttemptCount,
+    lastPersistedCreatedCount: input.persistedCounts.lastPersistedCreatedCount,
+  })) {
+    return;
+  }
+
+  await input.persistIntermediateProgress("import-mid-pass");
+  refreshPersistedCounts(input);
+}
+
+async function persistQueueStopIfRequested(input: {
+  getStopReason: () => string | null;
+  attemptedMatchIds: Set<string>;
+  createdCandidates: CompetitiveDiscoveredMatch[];
+  persistedCounts: {
+    lastPersistedAttemptCount: number;
+    lastPersistedCreatedCount: number;
+  };
+  persistIntermediateProgress: (stage: string) => Promise<void>;
+}) {
+  if (!input.getStopReason()) {
+    return false;
+  }
+
+  await input.persistIntermediateProgress("run-bounded-stop");
+  refreshPersistedCounts(input);
+  return true;
+}
+
+async function processCompetitiveImportQueue(input: {
+  queue: CompetitiveQueueCandidate[];
+  ownerUserId: string | null;
+  policy: CompetitivePolicy;
+  seedIndex: Map<string, ActiveCompetitiveSeed>;
+  remainingTargetMatches: number;
+  attemptedMatchIds: Set<string>;
+  importedMatchIds: Set<string>;
+  failedMatches: CompetitiveIngestionAttemptSummary[];
+  createdCandidates: CompetitiveDiscoveredMatch[];
+  duplicateLikeReasons: Set<string>;
+  authFailureCountsBySeedKey: Map<string, number>;
+  authFailureCountsByRegion: Map<string, number>;
+  getStopReason: () => string | null;
+  persistIntermediateProgress: (stage: string) => Promise<void>;
+  persistedCounts: {
+    lastPersistedAttemptCount: number;
+    lastPersistedCreatedCount: number;
+  };
+}) {
+  let passCreated = 0;
+  let passDuplicateLike = 0;
+
+  for (const candidate of input.queue) {
+    if (shouldStopImportQueue(input)) {
+      break;
+    }
+    if (input.attemptedMatchIds.has(candidate.matchId)) {
+      continue;
+    }
+
+    const seed = input.seedIndex.get(candidate.seedKey);
+    if (!seed || !input.ownerUserId) {
+      continue;
+    }
+
+    input.attemptedMatchIds.add(candidate.matchId);
+    const importResult = await importCompetitiveCandidate({
+      ownerUserId: input.ownerUserId,
+      seed,
+      candidate,
+      policy: input.policy,
+      duplicateLikeReasons: input.duplicateLikeReasons,
+    });
+
+    const attemptCounts = recordImportAttempt({
+      candidate,
+      importResult,
+      attemptedMatchIds: input.attemptedMatchIds,
+      importedMatchIds: input.importedMatchIds,
+      failedMatches: input.failedMatches,
+      createdCandidates: input.createdCandidates,
+      remainingTargetMatches: input.remainingTargetMatches,
+      authFailureCountsBySeedKey: input.authFailureCountsBySeedKey,
+      authFailureCountsByRegion: input.authFailureCountsByRegion,
+    });
+    passCreated += attemptCounts.created;
+    passDuplicateLike += attemptCounts.duplicateLike;
+
+    await persistQueueProgressIfNeeded(input);
+
+    if (await persistQueueStopIfRequested(input)) {
+      break;
+    }
+  }
+
+  return { passCreated, passDuplicateLike };
+}
+
+async function runCompetitiveImportPasses(input: {
+  options: CliOptions;
+  policy: CompetitivePolicy;
+  ownerUserId: string | null;
+  remainingTargetMatches: number;
+  existingCompetitiveMatchIds: Set<string>;
+  attemptedMatchIds: Set<string>;
+  importedMatchIds: Set<string>;
+  failedMatches: CompetitiveIngestionAttemptSummary[];
+  createdCandidates: CompetitiveDiscoveredMatch[];
+  seedIndex: Map<string, ActiveCompetitiveSeed>;
+  duplicateLikeReasons: Set<string>;
+  authFailureCountsBySeedKey: Map<string, number>;
+  authFailureCountsByRegion: Map<string, number>;
+  getDiscoveredMatches: () => CompetitiveDiscoveredMatch[];
+  getCurrentTargetIdsPerSeed: () => number;
+  setCurrentTargetIdsPerSeed: (value: number) => void;
+  incrementDiscoveryPass: () => number;
+  setLastFallbackPlan: (plan: CompetitiveFallbackPlan) => void;
+  getStopReason: () => string | null;
+  persistIntermediateProgress: (stage: string) => Promise<void>;
+  refreshDiscoveryState: () => Promise<void>;
+}) {
+  const persistedCounts = {
+    lastPersistedAttemptCount: input.attemptedMatchIds.size,
+    lastPersistedCreatedCount: input.createdCandidates.length,
+  };
+
+  while (input.createdCandidates.length < input.remainingTargetMatches) {
+    if (input.getStopReason()) {
+      break;
+    }
+
+    const discoveryPass = input.incrementDiscoveryPass();
+    const alreadyCountedMatchIds = new Set([...input.existingCompetitiveMatchIds, ...input.attemptedMatchIds, ...input.importedMatchIds]);
+    const fallbackPlan = determineOpenedFallbackTiers({
+      matches: input.getDiscoveredMatches(),
+      targetUniqueMatches: input.remainingTargetMatches,
+      alreadyCountedMatchIds,
+      policy: input.policy,
+    });
+    input.setLastFallbackPlan(fallbackPlan);
+    fallbackPlan.openedFallbackTiers.forEach((opened) => console.info(`[competitive-ingestion] ${opened}`));
+
+    const queue = buildCompetitiveMatchQueue({
+      matches: input.getDiscoveredMatches(),
+      targetUniqueMatches: input.remainingTargetMatches,
+      policy: input.policy,
+      activeBands: fallbackPlan.activeBands,
+      excludedMatchIds: alreadyCountedMatchIds,
+    });
+
+    console.info(
+      `[competitive-ingestion] pass=${discoveryPass} queueCandidates=${queue.length} createdSoFar=${input.createdCandidates.length} targetRemaining=${input.remainingTargetMatches} targetTotal=${input.options.targetMatches} idsPerSeed=${input.getCurrentTargetIdsPerSeed()}`,
+    );
+
+    if (input.options.dryRun || queue.length === 0) {
+      break;
+    }
+
+    const { passCreated, passDuplicateLike } = await processCompetitiveImportQueue({
+      queue,
+      ownerUserId: input.ownerUserId,
+      policy: input.policy,
+      seedIndex: input.seedIndex,
+      remainingTargetMatches: input.remainingTargetMatches,
+      attemptedMatchIds: input.attemptedMatchIds,
+      importedMatchIds: input.importedMatchIds,
+      failedMatches: input.failedMatches,
+      createdCandidates: input.createdCandidates,
+      duplicateLikeReasons: input.duplicateLikeReasons,
+      authFailureCountsBySeedKey: input.authFailureCountsBySeedKey,
+      authFailureCountsByRegion: input.authFailureCountsByRegion,
+      getStopReason: input.getStopReason,
+      persistIntermediateProgress: input.persistIntermediateProgress,
+      persistedCounts,
+    });
+
+    await input.persistIntermediateProgress("import-pass-complete");
+    persistedCounts.lastPersistedAttemptCount = input.attemptedMatchIds.size;
+    persistedCounts.lastPersistedCreatedCount = input.createdCandidates.length;
+
+    const remainingTarget = input.remainingTargetMatches - input.createdCandidates.length;
+    const deepenDiscovery = shouldDeepenDiscovery({
+      remainingTarget,
+      currentTargetIdsPerSeed: input.getCurrentTargetIdsPerSeed(),
+      maxIdsPerSeed: input.options.maxIdsPerSeed,
+      passCreated,
+      queueLength: queue.length,
+      passDuplicateLike,
+    });
+
+    if (input.getStopReason() || !deepenDiscovery) {
+      break;
+    }
+
+    const nextTargetIdsPerSeed = getNextTargetIdsPerSeed({
+      currentTargetIdsPerSeed: input.getCurrentTargetIdsPerSeed(),
+      countPerSeed: input.options.countPerSeed,
+      maxIdsPerSeed: input.options.maxIdsPerSeed,
+    });
+    if (nextTargetIdsPerSeed <= input.getCurrentTargetIdsPerSeed()) {
+      break;
+    }
+
+    console.info(
+      `[competitive-ingestion] deepening-discovery reason=duplicate-pressure nextIdsPerSeed=${nextTargetIdsPerSeed} duplicateLike=${passDuplicateLike} created=${passCreated}`,
+    );
+    input.setCurrentTargetIdsPerSeed(nextTargetIdsPerSeed);
+    await input.refreshDiscoveryState();
+    await input.persistIntermediateProgress("discovery-deepened");
+  }
+}
+
+function shouldPersistSeedProgress(input: {
+  processedSeeds: number;
+  totalSeeds: number;
+}) {
+  return input.processedSeeds % 10 === 0 || input.processedSeeds === input.totalSeeds;
+}
+
+async function persistResolutionSnapshot(input: {
+  snapshot: ResolutionProgressSnapshot;
+  persistResolutionProgress: (progress: {
+    processedSeeds: number;
+    totalSeeds: number;
+    resolvedSeeds: CompetitiveResolvedSeed[];
+    seedName: string;
+  }) => Promise<void>;
+}) {
+  if (!shouldPersistSeedProgress(input.snapshot)) {
+    return;
+  }
+
+  await input.persistResolutionProgress({
+    processedSeeds: input.snapshot.processedSeeds,
+    totalSeeds: input.snapshot.totalSeeds,
+    resolvedSeeds: input.snapshot.resolvedSeeds,
+    seedName: input.snapshot.seed.playerName,
+  });
+}
+
+async function persistDiscoverySnapshot(input: {
+  snapshot: DiscoveryProgressSnapshot;
+  persistDiscoveryProgress: (progress: {
+    processedSeeds: number;
+    totalActiveSeeds: number;
+    discoveries: CompetitiveSeedMatchDiscovery[];
+    seedName: string;
+  }) => Promise<void>;
+}) {
+  if (!shouldPersistSeedProgress({
+    processedSeeds: input.snapshot.processedSeeds,
+    totalSeeds: input.snapshot.totalActiveSeeds,
+  })) {
+    return;
+  }
+
+  await input.persistDiscoveryProgress({
+    processedSeeds: input.snapshot.processedSeeds,
+    totalActiveSeeds: input.snapshot.totalActiveSeeds,
+    discoveries: input.snapshot.discoveries,
+    seedName: input.snapshot.seed.playerName,
+  });
+}
+
+function getCompetitiveRunStopReason(input: {
+  options: CliOptions;
+  runAttemptCount: number;
+  runCreatedCount: number;
+  runAuthFailureCount: number;
+}) {
+  if (
+    typeof input.options.maxAttemptsPerRun === "number"
+    && input.options.maxAttemptsPerRun > 0
+    && input.runAttemptCount >= input.options.maxAttemptsPerRun
+  ) {
+    return `max-attempts-per-run:${input.options.maxAttemptsPerRun}`;
+  }
+  if (
+    typeof input.options.maxCreatedPerRun === "number"
+    && input.options.maxCreatedPerRun > 0
+    && input.runCreatedCount >= input.options.maxCreatedPerRun
+  ) {
+    return `max-created-per-run:${input.options.maxCreatedPerRun}`;
+  }
+  if (
+    typeof input.options.maxAuthFailuresPerRun === "number"
+    && input.options.maxAuthFailuresPerRun > 0
+    && input.runAuthFailureCount >= input.options.maxAuthFailuresPerRun
+  ) {
+    return `max-auth-failures-per-run:${input.options.maxAuthFailuresPerRun}`;
+  }
+  return null;
+}
+
+function getDiscoveryUniqueBudget(input: {
+  options: CliOptions;
+  remainingTargetMatches: number;
+  classificationBudget: number;
+}) {
+  const desiredCreatedBudget = input.options.maxCreatedPerRun
+    ? Math.max(input.options.maxCreatedPerRun * 4, input.options.maxCreatedPerRun + 50)
+    : input.remainingTargetMatches;
+
+  return Math.max(
+    150,
+    Math.min(input.remainingTargetMatches, input.classificationBudget, desiredCreatedBudget),
+  );
+}
+
+async function loadCompetitiveImportSetup(options: CliOptions) {
   const { absolutePath: seedAbsolutePath, manifest } = await loadManifest(options.seedPath);
   const policyConfig = withPolicyOverrides(
     await loadCompetitiveIngestionPolicy(path.resolve(options.policyPath)),
@@ -1281,61 +904,14 @@ async function main() {
   const startTime = toUnixSeconds(policy.seasonWindowStartMs);
   const endTime = toUnixSeconds(policy.seasonWindowEndMs);
   const ownerUserId = options.dryRun ? null : await resolveOwnerUserId(options);
-  const baselineTotalMatchesBefore = options.dryRun ? 0 : await prisma.importedMatch.count();
-  const baselineCompetitiveMatchesBefore = options.dryRun
-    ? 0
-    : await prisma.importedMatch.count({
-      where: {
-        sourceKind: {
-          in: ["PRO_SEED", "ELITE_SEED", "FALLBACK_SEED"],
-        },
-      },
-    });
-  const existingCompetitiveMatchIds = options.dryRun
-    ? new Set<string>()
-    : new Set(
-      (
-        await prisma.importedMatch.findMany({
-          where: {
-            sourceKind: {
-              in: ["PRO_SEED", "ELITE_SEED", "FALLBACK_SEED"],
-            },
-          },
-          select: { riotMatchId: true },
-        })
-      ).map((row) => row.riotMatchId),
-    );
+  const baselineTotalMatchesBefore = await countImportedMatches(options.dryRun);
+  const baselineCompetitiveMatchesBefore = await countCompetitiveMatches(options.dryRun);
+  const existingCompetitiveMatchIds = await loadExistingCompetitiveMatchIds(options.dryRun);
   const remainingTargetMatches = Math.max(0, options.targetMatches - baselineCompetitiveMatchesBefore);
   const classificationBudget = options.maxClassifiedPerRun
     ?? Math.max(300, (options.trancheSize ?? 25) * 12);
-  const checkpoint = (!options.resetCheckpoint ? await loadCompetitiveIngestionCheckpoint(checkpointPath) : null) ?? {
-    version: 3,
-    generatedAt: new Date().toISOString(),
-    seedSetVersion: manifest.seedSetVersion,
-    targetUniqueMatches: remainingTargetMatches,
-    classificationBudget,
-    queueWhitelist: [...policy.preferredQueues, ...policy.acceptedFallbackQueues],
-    patchAllowPrefixes: [...policy.preferredPatchPrefixes, ...policy.acceptedAdjacentPatchPrefixes],
-    seasonWindow: {
-      startTime,
-      endTime,
-    },
-    policyMode: policy.mode,
-    openedFallbackTiers: [],
-    seedResolutionSummary: undefined,
-    seedDiscoverySummary: undefined,
-    policyDecisionByMatchId: {},
-    importCountsByTier: {},
-    importCountsByPatchBucket: {},
-    importCountsByQueueBucket: {},
-    matchMetadataById: {},
-    resolvedSeeds: [],
-    discoveredMatches: [],
-    attemptedMatchIds: [],
-    importedMatchIds: [],
-    rejectedMatchIds: [],
-    failedMatches: [],
-  } satisfies CompetitiveIngestionCheckpoint;
+  const checkpoint = (options.resetCheckpoint ? null : await loadCompetitiveIngestionCheckpoint(checkpointPath))
+    ?? buildInitialCheckpoint({ manifest, remainingTargetMatches, classificationBudget, policy, startTime, endTime });
 
   const resolvedSeedCache = new Map(checkpoint.resolvedSeeds.map((seed) => [buildCompetitiveSeedKey(seed), seed]));
   const discoveryCache = new Map(checkpoint.discoveredMatches.map((seed) => [seed.seedKey, seed]));
@@ -1361,6 +937,61 @@ async function main() {
     refreshDiscovery: options.refreshDiscovery,
     hasActiveQuarantine: quarantinedSeedKeys.size > 0,
   });
+
+  return {
+    seedAbsolutePath,
+    manifest,
+    policy,
+    checkpointPath,
+    reportPath,
+    markdownReportPath,
+    startTime,
+    endTime,
+    ownerUserId,
+    baselineTotalMatchesBefore,
+    baselineCompetitiveMatchesBefore,
+    existingCompetitiveMatchIds,
+    remainingTargetMatches,
+    classificationBudget,
+    checkpoint,
+    resolvedSeedCache,
+    discoveryCache,
+    matchMetadataCache,
+    discoveryQuarantinePath,
+    quarantinedSeedKeys,
+    quarantinedRegions,
+    canReuseResolvedSeeds,
+    canReuseDiscoveryCheckpoint,
+  };
+}
+
+async function main() {
+  const options = applyTranchePreset(parseArgs(process.argv.slice(2)));
+  const {
+    seedAbsolutePath,
+    manifest,
+    policy,
+    checkpointPath,
+    reportPath,
+    markdownReportPath,
+    startTime,
+    endTime,
+    ownerUserId,
+    baselineTotalMatchesBefore,
+    baselineCompetitiveMatchesBefore,
+    existingCompetitiveMatchIds,
+    remainingTargetMatches,
+    classificationBudget,
+    checkpoint,
+    resolvedSeedCache,
+    discoveryCache,
+    matchMetadataCache,
+    discoveryQuarantinePath,
+    quarantinedSeedKeys,
+    quarantinedRegions,
+    canReuseResolvedSeeds,
+    canReuseDiscoveryCheckpoint,
+  } = await loadCompetitiveImportSetup(options);
 
   console.info(
     `[competitive-ingestion] resolving ${manifest.players.length} seeds from ${seedAbsolutePath} mode=${policy.mode}`,
@@ -1408,15 +1039,7 @@ async function main() {
     ? checkpoint.resolvedSeeds
     : await resolveSeeds(workingSeeds, resolvedSeedCache, {
       onProgress: async (snapshot) => {
-        if (snapshot.processedSeeds % 10 !== 0 && snapshot.processedSeeds !== snapshot.totalSeeds) {
-          return;
-        }
-        await persistResolutionProgress({
-          processedSeeds: snapshot.processedSeeds,
-          totalSeeds: snapshot.totalSeeds,
-          resolvedSeeds: snapshot.resolvedSeeds,
-          seedName: snapshot.seed.playerName,
-        });
+        await persistResolutionSnapshot({ snapshot, persistResolutionProgress });
       },
     });
   let discoveries: CompetitiveSeedMatchDiscovery[] = canReuseDiscoveryCheckpoint ? checkpoint.discoveredMatches : [];
@@ -1434,13 +1057,7 @@ async function main() {
   let discoveryStopReason: string | null = null;
   const authFailureCountsBySeedKey = new Map<string, number>();
   const authFailureCountsByRegion = new Map<string, number>();
-  const desiredCreatedBudget = options.maxCreatedPerRun
-    ? Math.max(options.maxCreatedPerRun * 4, options.maxCreatedPerRun + 50)
-    : remainingTargetMatches;
-  const discoveryUniqueBudget = Math.max(
-    150,
-    Math.min(remainingTargetMatches, classificationBudget, desiredCreatedBudget),
-  );
+  const discoveryUniqueBudget = getDiscoveryUniqueBudget({ options, remainingTargetMatches, classificationBudget });
 
   const persistDiscoveryProgress = async (input: {
     processedSeeds: number;
@@ -1528,15 +1145,7 @@ async function main() {
         quarantinedSeedKeys,
         quarantinedRegions,
         onProgress: async (snapshot) => {
-          if (snapshot.processedSeeds % 10 !== 0 && snapshot.processedSeeds !== snapshot.totalActiveSeeds) {
-            return;
-          }
-          await persistDiscoveryProgress({
-            processedSeeds: snapshot.processedSeeds,
-            totalActiveSeeds: snapshot.totalActiveSeeds,
-            discoveries: snapshot.discoveries,
-            seedName: snapshot.seed.playerName,
-          });
+          await persistDiscoverySnapshot({ snapshot, persistDiscoveryProgress });
         },
       },
     );
@@ -1604,15 +1213,7 @@ async function main() {
   if (workingSeeds.length !== manifest.players.length) {
     resolvedSeeds = await resolveSeeds(workingSeeds, resolvedSeedCache, {
       onProgress: async (snapshot) => {
-        if (snapshot.processedSeeds % 10 !== 0 && snapshot.processedSeeds !== snapshot.totalSeeds) {
-          return;
-        }
-        await persistResolutionProgress({
-          processedSeeds: snapshot.processedSeeds,
-          totalSeeds: snapshot.totalSeeds,
-          resolvedSeeds: snapshot.resolvedSeeds,
-          seedName: snapshot.seed.playerName,
-        });
+        await persistResolutionSnapshot({ snapshot, persistResolutionProgress });
       },
     });
     await refreshDiscoveryState();
@@ -1622,13 +1223,7 @@ async function main() {
   const attemptedMatchIds = new Set(checkpoint.attemptedMatchIds);
   const importedMatchIds = new Set(checkpoint.importedMatchIds);
   const failedMatches = [...checkpoint.failedMatches];
-  const seedIndex = new Map(
-    resolvedSeeds
-      .filter((seed): seed is CompetitiveResolvedSeed & { puuid: string; cluster: NonNullable<CompetitiveResolvedSeed["cluster"]> } =>
-        seed.resolutionStatus === "resolved" && Boolean(seed.puuid) && Boolean(seed.cluster),
-      )
-      .map((seed) => [buildCompetitiveSeedKey(seed), seed]),
-  );
+  const seedIndex = buildSeedIndex(resolvedSeeds);
   const createdCandidates: CompetitiveDiscoveredMatch[] = [];
   const initialAttemptedCount = attemptedMatchIds.size;
   const initialFailedAuthCount = failedMatches.filter(
@@ -1642,8 +1237,6 @@ async function main() {
   });
 
   const duplicateLikeReasons = new Set(["existing-match-different-target"]);
-  let lastPersistedAttemptCount = attemptedMatchIds.size;
-  let lastPersistedCreatedCount = createdCandidates.length;
 
   const getRunAttemptCount = () => attemptedMatchIds.size - initialAttemptedCount;
   const getRunAuthFailureCount = () => failedMatches.filter(
@@ -1653,31 +1246,13 @@ async function main() {
     if (stopReason) {
       return stopReason;
     }
-    if (
-      typeof options.maxAttemptsPerRun === "number"
-      && options.maxAttemptsPerRun > 0
-      && getRunAttemptCount() >= options.maxAttemptsPerRun
-    ) {
-      stopReason = `max-attempts-per-run:${options.maxAttemptsPerRun}`;
-      return stopReason;
-    }
-    if (
-      typeof options.maxCreatedPerRun === "number"
-      && options.maxCreatedPerRun > 0
-      && createdCandidates.length >= options.maxCreatedPerRun
-    ) {
-      stopReason = `max-created-per-run:${options.maxCreatedPerRun}`;
-      return stopReason;
-    }
-    if (
-      typeof options.maxAuthFailuresPerRun === "number"
-      && options.maxAuthFailuresPerRun > 0
-      && getRunAuthFailureCount() >= options.maxAuthFailuresPerRun
-    ) {
-      stopReason = `max-auth-failures-per-run:${options.maxAuthFailuresPerRun}`;
-      return stopReason;
-    }
-    return null;
+    stopReason = getCompetitiveRunStopReason({
+      options,
+      runAttemptCount: getRunAttemptCount(),
+      runCreatedCount: createdCandidates.length,
+      runAuthFailureCount: getRunAuthFailureCount(),
+    });
+    return stopReason;
   };
 
   const persistIntermediateProgress = async (progressStage: string) => {
@@ -1687,36 +1262,8 @@ async function main() {
       discoveredMatches,
     });
     const rejectedMatches = buildRejectedMatches(discoveredMatches);
-    const createdCountsByTier = createdCandidates.reduce<Record<string, number>>((accumulator, candidate) => {
-      const key = candidate.priorityBand ?? "unknown";
-      accumulator[key] = (accumulator[key] ?? 0) + 1;
-      return accumulator;
-    }, {});
-    const createdCountsByPatchBucket = createdCandidates.reduce<Record<string, number>>((accumulator, candidate) => {
-      accumulator[candidate.policyBucket] = (accumulator[candidate.policyBucket] ?? 0) + 1;
-      return accumulator;
-    }, {});
-    const createdCountsByQueueBucket = createdCandidates.reduce<Record<string, number>>((accumulator, candidate) => {
-      accumulator[candidate.queueBucket] = (accumulator[candidate.queueBucket] ?? 0) + 1;
-      return accumulator;
-    }, {});
-    const policyDecisionByMatchId = discoveredMatches.reduce<NonNullable<CompetitiveIngestionCheckpoint["policyDecisionByMatchId"]>>(
-      (accumulator, match) => {
-        accumulator[match.matchId] = {
-          acceptedByPolicy: match.acceptedByPolicy,
-          acceptedReason: match.acceptedReason,
-          rejectionReason: match.rejectionReason,
-          fallbackReason: match.fallbackReason,
-          policyMode: match.policyMode,
-          policyBucket: match.policyBucket,
-          queueBucket: match.queueBucket,
-          sourceBucket: match.sourceBucket,
-          priorityBand: match.priorityBand,
-        };
-        return accumulator;
-      },
-      {},
-    );
+    const createdCounts = buildCreatedCounts(createdCandidates);
+    const policyDecisionByMatchId = buildPolicyDecisionByMatchId(discoveredMatches);
 
     await saveCompetitiveIngestionCheckpoint(checkpointPath, {
       version: 3,
@@ -1736,9 +1283,9 @@ async function main() {
       seedResolutionSummary: seedSummaries.seedResolutionSummary,
       seedDiscoverySummary: seedSummaries.seedDiscoverySummary,
       policyDecisionByMatchId,
-      importCountsByTier: createdCountsByTier,
-      importCountsByPatchBucket: createdCountsByPatchBucket,
-      importCountsByQueueBucket: createdCountsByQueueBucket,
+      importCountsByTier: createdCounts.byTier,
+      importCountsByPatchBucket: createdCounts.byPatchBucket,
+      importCountsByQueueBucket: createdCounts.byQueueBucket,
       matchMetadataById: Object.fromEntries(matchMetadataCache.entries()),
       resolvedSeeds,
       discoveredMatches: discoveries,
@@ -1781,9 +1328,9 @@ async function main() {
       failedMatchesCount: failedMatches.length,
       totalImportedMatchesOverall,
       totalCompetitiveMatchesInDb,
-      importCountsByTier: createdCountsByTier,
-      importCountsByPatchBucket: createdCountsByPatchBucket,
-      importCountsByQueueBucket: createdCountsByQueueBucket,
+      importCountsByTier: createdCounts.byTier,
+      importCountsByPatchBucket: createdCounts.byPatchBucket,
+      importCountsByQueueBucket: createdCounts.byQueueBucket,
       fallbackActivations: lastFallbackPlan.openedFallbackTiers,
       riotApiMetrics: riotApiClient.getMetricsSnapshot(),
       progressDiscoveryPass: discoveryPass,
@@ -1808,212 +1355,36 @@ async function main() {
 
   await persistIntermediateProgress(initialDiscoveryProgressStage);
 
-  while (createdCandidates.length < remainingTargetMatches) {
-    if (updateStopReason()) {
-      break;
-    }
-    discoveryPass += 1;
-    const alreadyCountedMatchIds = new Set([...existingCompetitiveMatchIds, ...attemptedMatchIds, ...importedMatchIds]);
-    const fallbackPlan = determineOpenedFallbackTiers({
-      matches: discoveredMatches,
-      targetUniqueMatches: remainingTargetMatches,
-      alreadyCountedMatchIds,
-      policy,
-    });
-    lastFallbackPlan = fallbackPlan;
-
-    for (const opened of fallbackPlan.openedFallbackTiers) {
-      console.info(`[competitive-ingestion] ${opened}`);
-    }
-
-    const queue = buildCompetitiveMatchQueue({
-      matches: discoveredMatches,
-      targetUniqueMatches: remainingTargetMatches,
-      policy,
-      activeBands: fallbackPlan.activeBands,
-      excludedMatchIds: alreadyCountedMatchIds,
-    });
-
-    console.info(
-      `[competitive-ingestion] pass=${discoveryPass} queueCandidates=${queue.length} createdSoFar=${createdCandidates.length} targetRemaining=${remainingTargetMatches} targetTotal=${options.targetMatches} idsPerSeed=${currentTargetIdsPerSeed}`,
-    );
-
-    if (options.dryRun || queue.length === 0) {
-      break;
-    }
-
-    let passCreated = 0;
-    let passDuplicateLike = 0;
-
-    for (const candidate of queue) {
-      if (!candidate) {
-        continue;
-      }
-      if (updateStopReason()) {
-        break;
-      }
-      if (createdCandidates.length >= remainingTargetMatches) {
-        break;
-      }
-      if (attemptedMatchIds.has(candidate.matchId)) {
-        continue;
-      }
-
-      const seed = seedIndex.get(candidate.seedKey);
-      if (!seed?.puuid || !seed.cluster || !ownerUserId) {
-        continue;
-      }
-
-      attemptedMatchIds.add(candidate.matchId);
-      try {
-        const sourceKind = toSourceKind(seed.priorityTier);
-        const sourceMetadata = buildSourceMetadata(seed, candidate, policy);
-        const imported = await riotSyncService.importMatchForIdentity(
-          ownerUserId,
-          candidate.matchId,
-          {
-            puuid: seed.puuid,
-            gameName: seed.resolvedRiotId ? splitRiotId(seed.resolvedRiotId).gameName : null,
-            tagLine: seed.resolvedRiotId ? splitRiotId(seed.resolvedRiotId).tagLine : null,
-            region: seed.cluster,
-            platform: seed.platformHint ?? "euw1",
-          },
-          {
-            sourceKind,
-            sourceMetadata,
-            skipExistingWithDifferentTarget: true,
-          },
-        );
-
-        await repairImportedMatchProvenance({
-          riotMatchId: candidate.matchId,
-          sourceKind,
-          sourceRegion: seed.region,
-          sourceMetadata,
-        });
-
-        if (imported.created) {
-          importedMatchIds.add(imported.riotMatchId);
-          createdCandidates.push(candidate);
-          passCreated += 1;
-          if (createdCandidates.length % PROGRESS_PERSIST_CREATED_INTERVAL === 0) {
-            console.info(
-              `[competitive-ingestion] created-progress created=${createdCandidates.length}/${remainingTargetMatches} attempted=${attemptedMatchIds.size} latest=${candidate.matchId} tier=${candidate.priorityTier} patch=${candidate.patch ?? "unknown"} queue=${candidate.queueId ?? "unknown"}`,
-            );
-          }
-        } else if (imported.skippedReason === null || duplicateLikeReasons.has(imported.skippedReason)) {
-          passDuplicateLike += 1;
-        }
-
-        if (imported.skippedReason) {
-          failedMatches.push({
-            matchId: candidate.matchId,
-            seedKey: candidate.seedKey,
-            playerName: seed.playerName,
-            team: seed.team,
-            league: seed.league,
-            competition: seed.competition,
-            role: seed.role,
-            region: seed.cluster,
-            priorityTier: seed.priorityTier,
-            patch: imported.patch,
-            queueId: candidate.queueId,
-            policyBucket: candidate.policyBucket,
-            queueBucket: candidate.queueBucket,
-            sourceBucket: candidate.sourceBucket,
-            priorityBand: candidate.priorityBand,
-            timelineAvailable: imported.timelineAvailable,
-            timelineMissingReason: imported.timelineMissingReason,
-            targetChampionSlug: imported.targetChampionSlug,
-            targetRole: imported.targetRole,
-            gameCreationAt: imported.gameCreationAt?.toISOString() ?? null,
-            created: imported.created,
-            failureReason: imported.skippedReason,
-          });
-        }
-      } catch (error) {
-        const failureMessage = error instanceof Error ? error.message : String(error);
-        if (failureMessage.toLowerCase().includes("authentication failed")) {
-          authFailureCountsBySeedKey.set(candidate.seedKey, (authFailureCountsBySeedKey.get(candidate.seedKey) ?? 0) + 1);
-          authFailureCountsByRegion.set(candidate.cluster, (authFailureCountsByRegion.get(candidate.cluster) ?? 0) + 1);
-        }
-        failedMatches.push({
-          matchId: candidate.matchId,
-          seedKey: candidate.seedKey,
-          playerName: candidate.playerName,
-          team: candidate.team,
-          league: candidate.league,
-          competition: candidate.competition,
-          role: candidate.role,
-          region: candidate.cluster,
-          priorityTier: candidate.priorityTier,
-          patch: candidate.patch,
-          queueId: candidate.queueId,
-          policyBucket: candidate.policyBucket,
-          queueBucket: candidate.queueBucket,
-          sourceBucket: candidate.sourceBucket,
-          priorityBand: candidate.priorityBand,
-          timelineAvailable: false,
-          timelineMissingReason: null,
-          targetChampionSlug: null,
-          targetRole: null,
-          gameCreationAt: candidate.gameCreationAt,
-          created: false,
-          failureReason: failureMessage,
-        });
-      }
-
-      const shouldPersistMidPass =
-        attemptedMatchIds.size - lastPersistedAttemptCount >= PROGRESS_PERSIST_ATTEMPT_INTERVAL
-        || createdCandidates.length - lastPersistedCreatedCount >= PROGRESS_PERSIST_CREATED_INTERVAL;
-
-      if (shouldPersistMidPass) {
-        await persistIntermediateProgress("import-mid-pass");
-        lastPersistedAttemptCount = attemptedMatchIds.size;
-        lastPersistedCreatedCount = createdCandidates.length;
-      }
-
-      if (updateStopReason()) {
-        await persistIntermediateProgress("run-bounded-stop");
-        lastPersistedAttemptCount = attemptedMatchIds.size;
-        lastPersistedCreatedCount = createdCandidates.length;
-        break;
-      }
-    }
-
-    await persistIntermediateProgress("import-pass-complete");
-    lastPersistedAttemptCount = attemptedMatchIds.size;
-    lastPersistedCreatedCount = createdCandidates.length;
-
-    const remainingTarget = remainingTargetMatches - createdCandidates.length;
-    const shouldDeepenDiscovery =
-      remainingTarget > 0
-      && currentTargetIdsPerSeed < options.maxIdsPerSeed
-      && (
-        passCreated === 0
-        || queue.length < remainingTarget
-        || passDuplicateLike >= Math.max(5, passCreated * 2)
-      );
-
-    if (stopReason || !shouldDeepenDiscovery) {
-      break;
-    }
-
-    const nextTargetIdsPerSeed = Math.min(
-      options.maxIdsPerSeed,
-      Math.max(currentTargetIdsPerSeed + options.countPerSeed, Math.ceil(currentTargetIdsPerSeed * 1.5)),
-    );
-    if (nextTargetIdsPerSeed <= currentTargetIdsPerSeed) {
-      break;
-    }
-
-    console.info(
-      `[competitive-ingestion] deepening-discovery reason=duplicate-pressure nextIdsPerSeed=${nextTargetIdsPerSeed} duplicateLike=${passDuplicateLike} created=${passCreated}`,
-    );
-    currentTargetIdsPerSeed = nextTargetIdsPerSeed;
-    await refreshDiscoveryState();
-    await persistIntermediateProgress("discovery-deepened");
-  }
+  await runCompetitiveImportPasses({
+    options,
+    policy,
+    ownerUserId,
+    remainingTargetMatches,
+    existingCompetitiveMatchIds,
+    attemptedMatchIds,
+    importedMatchIds,
+    failedMatches,
+    createdCandidates,
+    seedIndex,
+    duplicateLikeReasons,
+    authFailureCountsBySeedKey,
+    authFailureCountsByRegion,
+    getDiscoveredMatches: () => discoveredMatches,
+    getCurrentTargetIdsPerSeed: () => currentTargetIdsPerSeed,
+    setCurrentTargetIdsPerSeed: (value) => {
+      currentTargetIdsPerSeed = value;
+    },
+    incrementDiscoveryPass: () => {
+      discoveryPass += 1;
+      return discoveryPass;
+    },
+    setLastFallbackPlan: (plan) => {
+      lastFallbackPlan = plan;
+    },
+    getStopReason: updateStopReason,
+    persistIntermediateProgress,
+    refreshDiscoveryState,
+  });
 
   const seedSummaries = buildSeedSummaries({
     resolvedSeeds,
@@ -2022,36 +1393,8 @@ async function main() {
   });
 
   const rejectedMatches = buildRejectedMatches(discoveredMatches);
-  const createdCountsByTier = createdCandidates.reduce<Record<string, number>>((accumulator, candidate) => {
-    const key = candidate.priorityBand ?? "unknown";
-    accumulator[key] = (accumulator[key] ?? 0) + 1;
-    return accumulator;
-  }, {});
-  const createdCountsByPatchBucket = createdCandidates.reduce<Record<string, number>>((accumulator, candidate) => {
-    accumulator[candidate.policyBucket] = (accumulator[candidate.policyBucket] ?? 0) + 1;
-    return accumulator;
-  }, {});
-  const createdCountsByQueueBucket = createdCandidates.reduce<Record<string, number>>((accumulator, candidate) => {
-    accumulator[candidate.queueBucket] = (accumulator[candidate.queueBucket] ?? 0) + 1;
-    return accumulator;
-  }, {});
-  const policyDecisionByMatchId = discoveredMatches.reduce<NonNullable<CompetitiveIngestionCheckpoint["policyDecisionByMatchId"]>>(
-    (accumulator, match) => {
-      accumulator[match.matchId] = {
-        acceptedByPolicy: match.acceptedByPolicy,
-        acceptedReason: match.acceptedReason,
-        rejectionReason: match.rejectionReason,
-        fallbackReason: match.fallbackReason,
-        policyMode: match.policyMode,
-        policyBucket: match.policyBucket,
-        queueBucket: match.queueBucket,
-        sourceBucket: match.sourceBucket,
-        priorityBand: match.priorityBand,
-      };
-      return accumulator;
-    },
-    {},
-  );
+  const createdCounts = buildCreatedCounts(createdCandidates);
+  const policyDecisionByMatchId = buildPolicyDecisionByMatchId(discoveredMatches);
 
   await saveCompetitiveIngestionCheckpoint(checkpointPath, {
     version: 3,
@@ -2071,9 +1414,9 @@ async function main() {
     seedResolutionSummary: seedSummaries.seedResolutionSummary,
     seedDiscoverySummary: seedSummaries.seedDiscoverySummary,
     policyDecisionByMatchId,
-    importCountsByTier: createdCountsByTier,
-    importCountsByPatchBucket: createdCountsByPatchBucket,
-    importCountsByQueueBucket: createdCountsByQueueBucket,
+    importCountsByTier: createdCounts.byTier,
+    importCountsByPatchBucket: createdCounts.byPatchBucket,
+    importCountsByQueueBucket: createdCounts.byQueueBucket,
     matchMetadataById: Object.fromEntries(matchMetadataCache.entries()),
     resolvedSeeds,
     discoveredMatches: discoveries,
@@ -2088,9 +1431,7 @@ async function main() {
     ? []
     : await prisma.importedMatch.findMany({
       where: {
-        sourceKind: {
-          in: ["PRO_SEED", "ELITE_SEED", "FALLBACK_SEED"],
-        },
+        ...getCompetitiveSourceWhere(),
       },
       select: {
         patch: true,
@@ -2202,9 +1543,9 @@ async function main() {
     })),
     topFailureReasons,
     fallbackActivations: lastFallbackPlan.openedFallbackTiers,
-    importCountsByTier: createdCountsByTier,
-    importCountsByPatchBucket: createdCountsByPatchBucket,
-    importCountsByQueueBucket: createdCountsByQueueBucket,
+    importCountsByTier: createdCounts.byTier,
+    importCountsByPatchBucket: createdCounts.byPatchBucket,
+    importCountsByQueueBucket: createdCounts.byQueueBucket,
     riotApiMetrics: riotApiClient.getMetricsSnapshot(),
     stopReason: stopReason ?? discoveryStopReason,
     runAttemptCount: getRunAttemptCount(),
@@ -2270,12 +1611,12 @@ async function main() {
   console.info(JSON.stringify(reportPayload, null, 2));
 }
 
-main()
-  .catch((error) => {
-    console.error("[competitive-ingestion] failed", error);
-    process.exitCode = 1;
-  })
-  .finally(async () => {
-    await prisma.$disconnect();
-    process.exit(process.exitCode ?? 0);
-  });
+try {
+  await main();
+} catch (error) {
+  console.error("[competitive-ingestion] failed", error);
+  process.exitCode = 1;
+} finally {
+  await prisma.$disconnect();
+  process.exit(process.exitCode ?? 0);
+}

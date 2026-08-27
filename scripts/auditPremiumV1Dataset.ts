@@ -25,6 +25,26 @@ type AuditMatchRow = {
   sourceRegion: string | null;
 };
 
+type ValueOptionHandler = (options: CliOptions, next: string | undefined) => void;
+
+const valueOptionHandlers: Record<string, ValueOptionHandler> = {
+  "--dataset-report-path": (options, next) => {
+    if (next) options.datasetReportPath = next;
+  },
+  "--output-json": (options, next) => {
+    if (next) options.outputJsonPath = next;
+  },
+  "--output-markdown": (options, next) => {
+    if (next) options.outputMarkdownPath = next;
+  },
+  "--training-config-path": (options, next) => {
+    if (next) options.trainingConfigPath = next;
+  },
+  "--checkpoint-report-path": (options, next) => {
+    if (next) options.checkpointReportPath = next;
+  },
+};
+
 function parseArgs(argv: string[]): CliOptions {
   const options: CliOptions = {
     datasetReportPath: path.join("ml", "artifacts", "reports", "dataset-report.json"),
@@ -34,43 +54,16 @@ function parseArgs(argv: string[]): CliOptions {
     checkpointReportPath: path.join("data", "runtime", "competitive-ingestion", "report.json"),
   };
 
-  for (let index = 0; index < argv.length; index += 1) {
+  let index = 0;
+  while (index < argv.length) {
     const arg = argv[index];
-    const next = argv[index + 1];
+    index += 1;
+    const next = argv[index];
 
-    switch (arg) {
-      case "--dataset-report-path":
-        if (next) {
-          options.datasetReportPath = next;
-        }
-        index += 1;
-        break;
-      case "--output-json":
-        if (next) {
-          options.outputJsonPath = next;
-        }
-        index += 1;
-        break;
-      case "--output-markdown":
-        if (next) {
-          options.outputMarkdownPath = next;
-        }
-        index += 1;
-        break;
-      case "--training-config-path":
-        if (next) {
-          options.trainingConfigPath = next;
-        }
-        index += 1;
-        break;
-      case "--checkpoint-report-path":
-        if (next) {
-          options.checkpointReportPath = next;
-        }
-        index += 1;
-        break;
-      default:
-        break;
+    const valueHandler = valueOptionHandlers[arg];
+    if (valueHandler) {
+      valueHandler(options, next);
+      index += 1;
     }
   }
 
@@ -343,7 +336,7 @@ async function main() {
         "npm run backfill:competitive-provenance",
         "npm run riot:report-competitive",
         "npm run ml:export-raw",
-        "ml\\.venv\\Scripts\\python.exe ml\\scripts\\tasks.py build-dataset",
+        String.raw`ml\.venv\Scripts\python.exe ml\scripts\tasks.py build-dataset`,
         "npm run audit:premium-v1-dataset",
       ],
     },
@@ -361,11 +354,11 @@ async function main() {
   console.info(JSON.stringify(reportPayload, null, 2));
 }
 
-main()
-  .catch((error) => {
-    console.error("[premium-v1-audit] failed", error);
-    process.exitCode = 1;
-  })
-  .finally(async () => {
-    await prisma.$disconnect();
-  });
+try {
+  await main();
+} catch (error) {
+  console.error("[premium-v1-audit] failed", error);
+  process.exitCode = 1;
+} finally {
+  await prisma.$disconnect();
+}

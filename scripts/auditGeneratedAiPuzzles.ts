@@ -8,7 +8,7 @@ type CliOptions = {
 };
 
 function parseArgs(argv: string[]): CliOptions {
-  const limitIndex = argv.findIndex((arg) => arg === "--limit");
+  const limitIndex = argv.indexOf("--limit");
   return {
     limit: limitIndex === -1 ? 250 : Number(argv[limitIndex + 1] ?? "250"),
     applyQuarantine: argv.includes("--apply-quarantine"),
@@ -22,7 +22,7 @@ function asObject(value: unknown) {
 }
 
 function asStringArray(value: unknown) {
-  return Array.isArray(value) ? value.map((entry) => String(entry)).filter(Boolean) : [];
+  return Array.isArray(value) ? value.map(String).filter(Boolean) : [];
 }
 
 function getPublishabilityFloorGold(playerGold: number) {
@@ -61,6 +61,65 @@ function getDistractorDecisionBand(goodAnswerGold: number, playerGold: number) {
   return Math.max(750, Math.round(baseline * 0.55));
 }
 
+type AuditablePuzzle = {
+  scenario: { playerGold: number } | null;
+  choices: Array<{
+    isCorrect: boolean;
+    item: {
+      goldTotal: number;
+      buildsInto: unknown;
+      isLegendary: boolean;
+      isBoots: boolean;
+      isConsumable: boolean;
+      isStarter: boolean;
+      isTrinket: boolean;
+    } | null;
+  }>;
+};
+
+function collectPublishabilityFailures(puzzle: AuditablePuzzle): string[] {
+  if (!puzzle.scenario) return [];
+
+  const { playerGold } = puzzle.scenario;
+  const correctChoice = puzzle.choices.find((choice) => choice.isCorrect);
+  const distractorItems = puzzle.choices
+    .filter((choice) => !choice.isCorrect && choice.item)
+    .map((choice) => choice.item!);
+  const reasons: string[] = [];
+
+  if (!correctChoice?.item) {
+    reasons.push("missing-correct-item");
+    return reasons;
+  }
+
+  const goodAnswer = correctChoice.item;
+  const floorGold = getPublishabilityFloorGold(playerGold);
+  const legitimateComponent = isLegitimateBridgeComponent({
+    goldTotal: goodAnswer.goldTotal,
+    playerGold,
+    buildsInto: goodAnswer.buildsInto,
+    isLegendary: goodAnswer.isLegendary,
+    isBoots: goodAnswer.isBoots,
+    isConsumable: goodAnswer.isConsumable,
+    isStarter: goodAnswer.isStarter,
+    isTrinket: goodAnswer.isTrinket,
+  });
+
+  if (goodAnswer.goldTotal < floorGold && !legitimateComponent) {
+    reasons.push("trivial-good-answer");
+  }
+
+  const decisionBand = getDistractorDecisionBand(goodAnswer.goldTotal, playerGold);
+  const credibleDistractors = distractorItems.filter(
+    (item) => Math.abs(item.goldTotal - goodAnswer.goldTotal) <= decisionBand,
+  );
+  if (credibleDistractors.length < 3) {
+    reasons.push("insufficient-credible-distractors");
+  }
+
+  return reasons;
+}
+
 async function main() {
   const options = parseArgs(process.argv.slice(2));
   const requests = await prisma.generatedPuzzleRequest.findMany({
@@ -95,37 +154,8 @@ async function main() {
       continue;
     }
 
-    const correctChoice = puzzle.choices.find((choice) => choice.isCorrect);
-    const distractorItems = puzzle.choices.filter((choice) => !choice.isCorrect && choice.item).map((choice) => choice.item!);
-    const reasons: string[] = [];
+    const reasons = collectPublishabilityFailures(puzzle);
     const playerGold = puzzle.scenario.playerGold;
-
-    if (!correctChoice?.item) {
-      reasons.push("missing-correct-item");
-    } else {
-      const goodAnswer = correctChoice.item;
-      const floorGold = getPublishabilityFloorGold(playerGold);
-      const legitimateComponent = isLegitimateBridgeComponent({
-        goldTotal: goodAnswer.goldTotal,
-        playerGold,
-        buildsInto: goodAnswer.buildsInto,
-        isLegendary: goodAnswer.isLegendary,
-        isBoots: goodAnswer.isBoots,
-        isConsumable: goodAnswer.isConsumable,
-        isStarter: goodAnswer.isStarter,
-        isTrinket: goodAnswer.isTrinket,
-      });
-
-      if (goodAnswer.goldTotal < floorGold && !legitimateComponent) {
-        reasons.push("trivial-good-answer");
-      }
-
-      const decisionBand = getDistractorDecisionBand(goodAnswer.goldTotal, playerGold);
-      const credibleDistractors = distractorItems.filter((item) => Math.abs(item.goldTotal - goodAnswer.goldTotal) <= decisionBand);
-      if (credibleDistractors.length < 3) {
-        reasons.push("insufficient-credible-distractors");
-      }
-    }
 
     if (reasons.length === 0) {
       continue;
@@ -184,11 +214,11 @@ async function main() {
   }, null, 2));
 }
 
-main()
-  .catch((error) => {
-    console.error("[audit-ai-puzzles] failed", error);
-    process.exitCode = 1;
-  })
-  .finally(async () => {
-    await prisma.$disconnect();
-  });
+try {
+  await main();
+} catch (error) {
+  console.error("[audit-ai-puzzles] failed", error);
+  process.exitCode = 1;
+} finally {
+  await prisma.$disconnect();
+}

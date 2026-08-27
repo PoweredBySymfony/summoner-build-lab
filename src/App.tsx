@@ -4,6 +4,7 @@ import { BrowserRouter, Route, Routes, useLocation, useParams } from "react-rout
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { ThemeProvider } from "@/components/theme-provider";
 import { LanguageProvider } from "@/i18n/context";
 import Navbar from "./components/Navbar";
 
@@ -77,7 +78,6 @@ const AppFrame = () => {
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/modules" element={<Modules />} />
           <Route path="/puzzles" element={<Modules />} />
-          <Route path="/training" element={<KeyedTrainingRoute />} />
           <Route path="/training/:slug" element={<KeyedTrainingRoute />} />
           <Route path="/daily" element={<Daily />} />
           <Route path="/auth" element={<Auth />} />
@@ -96,15 +96,17 @@ const AppFrame = () => {
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
-    <LanguageProvider>
-      <TooltipProvider>
-        <Toaster />
-        <Sonner />
-        <BrowserRouter>
-          <AppFrame />
-        </BrowserRouter>
-      </TooltipProvider>
-    </LanguageProvider>
+    <ThemeProvider attribute="class" defaultTheme="dark" enableSystem disableTransitionOnChange>
+      <LanguageProvider>
+        <TooltipProvider>
+          <Toaster />
+          <Sonner />
+          <BrowserRouter>
+            <AppFrame />
+          </BrowserRouter>
+        </TooltipProvider>
+      </LanguageProvider>
+    </ThemeProvider>
   </QueryClientProvider>
 );
 

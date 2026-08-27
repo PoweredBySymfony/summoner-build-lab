@@ -177,6 +177,19 @@ function estimateDamageProfile(stats: NormalizedStats) {
   };
 }
 
+function describeStatDelta(
+  delta: number,
+  labels: { positive: string; negative: string },
+) {
+  if (Math.abs(delta) < 1) {
+    return "equivalent";
+  }
+  if (delta > 0) {
+    return labels.positive;
+  }
+  return labels.negative;
+}
+
 function buildDamageRows(recommendedStats: NormalizedStats, comparedStats: NormalizedStats) {
   const recommendedDamage = estimateDamageProfile(recommendedStats);
   const comparedDamage = estimateDamageProfile(comparedStats);
@@ -218,7 +231,7 @@ function buildDamageRows(recommendedStats: NormalizedStats, comparedStats: Norma
       comparedValue,
       delta,
       unit: labels[key].unit,
-      interpretation: Math.abs(delta) < 1 ? "equivalent" : delta > 0 ? labels[key].positive : labels[key].negative,
+      interpretation: describeStatDelta(delta, labels[key]),
     };
   });
 }
@@ -258,6 +271,40 @@ function buildEfficiencyRows(input: {
   }));
 }
 
+function selectVerdictWinner(total: number) {
+  if (Math.abs(total) < 15) {
+    return "tie";
+  }
+  if (total > 0) {
+    return "recommended";
+  }
+  return "compared";
+}
+
+function selectVerdictConfidence(total: number, hasBlockedReasons: boolean) {
+  if (Math.abs(total) >= 90 || hasBlockedReasons) {
+    return "high";
+  }
+  if (Math.abs(total) >= 35) {
+    return "medium";
+  }
+  return "low";
+}
+
+function buildVerdictSummary(input: {
+  winner: "recommended" | "compared" | "tie";
+  recommendedItemName: string;
+  comparedItemName: string;
+}) {
+  if (input.winner === "recommended") {
+    return `${input.recommendedItemName} est plus coherent ici: meilleur compromis degats reels, profil de fight et contraintes d'achat.`;
+  }
+  if (input.winner === "compared") {
+    return `${input.comparedItemName} gagne certains chiffres bruts, mais cette lecture doit etre verifiee contre les contraintes du snapshot.`;
+  }
+  return "Les deux options sont proches: la decision depend surtout du contexte de fight et des contraintes d'achat.";
+}
+
 function buildStrategicVerdict(input: {
   recommendedItemName: string;
   comparedItemName: string;
@@ -271,8 +318,8 @@ function buildStrategicVerdict(input: {
   const efficiencyDelta = input.efficiencyRows.reduce((sum, row) => sum + row.delta, 0);
   const blockerPenalty = input.blockedReasons.length > 0 ? 80 : 0;
   const total = damageDelta * 0.55 + profileDelta * 6 + efficiencyDelta * 1.2 + blockerPenalty;
-  const winner = Math.abs(total) < 15 ? "tie" : total > 0 ? "recommended" : "compared";
-  const confidence = Math.abs(total) >= 90 || input.blockedReasons.length > 0 ? "high" : Math.abs(total) >= 35 ? "medium" : "low";
+  const winner = selectVerdictWinner(total);
+  const confidence = selectVerdictConfidence(total, input.blockedReasons.length > 0);
   const bestDamageRows = [...input.damageRows].sort((left, right) => Math.abs(right.delta) - Math.abs(left.delta)).slice(0, 2);
   const bestProfileRows = [...input.profileDeltaRows].sort((left, right) => Math.abs(right.delta) - Math.abs(left.delta)).slice(0, 2);
   const reasons = [
@@ -284,12 +331,11 @@ function buildStrategicVerdict(input: {
   return {
     winner,
     confidence,
-    summary:
-      winner === "recommended"
-        ? `${input.recommendedItemName} est plus coherent ici: meilleur compromis degats reels, profil de fight et contraintes d'achat.`
-        : winner === "compared"
-          ? `${input.comparedItemName} gagne certains chiffres bruts, mais cette lecture doit etre verifiee contre les contraintes du snapshot.`
-          : "Les deux options sont proches: la decision depend surtout du contexte de fight et des contraintes d'achat.",
+    summary: buildVerdictSummary({
+      winner,
+      recommendedItemName: input.recommendedItemName,
+      comparedItemName: input.comparedItemName,
+    }),
     reasons,
   };
 }
@@ -305,10 +351,12 @@ function extractScenarioItemSlugs(currentBuild: unknown) {
         return entry;
       }
       if (entry && typeof entry === "object" && "itemSlug" in entry) {
-        return String((entry as Record<string, unknown>).itemSlug ?? "");
+        const slug = (entry as Record<string, unknown>).itemSlug;
+        return typeof slug === "string" ? slug : "";
       }
       if (entry && typeof entry === "object" && "id" in entry) {
-        return String((entry as Record<string, unknown>).id ?? "");
+        const id = (entry as Record<string, unknown>).id;
+        return typeof id === "string" ? id : "";
       }
       return "";
     })
@@ -402,7 +450,7 @@ export const itemExplanationService = {
     if (!puzzle.isPublished && !input.currentUserId) {
       throw new HttpError(403, "La preuve item n'est disponible que pour les puzzles publies.");
     }
-    if (!puzzle.scenario || !puzzle.scenario.playerChampion) {
+    if (!puzzle.scenario?.playerChampion) {
       throw new HttpError(400, "Ce puzzle ne contient pas de scenario exploitable.");
     }
 
@@ -434,6 +482,7 @@ export const itemExplanationService = {
     }
 
     const availableGold = puzzle.scenario.playerGold ?? 0;
+    const currentBuildSignature = [...currentBuildSlugs].sort((left, right) => left.localeCompare(right)).join("|");
     const cacheKey = buildCacheKey([
       "v2",
       puzzle.id,
@@ -441,7 +490,7 @@ export const itemExplanationService = {
       comparedItem.slug,
       puzzle.scenario.playerLevel ?? 0,
       availableGold,
-      currentBuildSlugs.sort().join("|"),
+      currentBuildSignature,
     ]);
     const cached = await importedMatchArchiveRepository.getCachedItemExplanation(cacheKey);
     if (cached?.payload) {

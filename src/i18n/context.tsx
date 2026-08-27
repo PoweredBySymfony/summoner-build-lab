@@ -1,28 +1,8 @@
-import { createContext, useContext, useState, useCallback, type ReactNode } from "react";
-import { fr } from "./translations/fr";
-import { en } from "./translations/en";
-
-type Language = "fr" | "en";
-type TranslationNode = string | { [key: string]: TranslationNode };
-type Translations = Record<string, TranslationNode>;
-
-const translations: Record<Language, Translations> = { fr, en };
-
-interface LanguageContextType {
-  lang: Language;
-  setLang: (lang: Language) => void;
-  t: (key: string) => string;
-}
-
-const LanguageContext = createContext<LanguageContextType | null>(null);
+import { useState, useCallback, useMemo, type ReactNode } from "react";
+import { LanguageContext, translations, type Language, type TranslationNode } from "./languageContext";
 
 export const LanguageProvider = ({ children }: { children: ReactNode }) => {
-  const [lang, setLangState] = useState<Language>("fr");
-
-  const setLang = useCallback((newLang: Language) => {
-    setLangState(newLang === "en" ? "fr" : newLang);
-    localStorage.setItem("itemforge-lang", "fr");
-  }, []);
+  const [lang, setLang] = useState<Language>("fr");
 
   const t = useCallback((key: string): string => {
     const keys = key.split(".");
@@ -33,15 +13,18 @@ export const LanguageProvider = ({ children }: { children: ReactNode }) => {
     return typeof value === "string" ? value : key;
   }, [lang]);
 
+  const contextValue = useMemo(() => ({
+    lang,
+    setLang: (newLang: Language) => {
+      setLang(newLang === "en" ? "fr" : newLang);
+      localStorage.setItem("itemforge-lang", "fr");
+    },
+    t,
+  }), [lang, setLang, t]);
+
   return (
-    <LanguageContext.Provider value={{ lang, setLang, t }}>
+    <LanguageContext.Provider value={contextValue}>
       {children}
     </LanguageContext.Provider>
   );
-};
-
-export const useLanguage = () => {
-  const ctx = useContext(LanguageContext);
-  if (!ctx) throw new Error("useLanguage must be used within LanguageProvider");
-  return ctx;
 };

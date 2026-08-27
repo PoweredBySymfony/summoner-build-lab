@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1020" height="360" viewBox="0 0 1020 360" role="img" aria-labelledby="title desc">
+  <title id="title">Politique d'analyse de branches SonarQube Community Build</title>
+  <desc id="desc">Les branches feature executent la CI sans scan. Main execute la CI et le scan SonarQube.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L9,3 z" fill="#7c3aed"/>
+    </marker>
+    <style>
+      .bg { fill: #f8fafc; }
+      .feature { fill: #f5f3ff; stroke: #7c3aed; stroke-width: 2; rx: 10; }
+      .main { fill: #ecfdf5; stroke: #16a34a; stroke-width: 2; rx: 10; }
+      .warn { fill: #fff7ed; stroke: #ea580c; stroke-width: 2; rx: 10; }
+      .title { font: 700 22px Arial, sans-serif; fill: #0f172a; }
+      .label { font: 700 17px Arial, sans-serif; fill: #0f172a; }
+      .text { font: 14px Arial, sans-serif; fill: #334155; }
+      .arrow { stroke: #7c3aed; stroke-width: 3; fill: none; marker-end: url(#arrow); }
+    </style>
+  </defs>
+  <rect class="bg" width="1020" height="360"/>
+  <text x="36" y="44" class="title">Regle de branches</text>
+  <rect x="54" y="96" width="270" height="125" class="feature"/>
+  <text x="82" y="136" class="label">Branche feature</text>
+  <text x="82" y="166" class="text">optimization/coder-proprement-audit</text>
+  <text x="82" y="192" class="text">Execute lint, tests, coverage, build</text>
+  <text x="82" y="216" class="text">Ne publie pas dans SonarQube</text>
+
+  <path d="M324 158 L430 158" class="arrow"/>
+  <rect x="430" y="96" width="190" height="125" class="warn"/>
+  <text x="460" y="136" class="label">Pull request</text>
+  <text x="460" y="166" class="text">Validation CI</text>
+  <text x="460" y="192" class="text">Pas de pollution de main</text>
+
+  <path d="M620 158 L735 158" class="arrow"/>
+  <rect x="735" y="96" width="230" height="125" class="main"/>
+  <text x="765" y="136" class="label">main</text>
+  <text x="765" y="166" class="text">Execute toute la CI</text>
+  <text x="765" y="192" class="text">Publie le rapport SonarQube</text>
+
+  <rect x="54" y="260" width="911" height="64" class="warn"/>
+  <text x="82" y="298" class="text">Pourquoi: SonarQube Community Build ne fournit pas l'analyse branches/PR propre de SonarCloud ou Developer Edition.</text>
+</svg>

@@ -24,21 +24,27 @@ async function createMongoClient() {
     return null;
   }
 
+  const mongoUrl = env.MONGODB_URL ?? env.MONGODB_URI;
+  if (!mongoUrl) {
+    return null;
+  }
+
   const mongodb = await import("mongodb");
-  const client = new mongodb.MongoClient((env.MONGODB_URL ?? env.MONGODB_URI)!, {
+  const client = new mongodb.MongoClient(mongoUrl, {
     maxPoolSize: 10,
   });
   await client.connect();
-  return client as unknown as MongoClientLike;
+  return client;
 }
 
 export async function getMongoClient() {
-  if (!clientPromise) {
-    clientPromise = createMongoClient().catch((error) => {
-      clientPromise = null;
-      throw error;
-    });
+  if (clientPromise !== null) {
+    return clientPromise;
   }
+  clientPromise = createMongoClient().catch((error) => {
+    clientPromise = null;
+    throw error;
+  });
   return clientPromise;
 }
 
@@ -62,7 +68,8 @@ export async function getMongoHealth() {
 }
 
 export async function closeMongoClient() {
-  const client = await clientPromise;
+  const pendingClient = clientPromise;
   clientPromise = null;
+  const client = await pendingClient;
   await client?.close();
 }

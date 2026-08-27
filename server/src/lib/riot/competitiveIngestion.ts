@@ -263,6 +263,29 @@ export type CompetitiveIngestionReportInput = {
 const REPORT_PREFERRED_PATCH_PREFIXES = ["26."];
 const REPORT_ADJACENT_PATCH_PREFIXES = ["26.6", "26.5", "26.4", "26.3", "26.2"];
 
+const SOURCE_WEIGHTS: Record<CompetitiveSeedPriorityTier, number> = {
+  pro: 4_000_000_000,
+  elite: 3_000_000_000,
+  fallback: 2_000_000_000,
+};
+const PATCH_WEIGHTS: Record<CompetitivePatchBucket, number> = {
+  exact_target_patch: 500_000_000,
+  adjacent_recent_patch: 250_000_000,
+  out_of_target_patch: 0,
+};
+const QUEUE_WEIGHTS: Record<CompetitiveQueueBucket, number> = {
+  preferred_queue: 50_000_000,
+  fallback_queue: 10_000_000,
+  out_of_policy_queue: 0,
+};
+const BAND_WEIGHTS: Record<CompetitivePriorityBand, number> = {
+  tier1: 5_000_000,
+  tier2: 4_000_000,
+  tier3: 3_000_000,
+  tier4: 2_000_000,
+  tier5: 1_000_000,
+};
+
 export function buildCompetitiveSeedKey(
   seed: Pick<CompetitiveSeed, "playerName" | "team" | "league" | "role" | "priorityTier">,
 ) {
@@ -342,6 +365,37 @@ function resolveTierConfig(
   return policy.priorityTiers.find((tier) => tier.id === priorityBand) ?? null;
 }
 
+function makeRejectedDecision(
+  policyMode: CompetitivePolicyMode,
+  sourceBucket: CompetitiveSourceBucket,
+  patchBucket: CompetitivePatchBucket,
+  queueBucket: CompetitiveQueueBucket,
+  rejectionReason: string,
+): CompetitivePolicyDecision {
+  return { policyMode, sourceBucket, patchBucket, queueBucket, accepted: false, acceptedReason: null, rejectionReason, fallbackReason: null, priorityBand: null };
+}
+
+function buildStrictDecision(
+  policyMode: CompetitivePolicyMode,
+  sourceBucket: CompetitiveSourceBucket,
+  patchBucket: CompetitivePatchBucket,
+  queueBucket: CompetitiveQueueBucket,
+  priorityBand: CompetitivePriorityBand,
+): CompetitivePolicyDecision {
+  const strictAccepted = patchBucket === "exact_target_patch" && queueBucket === "preferred_queue";
+  return {
+    policyMode,
+    sourceBucket,
+    patchBucket,
+    queueBucket,
+    accepted: strictAccepted,
+    acceptedReason: strictAccepted ? "strict-target-match" : null,
+    rejectionReason: strictAccepted ? null : "strict-mode-reject",
+    fallbackReason: null,
+    priorityBand: strictAccepted ? priorityBand : null,
+  };
+}
+
 export function evaluateCompetitiveMatchPolicy(
   input: {
     patch: string | null;
@@ -356,106 +410,28 @@ export function evaluateCompetitiveMatchPolicy(
   const queueBucket = classifyQueueBucket(input.queueId, policy);
 
   if (!input.gameCreationAt) {
-    return {
-      policyMode: policy.mode,
-      sourceBucket,
-      patchBucket,
-      queueBucket,
-      accepted: false,
-      acceptedReason: null,
-      rejectionReason: "game-creation-missing",
-      fallbackReason: null,
-      priorityBand: null,
-    };
+    return makeRejectedDecision(policy.mode, sourceBucket, patchBucket, queueBucket, "game-creation-missing");
   }
-
   const gameCreationAtMs = input.gameCreationAt.getTime();
   if (gameCreationAtMs < policy.seasonWindowStartMs) {
-    return {
-      policyMode: policy.mode,
-      sourceBucket,
-      patchBucket,
-      queueBucket,
-      accepted: false,
-      acceptedReason: null,
-      rejectionReason: "before-season-window",
-      fallbackReason: null,
-      priorityBand: null,
-    };
+    return makeRejectedDecision(policy.mode, sourceBucket, patchBucket, queueBucket, "before-season-window");
   }
-
   if (policy.seasonWindowEndMs && gameCreationAtMs > policy.seasonWindowEndMs) {
-    return {
-      policyMode: policy.mode,
-      sourceBucket,
-      patchBucket,
-      queueBucket,
-      accepted: false,
-      acceptedReason: null,
-      rejectionReason: "after-season-window",
-      fallbackReason: null,
-      priorityBand: null,
-    };
+    return makeRejectedDecision(policy.mode, sourceBucket, patchBucket, queueBucket, "after-season-window");
   }
-
   if (queueBucket === "out_of_policy_queue") {
-    return {
-      policyMode: policy.mode,
-      sourceBucket,
-      patchBucket,
-      queueBucket,
-      accepted: false,
-      acceptedReason: null,
-      rejectionReason: "queue-not-allowed",
-      fallbackReason: null,
-      priorityBand: null,
-    };
+    return makeRejectedDecision(policy.mode, sourceBucket, patchBucket, queueBucket, "queue-not-allowed");
   }
-
   if (patchBucket === "out_of_target_patch") {
-    return {
-      policyMode: policy.mode,
-      sourceBucket,
-      patchBucket,
-      queueBucket,
-      accepted: false,
-      acceptedReason: null,
-      rejectionReason: "patch-not-allowed",
-      fallbackReason: null,
-      priorityBand: null,
-    };
+    return makeRejectedDecision(policy.mode, sourceBucket, patchBucket, queueBucket, "patch-not-allowed");
   }
-
   const priorityBand = resolvePriorityBand(sourceBucket, patchBucket, queueBucket, policy);
   if (!priorityBand) {
-    return {
-      policyMode: policy.mode,
-      sourceBucket,
-      patchBucket,
-      queueBucket,
-      accepted: false,
-      acceptedReason: null,
-      rejectionReason: "source-tier-disabled",
-      fallbackReason: null,
-      priorityBand: null,
-    };
+    return makeRejectedDecision(policy.mode, sourceBucket, patchBucket, queueBucket, "source-tier-disabled");
   }
-
   if (policy.mode === "strict_recent_competitive") {
-    const strictAccepted = patchBucket === "exact_target_patch" && queueBucket === "preferred_queue";
-    return {
-      policyMode: policy.mode,
-      sourceBucket,
-      patchBucket,
-      queueBucket,
-      accepted: strictAccepted,
-      acceptedReason: strictAccepted ? "strict-target-match" : null,
-      rejectionReason: strictAccepted ? null : "strict-mode-reject",
-      fallbackReason: null,
-      priorityBand: strictAccepted ? priorityBand : null,
-    };
+    return buildStrictDecision(policy.mode, sourceBucket, patchBucket, queueBucket, priorityBand);
   }
-
   const tierConfig = resolveTierConfig(priorityBand, policy);
   return {
     policyMode: policy.mode,
@@ -479,25 +455,10 @@ export function scoreCompetitiveMatch(input: {
   queueBucket: CompetitiveQueueBucket;
   priorityBand: CompetitivePriorityBand | null;
 }) {
-  const sourceWeight =
-    input.priorityTier === "pro" ? 4_000_000_000 :
-      input.priorityTier === "elite" ? 3_000_000_000 :
-        2_000_000_000;
-  const patchWeight =
-    input.patchBucket === "exact_target_patch" ? 500_000_000 :
-      input.patchBucket === "adjacent_recent_patch" ? 250_000_000 :
-        0;
-  const queueWeight =
-    input.queueBucket === "preferred_queue" ? 50_000_000 :
-      input.queueBucket === "fallback_queue" ? 10_000_000 :
-        0;
-  const bandWeight =
-    input.priorityBand === "tier1" ? 5_000_000 :
-      input.priorityBand === "tier2" ? 4_000_000 :
-        input.priorityBand === "tier3" ? 3_000_000 :
-          input.priorityBand === "tier4" ? 2_000_000 :
-            input.priorityBand === "tier5" ? 1_000_000 :
-              0;
+  const sourceWeight = SOURCE_WEIGHTS[input.priorityTier];
+  const patchWeight = PATCH_WEIGHTS[input.patchBucket];
+  const queueWeight = QUEUE_WEIGHTS[input.queueBucket];
+  const bandWeight = input.priorityBand ? (BAND_WEIGHTS[input.priorityBand] ?? 0) : 0;
   const recencyWeight = input.gameCreationAt ? Math.floor(input.gameCreationAt.getTime() / 60_000) : 0;
   return sourceWeight + patchWeight + queueWeight + bandWeight + input.priorityScore * 1_000 + recencyWeight;
 }
@@ -523,6 +484,15 @@ function buildOrderedBandList(policy: CompetitiveIngestionPolicyRuntime) {
     .map((tier) => tier.id);
 }
 
+function getBandActivationLabel(band: string): string {
+  const labels: Record<string, string> = {
+    tier2: "fallback-opened: pro_adjacent_patch",
+    tier3: "fallback-opened: elite_exact_patch",
+    tier4: "fallback-opened: elite_adjacent_patch",
+  };
+  return labels[band] ?? "fallback-opened: fallback_exact_patch";
+}
+
 export function determineOpenedFallbackTiers(input: {
   matches: CompetitiveDiscoveredMatch[];
   targetUniqueMatches: number;
@@ -545,12 +515,7 @@ export function determineOpenedFallbackTiers(input: {
     available += bandAvailable;
 
     if (band !== "tier1") {
-      const activation =
-        band === "tier2" ? "fallback-opened: pro_adjacent_patch" :
-          band === "tier3" ? "fallback-opened: elite_exact_patch" :
-            band === "tier4" ? "fallback-opened: elite_adjacent_patch" :
-              "fallback-opened: fallback_exact_patch";
-      opened.push(activation);
+      opened.push(getBandActivationLabel(band));
     }
 
     if (input.policy.mode === "strict_recent_competitive" || available >= input.targetUniqueMatches) {
@@ -599,6 +564,29 @@ function canSelectWithCaps(input: {
   return true;
 }
 
+function runQueueSelectionRound(
+  groupKeys: string[],
+  grouped: Map<string, CompetitiveDiscoveredMatch[]>,
+  queue: CompetitiveDiscoveredMatch[],
+  seen: Set<string>,
+  targetUniqueMatches: number,
+  policy: CompetitiveIngestionPolicyRuntime,
+): boolean {
+  let progressed = false;
+  for (const groupKey of groupKeys) {
+    const bucket = grouped.get(groupKey);
+    if (!bucket?.length) continue;
+    const next = bucket.shift();
+    if (!next || seen.has(next.matchId)) continue;
+    if (!canSelectWithCaps({ candidate: next, selected: queue, targetUniqueMatches, policy })) continue;
+    seen.add(next.matchId);
+    queue.push(next);
+    progressed = true;
+    if (queue.length >= targetUniqueMatches) break;
+  }
+  return progressed;
+}
+
 export function buildCompetitiveMatchQueue(input: {
   matches: CompetitiveDiscoveredMatch[];
   targetUniqueMatches: number;
@@ -623,8 +611,8 @@ export function buildCompetitiveMatchQueue(input: {
     grouped.set(key, bucket);
   }
 
-  for (const bucket of grouped.values()) {
-    bucket.sort((left, right) => right.matchPriorityScore - left.matchPriorityScore || left.matchId.localeCompare(right.matchId));
+  for (const [key, bucket] of grouped.entries()) {
+    grouped.set(key, [...bucket].sort((left, right) => right.matchPriorityScore - left.matchPriorityScore || left.matchId.localeCompare(right.matchId)));
   }
 
   const groupKeys = [...grouped.keys()].sort((left, right) => {
@@ -638,34 +626,7 @@ export function buildCompetitiveMatchQueue(input: {
   const seen = new Set<string>();
 
   while (queue.length < input.targetUniqueMatches) {
-    let progressed = false;
-    for (const groupKey of groupKeys) {
-      const bucket = grouped.get(groupKey);
-      if (!bucket?.length) {
-        continue;
-      }
-      const next = bucket.shift()!;
-      if (seen.has(next.matchId)) {
-        continue;
-      }
-      if (!canSelectWithCaps({
-        candidate: next,
-        selected: queue,
-        targetUniqueMatches: input.targetUniqueMatches,
-        policy: input.policy,
-      })) {
-        continue;
-      }
-      seen.add(next.matchId);
-      queue.push(next);
-      progressed = true;
-      if (queue.length >= input.targetUniqueMatches) {
-        break;
-      }
-    }
-    if (!progressed) {
-      break;
-    }
+    if (!runQueueSelectionRound(groupKeys, grouped, queue, seen, input.targetUniqueMatches, input.policy)) break;
   }
 
   return queue;
@@ -737,83 +698,112 @@ export async function loadCompetitiveIngestionCheckpoint(checkpointPath: string)
   }
 }
 
+type IngestionReportAccumulator = {
+  patchCounts: Map<string, number>;
+  queueCounts: Map<string, number>;
+  leagueCounts: Map<string, number>;
+  regionCounts: Map<string, number>;
+  tierCounts: Map<string, number>;
+  roleCounts: Map<string, number>;
+  patchBucketCounts: Map<string, number>;
+  queueBucketCounts: Map<string, number>;
+  priorityBandCounts: Map<string, number>;
+  missingCounts: Map<string, number>;
+  timelineCount: number;
+  exactTargetCount: number;
+  adjacentPatchCount: number;
+  outOfTargetCount: number;
+  proCount: number;
+  eliteCount: number;
+  fallbackCount: number;
+  minGameDate: Date | null;
+  maxGameDate: Date | null;
+};
+
+function classifyRowQueueBucket(row: CompetitiveIngestionReportRow): string {
+  if (row.queueBucket) return row.queueBucket;
+  if (row.queueId === 420) return "preferred_queue";
+  if (row.queueId === 440) return "fallback_queue";
+  return "out_of_policy_queue";
+}
+
+function incrementMap(map: Map<string, number>, key: string): void {
+  map.set(key, (map.get(key) ?? 0) + 1);
+}
+
+function accumulateReportRow(row: CompetitiveIngestionReportRow, acc: IngestionReportAccumulator): void {
+  const effectivePatchBucket = classifyCanonicalPatchBucket(row.patch, REPORT_PREFERRED_PATCH_PREFIXES, REPORT_ADJACENT_PATCH_PREFIXES);
+  const effectiveQueueBucket = classifyRowQueueBucket(row);
+  incrementMap(acc.patchCounts, row.patch ?? "unknown");
+  incrementMap(acc.queueCounts, String(row.queueId ?? "unknown"));
+  incrementMap(acc.leagueCounts, row.sourceLeague ?? "unknown");
+  incrementMap(acc.regionCounts, row.sourceRegion ?? "unknown");
+  incrementMap(acc.tierCounts, row.priorityTier ?? "unknown");
+  incrementMap(acc.roleCounts, row.targetRole ?? "UNKNOWN");
+  incrementMap(acc.patchBucketCounts, effectivePatchBucket);
+  incrementMap(acc.queueBucketCounts, effectiveQueueBucket);
+  incrementMap(acc.priorityBandCounts, row.priorityBand ?? "unknown");
+  if (effectivePatchBucket === "exact_target_patch") {
+    acc.exactTargetCount += 1;
+  } else if (effectivePatchBucket === "adjacent_recent_patch") {
+    acc.adjacentPatchCount += 1;
+  } else {
+    acc.outOfTargetCount += 1;
+  }
+  if (row.priorityTier === "pro") {
+    acc.proCount += 1;
+  } else if (row.priorityTier === "elite") {
+    acc.eliteCount += 1;
+  } else if (row.priorityTier === "fallback") {
+    acc.fallbackCount += 1;
+  }
+  if (row.timelineFetchedAt) {
+    acc.timelineCount += 1;
+  } else {
+    incrementMap(acc.missingCounts, row.timelineMissingReason ?? "unknown");
+  }
+  if (row.gameCreationAt && (!acc.minGameDate || row.gameCreationAt < acc.minGameDate)) {
+    acc.minGameDate = row.gameCreationAt;
+  }
+  if (row.gameCreationAt && (!acc.maxGameDate || row.gameCreationAt > acc.maxGameDate)) {
+    acc.maxGameDate = row.gameCreationAt;
+  }
+}
+
 export function buildCompetitiveIngestionReport(input: CompetitiveIngestionReportInput) {
   const { persistedRows, discoveredMatches = [], discoveries = [], resolvedSeeds = [], failedMatches = [] } = input;
-  const patchCounts = new Map<string, number>();
-  const queueCounts = new Map<string, number>();
-  const leagueCounts = new Map<string, number>();
-  const regionCounts = new Map<string, number>();
-  const tierCounts = new Map<string, number>();
-  const roleCounts = new Map<string, number>();
-  const patchBucketCounts = new Map<string, number>();
-  const queueBucketCounts = new Map<string, number>();
-  const priorityBandCounts = new Map<string, number>();
-  const missingCounts = new Map<string, number>();
-  let timelineCount = 0;
-  let exactTargetCount = 0;
-  let adjacentPatchCount = 0;
-  let outOfTargetCount = 0;
-  let proCount = 0;
-  let eliteCount = 0;
-  let fallbackCount = 0;
-  let minGameDate: Date | null = null;
-  let maxGameDate: Date | null = null;
+  const acc: IngestionReportAccumulator = {
+    patchCounts: new Map(),
+    queueCounts: new Map(),
+    leagueCounts: new Map(),
+    regionCounts: new Map(),
+    tierCounts: new Map(),
+    roleCounts: new Map(),
+    patchBucketCounts: new Map(),
+    queueBucketCounts: new Map(),
+    priorityBandCounts: new Map(),
+    missingCounts: new Map(),
+    timelineCount: 0,
+    exactTargetCount: 0,
+    adjacentPatchCount: 0,
+    outOfTargetCount: 0,
+    proCount: 0,
+    eliteCount: 0,
+    fallbackCount: 0,
+    minGameDate: null,
+    maxGameDate: null,
+  };
 
   for (const row of persistedRows) {
-    const effectivePatchBucket = classifyCanonicalPatchBucket(
-      row.patch,
-      REPORT_PREFERRED_PATCH_PREFIXES,
-      REPORT_ADJACENT_PATCH_PREFIXES,
-    );
-    const effectiveQueueBucket =
-      row.queueBucket
-        ? row.queueBucket
-        : row.queueId === 420
-          ? "preferred_queue"
-          : row.queueId === 440
-            ? "fallback_queue"
-            : "out_of_policy_queue";
-    const patch = row.patch ?? "unknown";
-    patchCounts.set(patch, (patchCounts.get(patch) ?? 0) + 1);
-    queueCounts.set(String(row.queueId ?? "unknown"), (queueCounts.get(String(row.queueId ?? "unknown")) ?? 0) + 1);
-    leagueCounts.set(row.sourceLeague ?? "unknown", (leagueCounts.get(row.sourceLeague ?? "unknown") ?? 0) + 1);
-    regionCounts.set(row.sourceRegion ?? "unknown", (regionCounts.get(row.sourceRegion ?? "unknown") ?? 0) + 1);
-    tierCounts.set(row.priorityTier ?? "unknown", (tierCounts.get(row.priorityTier ?? "unknown") ?? 0) + 1);
-    roleCounts.set(row.targetRole ?? "UNKNOWN", (roleCounts.get(row.targetRole ?? "UNKNOWN") ?? 0) + 1);
-    patchBucketCounts.set(effectivePatchBucket, (patchBucketCounts.get(effectivePatchBucket) ?? 0) + 1);
-    queueBucketCounts.set(effectiveQueueBucket, (queueBucketCounts.get(effectiveQueueBucket) ?? 0) + 1);
-    priorityBandCounts.set(row.priorityBand ?? "unknown", (priorityBandCounts.get(row.priorityBand ?? "unknown") ?? 0) + 1);
-
-    if (effectivePatchBucket === "exact_target_patch") {
-      exactTargetCount += 1;
-    } else if (effectivePatchBucket === "adjacent_recent_patch") {
-      adjacentPatchCount += 1;
-    } else {
-      outOfTargetCount += 1;
-    }
-
-    if (row.priorityTier === "pro") {
-      proCount += 1;
-    } else if (row.priorityTier === "elite") {
-      eliteCount += 1;
-    } else if (row.priorityTier === "fallback") {
-      fallbackCount += 1;
-    }
-
-    if (row.timelineFetchedAt) {
-      timelineCount += 1;
-    } else {
-      const reason = row.timelineMissingReason ?? "unknown";
-      missingCounts.set(reason, (missingCounts.get(reason) ?? 0) + 1);
-    }
-
-    if (row.gameCreationAt && (!minGameDate || row.gameCreationAt < minGameDate)) {
-      minGameDate = row.gameCreationAt;
-    }
-    if (row.gameCreationAt && (!maxGameDate || row.gameCreationAt > maxGameDate)) {
-      maxGameDate = row.gameCreationAt;
-    }
+    accumulateReportRow(row, acc);
   }
+
+  const {
+    patchCounts, queueCounts, leagueCounts, regionCounts, tierCounts, roleCounts,
+    patchBucketCounts, queueBucketCounts, priorityBandCounts, missingCounts,
+    timelineCount, exactTargetCount, adjacentPatchCount, outOfTargetCount,
+    proCount, eliteCount, fallbackCount, minGameDate, maxGameDate,
+  } = acc;
 
   const discovered = new Set(discoveredMatches.map((entry) => entry.matchId)).size;
   const discoveredAfterTimeFilter = new Set(

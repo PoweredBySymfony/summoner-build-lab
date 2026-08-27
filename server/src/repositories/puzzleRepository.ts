@@ -34,7 +34,7 @@ export const puzzleRepository = {
     }),
   listPublished: (args?: Omit<Prisma.PuzzleFindManyArgs, "include">) =>
     prisma.puzzle.findMany({
-      where: { isPublished: true, ...(args?.where ?? {}) },
+      where: { isPublished: true, ...args?.where },
       include: puzzleInclude,
       orderBy: args?.orderBy ?? [{ createdAt: "desc" }],
       take: args?.take,

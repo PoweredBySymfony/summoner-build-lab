@@ -23,9 +23,11 @@ function parseArgs(argv: string[]): CliOptions {
     checkpointPath: path.join("data", "runtime", "competitive-ingestion", "checkpoint.json"),
   };
 
-  for (let index = 0; index < argv.length; index += 1) {
+  let index = 0;
+  while (index < argv.length) {
     const arg = argv[index];
-    const next = argv[index + 1];
+    index += 1;
+    const next = argv[index];
     if (arg === "--checkpoint-path" && next) {
       options.checkpointPath = next;
       index += 1;
@@ -33,6 +35,69 @@ function parseArgs(argv: string[]): CliOptions {
   }
 
   return options;
+}
+
+function resolveMatchSeedMetadata(
+  discovery: CompetitiveSeedMatchDiscovery | undefined | null,
+  resolvedSeed: CompetitiveResolvedSeed | undefined | null,
+  sourceKind: string,
+): Record<string, unknown> {
+  if (resolvedSeed) {
+    return {
+      playerName: resolvedSeed.playerName,
+      playerPage: resolvedSeed.playerPage ?? null,
+      team: resolvedSeed.team,
+      league: resolvedSeed.league,
+      competition: resolvedSeed.competition,
+      role: resolvedSeed.role,
+      region: resolvedSeed.region,
+      riotId: resolvedSeed.resolvedRiotId ?? resolvedSeed.riotId ?? null,
+      puuid: resolvedSeed.puuid,
+      platform: resolvedSeed.platformHint,
+      cluster: resolvedSeed.cluster,
+      priorityTier: resolvedSeed.priorityTier,
+      priorityScore: resolvedSeed.priorityScore,
+      discoverySource: resolvedSeed.discoverySource,
+      seedSetVersion: resolvedSeed.seedSetVersion,
+      season: resolvedSeed.season,
+      sourceTournamentDate: resolvedSeed.sourceTournamentDate,
+      sourceUrl: resolvedSeed.sourceUrl ?? null,
+    };
+  }
+  if (discovery) {
+    return {
+      playerName: discovery.playerName,
+      team: discovery.team,
+      league: discovery.league,
+      competition: discovery.competition,
+      role: discovery.role,
+      region: discovery.region,
+      puuid: discovery.puuid,
+      priorityTier: discovery.priorityTier,
+      priorityScore: discovery.priorityScore,
+    };
+  }
+  return { priorityTier: sourceTierFromSourceKind(sourceKind) };
+}
+
+function hasUnknownTier(row: { sourceKind: string; sourceMetadata: unknown }): boolean {
+  const metadata =
+    typeof row.sourceMetadata === "object" && row.sourceMetadata !== null && !Array.isArray(row.sourceMetadata)
+      ? (row.sourceMetadata as Record<string, unknown>)
+      : {};
+  const seed =
+    typeof metadata.seed === "object" && metadata.seed !== null && !Array.isArray(metadata.seed)
+      ? (metadata.seed as Record<string, unknown>)
+      : {};
+  const tier =
+    typeof seed.priorityTier === "string" && seed.priorityTier.length > 0
+      ? seed.priorityTier
+      : sourceTierFromSourceKind(row.sourceKind);
+  return tier === "unknown";
+}
+
+function resolveSourceRegion(seedMetadata: Record<string, unknown>, fallback: string | null): string | null {
+  return (typeof seedMetadata.region === "string" && seedMetadata.region.length > 0 ? seedMetadata.region : fallback) ?? null;
 }
 
 function buildMatchDiscoveryIndex(discoveries: CompetitiveSeedMatchDiscovery[]) {
@@ -86,43 +151,7 @@ async function main() {
   for (const row of rows) {
     const discovery = discoveryByMatchId.get(row.riotMatchId);
     const resolvedSeed = discovery ? resolvedSeedByKey.get(discovery.seedKey) : null;
-    const seedMetadata =
-      resolvedSeed
-        ? {
-          playerName: resolvedSeed.playerName,
-          playerPage: resolvedSeed.playerPage ?? null,
-          team: resolvedSeed.team,
-          league: resolvedSeed.league,
-          competition: resolvedSeed.competition,
-          role: resolvedSeed.role,
-          region: resolvedSeed.region,
-          riotId: resolvedSeed.resolvedRiotId ?? resolvedSeed.riotId ?? null,
-          puuid: resolvedSeed.puuid,
-          platform: resolvedSeed.platformHint,
-          cluster: resolvedSeed.cluster,
-          priorityTier: resolvedSeed.priorityTier,
-          priorityScore: resolvedSeed.priorityScore,
-          discoverySource: resolvedSeed.discoverySource,
-          seedSetVersion: resolvedSeed.seedSetVersion,
-          season: resolvedSeed.season,
-          sourceTournamentDate: resolvedSeed.sourceTournamentDate,
-          sourceUrl: resolvedSeed.sourceUrl ?? null,
-        }
-        : discovery
-          ? {
-            playerName: discovery.playerName,
-            team: discovery.team,
-            league: discovery.league,
-            competition: discovery.competition,
-            role: discovery.role,
-            region: discovery.region,
-            puuid: discovery.puuid,
-            priorityTier: discovery.priorityTier,
-            priorityScore: discovery.priorityScore,
-          }
-          : {
-            priorityTier: sourceTierFromSourceKind(row.sourceKind),
-          };
+    const seedMetadata = resolveMatchSeedMetadata(discovery, resolvedSeed, row.sourceKind);
     const decision = checkpoint.policyDecisionByMatchId?.[row.riotMatchId];
     const mergedMetadata = mergeCompetitiveSourceMetadata({
       sourceKind: row.sourceKind,
@@ -162,10 +191,7 @@ async function main() {
       },
       data: {
         sourceKind: row.sourceKind,
-        sourceRegion:
-          (typeof seedMetadata.region === "string" && seedMetadata.region.length > 0
-            ? seedMetadata.region
-            : row.sourceRegion) ?? null,
+        sourceRegion: resolveSourceRegion(seedMetadata, row.sourceRegion),
         sourceMetadata: mergedMetadata,
       },
     });
@@ -189,18 +215,7 @@ async function main() {
       sourceMetadata: true,
     },
   });
-  const remainingUnknownTierCount = competitiveRowsAfter.filter((row) => {
-    const seed =
-      typeof row.sourceMetadata === "object" && row.sourceMetadata !== null && !Array.isArray(row.sourceMetadata)
-      && typeof (row.sourceMetadata as Record<string, unknown>).seed === "object"
-      && (row.sourceMetadata as Record<string, unknown>).seed !== null
-        ? ((row.sourceMetadata as Record<string, unknown>).seed as Record<string, unknown>)
-        : {};
-    const tier = typeof seed.priorityTier === "string" && seed.priorityTier.length > 0
-      ? seed.priorityTier
-      : sourceTierFromSourceKind(row.sourceKind);
-    return tier === "unknown";
-  }).length;
+  const remainingUnknownTierCount = competitiveRowsAfter.filter(hasUnknownTier).length;
 
   console.info(JSON.stringify({
     checkpointPath: resolvedCheckpointPath,
@@ -213,11 +228,11 @@ async function main() {
   }, null, 2));
 }
 
-main()
-  .catch((error) => {
-    console.error("[backfill-competitive-provenance] failed", error);
-    process.exitCode = 1;
-  })
-  .finally(async () => {
-    await prisma.$disconnect();
-  });
+try {
+  await main();
+} catch (error) {
+  console.error("[backfill-competitive-provenance] failed", error);
+  process.exitCode = 1;
+} finally {
+  await prisma.$disconnect();
+}

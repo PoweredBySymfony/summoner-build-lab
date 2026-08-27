@@ -55,11 +55,11 @@ async function main() {
   );
 }
 
-main()
-  .catch((error) => {
-    console.error("[backfill-matches-to-mongo] failed", error);
-    process.exitCode = 1;
-  })
-  .finally(async () => {
-    await prisma.$disconnect();
-  });
+try {
+  await main();
+} catch (error) {
+  console.error("[backfill-matches-to-mongo] failed", error);
+  process.exitCode = 1;
+} finally {
+  try { await prisma.$disconnect(); } catch { /* ignore */ }
+}

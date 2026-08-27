@@ -1,5 +1,5 @@
 import { createGzip } from "node:zlib";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir } from "node:fs/promises";
 import { createWriteStream } from "node:fs";
 import path from "node:path";
 import { Readable } from "node:stream";
@@ -26,9 +26,11 @@ function parseArgs(argv: string[]): CliOptions {
     dryRun: false,
   };
 
-  for (let index = 0; index < argv.length; index += 1) {
+  let index = 0;
+  while (index < argv.length) {
     const arg = argv[index];
-    const next = argv[index + 1];
+    index += 1;
+    const next = argv[index];
 
     switch (arg) {
       case "--archive-dir":
@@ -227,11 +229,11 @@ async function main() {
   );
 }
 
-main()
-  .catch((error) => {
-    console.error("[ml-archive-legacy-raw] failed", error);
-    process.exitCode = 1;
-  })
-  .finally(async () => {
-    await prisma.$disconnect();
-  });
+try {
+  await main();
+} catch (error) {
+  console.error("[ml-archive-legacy-raw] failed", error);
+  process.exitCode = 1;
+} finally {
+  await prisma.$disconnect();
+}

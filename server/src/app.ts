@@ -3,7 +3,6 @@ import cors from "cors";
 import express from "express";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
-import type {} from "./types/express.js";
 import { env } from "./config/env.js";
 import { adminRoutes } from "./routes/adminRoutes.js";
 import { appRoutes } from "./routes/appRoutes.js";
@@ -37,7 +36,7 @@ app.use(rateLimit({
 app.use(cookieParser());
 app.use(express.json({ limit: "1mb" }));
 app.use((request, _response, next) => {
-  console.log(`[api] ${request.method} ${request.originalUrl}`);
+  console.log("[api] request received", { method: request.method });
   next();
 });
 app.use("/api", appRoutes);

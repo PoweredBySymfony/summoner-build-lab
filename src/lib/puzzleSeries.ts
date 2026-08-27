@@ -5,7 +5,7 @@ type StoredPuzzleSeries = {
   updatedAt: string;
 };
 
-const hasStorage = () => typeof window !== "undefined";
+const hasStorage = () => globalThis.window !== undefined;
 
 export const savePuzzleSeries = (slugs: string[]) => {
   if (!hasStorage()) {
@@ -16,7 +16,7 @@ export const savePuzzleSeries = (slugs: string[]) => {
     slugs,
     updatedAt: new Date().toISOString(),
   };
-  window.sessionStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+  globalThis.sessionStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
 };
 
 export const getPuzzleSeries = (): string[] => {
@@ -25,7 +25,7 @@ export const getPuzzleSeries = (): string[] => {
   }
 
   try {
-    const raw = window.sessionStorage.getItem(STORAGE_KEY);
+    const raw = globalThis.sessionStorage.getItem(STORAGE_KEY);
     if (!raw) {
       return [];
     }
@@ -39,7 +39,7 @@ export const getPuzzleSeries = (): string[] => {
 
 export const getNextPuzzleSlug = (currentSlug: string) => {
   const series = getPuzzleSeries();
-  const currentIndex = series.findIndex((slug) => slug === currentSlug);
+  const currentIndex = series.indexOf(currentSlug);
   if (currentIndex < 0) {
     return null;
   }

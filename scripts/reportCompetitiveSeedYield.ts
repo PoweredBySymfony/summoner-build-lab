@@ -42,9 +42,11 @@ function parseCliOptions(argv: string[]): CliOptions {
     markdownPath: DEFAULT_MARKDOWN_PATH,
   };
 
-  for (let index = 0; index < argv.length; index += 1) {
+  let index = 0;
+  while (index < argv.length) {
     const arg = argv[index];
-    const next = argv[index + 1];
+    index += 1;
+    const next = argv[index];
     if (arg === "--checkpoint-path" && next) {
       options.checkpointPath = next;
       index += 1;
@@ -196,6 +198,13 @@ function buildReport(checkpoint: CompetitiveIngestionCheckpoint, checkpointPath:
     discoveryStopReason: checkpoint.discoveryStopReason ?? null,
   };
 
+  const sortedResolvedNoMatchesRows = [...resolvedNoMatchesRows].sort((left, right) =>
+    left.league.localeCompare(right.league) || left.playerName.localeCompare(right.playerName),
+  );
+  const sortedDiscoveredNoImportRows = [...discoveredNoImportRows].sort((left, right) =>
+    right.discoveredMatches - left.discoveredMatches || left.playerName.localeCompare(right.playerName),
+  );
+
   return {
     summary,
     distributions: {
@@ -205,14 +214,8 @@ function buildReport(checkpoint: CompetitiveIngestionCheckpoint, checkpointPath:
       productiveByRegion: countBy(productiveRows, (row) => row.cluster),
     },
     topProductiveSeeds: topRows(productiveRows, () => true),
-    topResolvedNoMatchesSeeds: topRows(
-      resolvedNoMatchesRows.sort((left, right) => left.league.localeCompare(right.league) || left.playerName.localeCompare(right.playerName)),
-      () => true,
-    ),
-    topDiscoveredNoImportSeeds: topRows(
-      discoveredNoImportRows.sort((left, right) => right.discoveredMatches - left.discoveredMatches || left.playerName.localeCompare(right.playerName)),
-      () => true,
-    ),
+    topResolvedNoMatchesSeeds: topRows(sortedResolvedNoMatchesRows, () => true),
+    topDiscoveredNoImportSeeds: topRows(sortedDiscoveredNoImportRows, () => true),
     rows,
   };
 }
@@ -277,7 +280,9 @@ async function main() {
   console.info(JSON.stringify(report.summary, null, 2));
 }
 
-main().catch((error) => {
+try {
+  await main();
+} catch (error) {
   console.error(error);
   process.exitCode = 1;
-});
+}

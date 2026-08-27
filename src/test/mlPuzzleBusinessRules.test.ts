@@ -320,14 +320,18 @@ describe("buildMlPuzzleBusinessRules", () => {
       rankedCandidates: [...availableItems],
       availableItems: [...availableItems],
       previousChoiceSignatures: [
-        ["salutations-de-dominik", "soif-de-sang", "fin-de-lesprit", "ange-gardien"].sort().join("|"),
+        ["salutations-de-dominik", "soif-de-sang", "fin-de-lesprit", "ange-gardien"]
+          .sort((left, right) => left.localeCompare(right))
+          .join("|"),
       ],
       variationSeed: "seed-history",
     });
 
     expect(result.debug.historyAvoided).toBe(true);
     expect(result.debug.preferredSignature).not.toBe(
-      ["salutations-de-dominik", "soif-de-sang", "fin-de-lesprit", "ange-gardien"].sort().join("|"),
+      ["salutations-de-dominik", "soif-de-sang", "fin-de-lesprit", "ange-gardien"]
+        .sort((left, right) => left.localeCompare(right))
+        .join("|"),
     );
   });
 

@@ -1,15 +1,16 @@
 import { Link, useLocation } from "react-router-dom";
-import { BrainCircuit, Flame, FlaskConical, LayoutDashboard, Shield, Swords, Trophy, User } from "lucide-react";
-import { useCurrentUser, useLogout } from "@/api/hooks";
+import { BrainCircuit, Flame, FlaskConical, Shield, Swords } from "lucide-react";
+
+import { useCurrentUser } from "@/api/hooks";
+import ThemeToggle from "@/components/ThemeToggle";
+import UserMenu from "@/components/UserMenu";
 
 const Navbar = () => {
   const location = useLocation();
   const { data: user } = useCurrentUser();
-  const logout = useLogout();
 
   const navItems = [
     { path: "/", label: "Accueil", icon: Shield },
-    { path: "/dashboard", label: "Progression", icon: LayoutDashboard },
     { path: "/modules", label: "Entrainement", icon: BrainCircuit },
     { path: "/daily", label: "Quotidien", icon: Flame },
     { path: "/lab", label: "Lab", icon: FlaskConical },
@@ -49,29 +50,11 @@ const Navbar = () => {
         </div>
 
         <div className="flex items-center gap-2">
-          <Link to="/training" className="hidden h-11 items-center gap-2 rounded-lg bg-secondary px-4 text-sm text-foreground sm:flex">
-            <Trophy className="h-4 w-4" />
-            S&apos;entraîner
-          </Link>
-
+          <ThemeToggle />
           {user ? (
-            <>
-              {user.isAdmin ? (
-                <Link to="/admin" className="hidden h-11 items-center gap-2 rounded-lg border border-primary/30 bg-primary/10 px-4 text-sm text-primary lg:flex">
-                  <Shield className="h-4 w-4" />
-                  Backoffice
-                </Link>
-              ) : null}
-              <Link to="/profile" className="flex h-11 items-center gap-2 rounded-lg bg-primary/10 px-4 text-sm text-primary">
-                <User className="h-4 w-4" />
-                {user.username}
-              </Link>
-              <button type="button" onClick={() => logout.mutate()} className="h-11 rounded-lg bg-secondary px-4 text-sm text-foreground">
-                Deconnexion
-              </button>
-            </>
+            <UserMenu username={user.username} isAdmin={user.isAdmin} />
           ) : (
-            <Link to="/auth" className="flex h-11 items-center rounded-lg bg-gradient-to-r from-primary to-yellow-600 px-4 text-sm font-semibold text-primary-foreground">
+            <Link to="/auth" className="flex h-11 items-center rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground hover:bg-primary/90">
               Connexion
             </Link>
           )}

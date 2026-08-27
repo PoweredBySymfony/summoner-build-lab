@@ -1,0 +1,144 @@
+================================================================================
+CLAUDE CODEX — COMPLETE SKILLS INVENTORY
+================================================================================
+
+Project: summoner-build-lab
+Setup Date: 2026-06-06
+Environment: Windows 11 + Claude Opus 4.7 + Local + SonarQube self-hosted
+
+================================================================================
+🔴 CORE SKILLS (invoke with /)
+================================================================================
+
+SKILL               | PURPOSE                              | INVOCATION
+--------------------|--------------------------------------|----------------------------
+/update-config      | Manage settings.json & permissions  | /update-config
+/simplify           | Code review + optimization          | /simplify
+/review             | Full code review with agents        | /review
+/security-review    | Security audit                      | /security-review
+/loop               | Polling/recurring tasks             | /loop 5m prompt
+/keybindings-help   | Customize keyboard shortcuts        | /keybindings-help
+
+================================================================================
+🟢 AGENT TYPES (use via Agent tool) — SAMPLE
+================================================================================
+
+CATEGORY                    | AVAILABLE AGENTS
+-----------------------------|------------------------------------------
+Testing                     | .agents:testing-patterns
+                            | .agents:python-testing-patterns
+                            | .agents:e2e-testing-patterns
+                            | .agents:javascript-testing-patterns
+
+TypeScript & Frontend       | .agents:typescript-advanced-types
+                            | .agents:react-modernization
+                            | .agents:react-state-management
+                            | .agents:responsive-design
+                            | .agents:tailwind-design-system
+
+Python                      | .agents:python-ml-data-pipeline
+                            | .agents:python-ml-bootstrap
+                            | .agents:python-testing-patterns
+                            | .agents:async-python-patterns
+                            | .agents:python-performance-optimization
+
+Code Quality                | .agents:code-review-excellence
+                            | .agents:architecture-patterns
+
+Backend                     | .agents:nodejs-backend-patterns
+                            | .agents:fastapi-templates
+                            | .agents:microservices-patterns
+
+Database                    | .agents:postgresql-table-design
+                            | .agents:database-migration
+                            | .agents:sql-optimization-patterns
+
+DevOps                      | .agents:deployment-pipeline-design
+                            | .agents:github-actions-templates
+                            | .agents:terraform-module-library
+
+================================================================================
+🔵 MCP SERVERS (Active)
+================================================================================
+
+✅ SonarQube       | http://localhost:9000
+                  | Token: squ_5405dd802e5406a7d88916f192da70611c1c9684
+                  | Project: PoweredBySymfony_summoner-build-lab
+
+✅ GitKraken      | Local Git + GitHub PR workflows
+
+✅ Pylance        | Python type-checking + import analysis
+
+================================================================================
+📝 DIRECT TOOL ACCESS (via MCP)
+================================================================================
+
+mcp__sonarqube__*
+  - search_sonar_issues_in_projects
+  - search_files_by_coverage
+  - get_project_quality_gate_status
+  - get_component_measures
+  - show_security_hotspot
+  - change_sonar_issue_status
+  [and 10+ more tools]
+
+mcp__gitkraken__*
+  - git_status, git_log, git_diff, git_add, git_commit, git_push
+  - pull_request_create, pull_request_get_detail
+  - issues_get_detail, issues_add_comment
+  [and 15+ more tools]
+
+mcp__pylance_mcp_server__*
+  - pylanceRunCodeSnippet
+  - pylanceSyntaxErrors
+  - pylanceImports
+  [and 10+ more tools]
+
+================================================================================
+✅ VERIFICATION CHECKLIST
+================================================================================
+
+✓ SonarQube Access: CONFIRMED (39.4% coverage)
+✓ GitKraken Access: CONFIRMED (git operations)
+✓ Pylance Access: CONFIRMED (Python analysis)
+✓ Settings: .claude/settings.local.json (configured)
+✓ CLAUDE.md: Project instructions (created)
+✓ MEMORY.md: Memory system (5 files)
+✓ Permissions: Bash npm/git/find/grep/Read/Write
+✓ Hooks: Automated test validation
+✓ Automation: Coverage polling enabled
+
+================================================================================
+📚 DOCUMENTATION FILES CREATED
+================================================================================
+
+CLAUDE.md                          - Full project context + workflows
+CODEX_SETUP.md                    - Quick start guide + troubleshooting
+MEMORY.md                         - Memory index
+memory/user_role.md               - Your profile & working style
+memory/project_coverage_strategy.md - 5-lot coverage roadmap
+memory/project_sonarqube_status.md - Current metrics
+memory/project_tech_stack.md      - Architecture overview
+memory/feedback_testing.md        - Testing best practices
+memory/feedback_git_workflow.md   - Git + deployment
+memory/reference_sonarqube.md     - SonarQube details
+memory/reference_mcp_servers.md   - MCP server config
+memory/reference_skills.md        - Skills + agents list
+
+================================================================================
+🚀 READY TO USE
+================================================================================
+
+Next Steps:
+1. Read CODEX_SETUP.md (full guide)
+2. Run /review to check SonarQube status
+3. Use Agent + .agents:testing-patterns to plan Lot 1
+4. Follow workflow: code → commit → push → monitor
+
+Commands:
+  npm run test:coverage    # Local validation
+  /review                  # Check SonarQube
+  /loop 5m /review        # Poll every 5 min
+  Agent({...})            # Invoke specialist agent
+
+================================================================================

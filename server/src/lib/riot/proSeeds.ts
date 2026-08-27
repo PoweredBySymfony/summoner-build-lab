@@ -216,14 +216,14 @@ function normalizeRole(rawRole: string | null | undefined): ProPlayerSeed["role"
 
 function decodeLeaguepediaText(rawValue: string) {
   return rawValue
-    .replace(/&lt;br\s*\/?&gt;/gi, "\n")
-    .replace(/<br\s*\/?>/gi, "\n")
-    .replace(/&#160;|&nbsp;/gi, " ")
-    .replace(/&amp;/gi, "&")
-    .replace(/&#39;|&apos;/gi, "'")
-    .replace(/&quot;/gi, "\"")
-    .replace(/'''/g, "")
-    .replace(/''/g, "")
+    .replaceAll(/&lt;br\s*\/?&gt;/gi, "\n")
+    .replaceAll(/<br\s*\/?>/gi, "\n")
+    .replaceAll(/&#160;|&nbsp;/gi, " ")
+    .replaceAll(/&amp;/gi, "&")
+    .replaceAll(/&#39;|&apos;/gi, "'")
+    .replaceAll(/&quot;/gi, "\"")
+    .replaceAll("'''", "")
+    .replaceAll("''", "")
     .trim();
 }
 
@@ -243,7 +243,7 @@ export function extractRiotIdCandidates(rawValue: string | null | undefined) {
   const candidates: Array<{ riotId: string; platformHint: RiotPlatform | null; cluster: RiotRegion | null }> = [];
 
   for (const line of splitSoloqueueEntries(rawValue)) {
-    const regionMatch = line.match(/^([A-Z0-9]+)\s*:\s*(.+)$/i);
+    const regionMatch = /^([A-Z0-9]+)\s*:\s*(.+)$/i.exec(line);
     const regionKey = regionMatch?.[1]?.trim().toUpperCase() ?? null;
     const rest = regionMatch?.[2]?.trim() ?? line;
     const platformHint = regionKey ? (PLATFORM_HINTS.get(regionKey) ?? null) : null;
@@ -254,7 +254,7 @@ export function extractRiotIdCandidates(rawValue: string | null | undefined) {
       .filter(Boolean);
 
     for (const fragment of normalizedFragments) {
-      const riotIdMatch = fragment.match(/([^#\n]+#[A-Za-z0-9]+)\b/);
+      const riotIdMatch = /([^#\n]+#[A-Za-z0-9]+)\b/.exec(fragment);
       if (!riotIdMatch) {
         continue;
       }

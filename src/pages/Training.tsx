@@ -28,6 +28,51 @@ const isChampionPortraitView = (
 ): entry is ChampionView =>
   Boolean(entry && typeof entry === "object" && "slug" in entry && "databaseId" in entry);
 
+const getTeamEntryName = (entry: TeamEntry, champion: ChampionView | { id: string; name: string } | undefined) => {
+  if (champion && "name" in champion) {
+    return champion.name;
+  }
+  return entry.name;
+};
+
+const getChoiceButtonClass = ({
+  correct,
+  wrongSelected,
+  selected,
+}: {
+  correct: unknown;
+  wrongSelected: unknown;
+  selected: boolean;
+}) => {
+  if (correct) {
+    return "border-emerald-400/60 bg-emerald-500/10 shadow-lg shadow-emerald-500/10";
+  }
+  if (wrongSelected) {
+    return "border-destructive/60 bg-destructive/10";
+  }
+  if (selected) {
+    return "border-primary bg-primary/10 shadow-lg shadow-primary/10";
+  }
+  return "border-border/60 bg-background/70 hover:border-primary/40";
+};
+
+const getChoiceMarkerClass = (correct: unknown, selected: boolean) => {
+  if (correct) {
+    return "border-emerald-400 bg-emerald-500 text-white";
+  }
+  if (selected) {
+    return "border-primary bg-primary text-primary-foreground";
+  }
+  return "border-border/60 bg-background text-muted-foreground";
+};
+
+const getChoiceMarkerText = (correct: unknown, selected: boolean) => {
+  if (correct) {
+    return "V";
+  }
+  return selected ? "." : "";
+};
+
 const renderItem = (
   item: GameItem | { id: string; name: string },
   options: {
@@ -59,7 +104,7 @@ const TeamRow = ({ entry }: { entry: TeamEntry }) => {
         {isChampionPortraitView(champion) ? <ChampionPortrait champion={champion} size="sm" /> : <div className="h-10 w-10 rounded-lg bg-secondary" />}
         <div className="min-w-0">
           <p className="truncate text-sm font-semibold text-foreground">
-            {champion && "name" in champion ? champion.name : isChampionView(entry) ? entry.name : entry.name}
+            {getTeamEntryName(entry, champion)}
           </p>
           <p className="text-xs text-muted-foreground">{role ?? "Role inconnu"}</p>
         </div>
@@ -90,9 +135,183 @@ const renderTacticalEntries = (entries: Record<string, unknown>) =>
   Object.entries(entries).map(([key, value]) => (
     <div key={key} className="rounded-xl border border-border/50 bg-background/40 p-3">
       <p className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">{key}</p>
-      <p className="mt-2 break-words text-sm font-medium leading-5 text-foreground">{String(value)}</p>
+      <p className="mt-2 break-words text-sm font-medium leading-5 text-foreground">{typeof value === "string" ? value : JSON.stringify(value)}</p>
     </div>
   ));
+
+type PuzzleScenario = {
+  playerChampion: ChampionView;
+  playerRole: string;
+  gameMinute: number;
+  playerGold: number;
+  kills: number | null;
+  deaths: number | null;
+  assists: number | null;
+  cs: number | null;
+  currentBuild: Array<GameItem | { id: string; name: string }>;
+  objectiveState: unknown;
+  damageProfile: unknown;
+  mapState: unknown;
+  notes: string | null;
+};
+
+const PuzzleScenarioSection = ({
+  scenario,
+  allies,
+  enemies,
+}: {
+  scenario: PuzzleScenario;
+  allies: TeamEntry[];
+  enemies: TeamEntry[];
+}) => (
+  <>
+    <div className="grid gap-4 lg:grid-cols-[0.92fr_1.08fr]">
+      <div className="glass-surface rounded-3xl p-5">
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-primary">Etat du joueur</p>
+            <h2 className="mt-2 font-heading text-3xl font-bold text-foreground">{scenario.playerChampion.name}</h2>
+            <p className="text-sm text-muted-foreground">{scenario.playerRole}</p>
+          </div>
+          <ChampionPortrait champion={scenario.playerChampion} size="lg" />
+        </div>
+        <div className="mt-5 grid grid-cols-2 gap-3 text-sm">
+          <div className="rounded-2xl bg-secondary/60 p-4"><Timer className="mb-2 h-4 w-4 text-primary" />{scenario.gameMinute}:00</div>
+          <div className="rounded-2xl bg-secondary/60 p-4"><Coins className="mb-2 h-4 w-4 text-primary" />{scenario.playerGold} or</div>
+          <div className="rounded-2xl bg-secondary/60 p-4"><Swords className="mb-2 h-4 w-4 text-primary" />{scenario.kills}/{scenario.deaths}/{scenario.assists}</div>
+          <div className="rounded-2xl bg-secondary/60 p-4"><Flame className="mb-2 h-4 w-4 text-primary" />{scenario.cs} cs</div>
+        </div>
+        <div className="mt-5">
+          <p className="mb-3 text-xs font-semibold uppercase tracking-[0.24em] text-primary">Build actuel</p>
+          <div className="flex flex-wrap gap-2">
+            {scenario.currentBuild.length > 0
+              ? scenario.currentBuild.map((item) => renderItem(item))
+              : <span className="text-sm text-muted-foreground">Build non renseigne.</span>}
+          </div>
+        </div>
+      </div>
+      <div className="glass-surface rounded-3xl p-5">
+        <p className="text-xs font-semibold uppercase tracking-[0.24em] text-primary">Lecture tactique</p>
+        <div className="mt-4 grid gap-3 xl:grid-cols-2">
+          <div className="rounded-2xl border border-border/60 bg-background/60 p-4">
+            <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Objectif</p>
+            <div className="mt-3 space-y-3">{renderTacticalEntries((scenario.objectiveState ?? {}) as Record<string, unknown>)}</div>
+          </div>
+          <div className="rounded-2xl border border-border/60 bg-background/60 p-4">
+            <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Profil de degats</p>
+            <div className="mt-3 space-y-3">{renderTacticalEntries((scenario.damageProfile ?? {}) as Record<string, unknown>)}</div>
+          </div>
+          <div className="rounded-2xl border border-border/60 bg-background/60 p-4 xl:col-span-2">
+            <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Etat de carte</p>
+            <div className="mt-3 grid gap-3 md:grid-cols-2">{renderTacticalEntries((scenario.mapState ?? {}) as Record<string, unknown>)}</div>
+          </div>
+        </div>
+        {scenario.notes ? (
+          <div className="mt-4 flex gap-3 rounded-2xl border border-border/60 bg-background/50 px-4 py-4 text-sm text-muted-foreground">
+            <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+            <p>{scenario.notes}</p>
+          </div>
+        ) : null}
+      </div>
+    </div>
+    <div className="grid gap-4 lg:grid-cols-2">
+      <div className="glass-surface rounded-3xl p-5">
+        <p className="mb-3 text-xs font-semibold uppercase tracking-[0.24em] text-primary">Equipe alliee</p>
+        <div className="space-y-3">
+          {allies.length > 0 ? (
+            allies.map((entry) => <TeamRow key={entry.id} entry={entry} />)
+          ) : (
+            <div className="rounded-2xl border border-border/60 bg-background/40 px-4 py-5 text-sm text-muted-foreground">
+              Donnees d'equipe indisponibles pour ce puzzle.
+            </div>
+          )}
+        </div>
+      </div>
+      <div className="glass-surface rounded-3xl p-5">
+        <p className="mb-3 text-xs font-semibold uppercase tracking-[0.24em] text-primary">Equipe ennemie et items visibles</p>
+        <div className="space-y-3">
+          {enemies.length > 0 ? (
+            enemies.map((entry) => <TeamRow key={entry.id} entry={entry} />)
+          ) : (
+            <div className="rounded-2xl border border-border/60 bg-background/40 px-4 py-5 text-sm text-muted-foreground">
+              Donnees d'equipe indisponibles pour ce puzzle.
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  </>
+);
+
+type AttemptResult = {
+  saved: boolean;
+  isCorrect: boolean;
+  correctChoiceId: string | null;
+  explanation: string;
+  globalExplanation: string;
+  requiresAuth: boolean;
+};
+
+const PuzzleResultPanel = ({
+  result,
+  user,
+  selectedChoiceId,
+  isPending,
+  onSubmit,
+  nextPuzzle,
+  onNavigateNext,
+  onProofOpen,
+}: {
+  result: AttemptResult | null;
+  user: unknown;
+  selectedChoiceId: string | null;
+  isPending: boolean;
+  onSubmit: () => void;
+  nextPuzzle: { slug: string; label: string } | null;
+  onNavigateNext: () => void;
+  onProofOpen: () => void;
+}) => {
+  if (!result) {
+    return (
+      <div className="glass-surface rounded-3xl p-5">
+        <div className="flex items-center justify-between gap-4">
+          <p className="text-sm text-muted-foreground">
+            {user ? "Ta reponse sera enregistree dans ton profil." : "Tu peux repondre maintenant, mais il faut etre connecte pour sauvegarder la progression."}
+          </p>
+          <Button variant="gold" disabled={!selectedChoiceId || isPending} onClick={onSubmit}>
+            Valider
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className={`rounded-3xl border p-5 ${result.isCorrect ? "border-emerald-400/40 bg-emerald-500/10" : "border-destructive/40 bg-destructive/10"}`}>
+      <div className="flex items-start gap-4">
+        {result.isCorrect ? <CheckCircle2 className="h-7 w-7 shrink-0 text-emerald-300" /> : <XCircle className="h-7 w-7 shrink-0 text-destructive" />}
+        <div className="space-y-3">
+          <h3 className="font-heading text-2xl font-bold text-foreground">{result.isCorrect ? "Bonne lecture" : "Achat moins coherent"}</h3>
+          <p className="text-sm text-muted-foreground">{result.explanation}</p>
+          <p className="text-sm text-muted-foreground">{result.globalExplanation}</p>
+          {result.requiresAuth ? (
+            <div className="rounded-2xl border border-border/60 bg-background/50 px-4 py-3 text-sm text-foreground">
+              Cette reponse a ete evaluee mais pas sauvegardee. <Link className="font-semibold text-primary" to="/auth">Cree un compte</Link> pour enregistrer tes tentatives, ta progression OTP et tes streaks.
+            </div>
+          ) : null}
+          <div className="flex flex-wrap gap-3 pt-2">
+            <Button variant="outline" onClick={onProofOpen}>
+              <BarChart3 className="h-4 w-4" />
+              Voir la preuve item
+            </Button>
+            {nextPuzzle ? <Button variant="gold" onClick={onNavigateNext}><Trophy className="h-4 w-4" />{nextPuzzle.label}</Button> : null}
+            <Link to="/dashboard"><Button variant="outline">Retour au tableau de bord</Button></Link>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 const Training = () => {
   const navigate = useNavigate();
@@ -175,7 +394,7 @@ const Training = () => {
           <section className="space-y-4">
             <div className="glass-surface rounded-3xl p-6">
               <div className="flex flex-wrap items-center gap-3 text-[11px] uppercase tracking-[0.22em]">
-                <span className="font-semibold text-primary">{puzzle.mode.replace(/_/g, " ")}</span>
+                <span className="font-semibold text-primary">{puzzle.mode.replaceAll("_", " ")}</span>
                 <span className="text-muted-foreground">Patch {puzzle.patch}</span>
                 <span className="text-muted-foreground">{puzzle.difficulty}</span>
                 {puzzle.role ? <span className="text-muted-foreground">{puzzle.role}</span> : null}
@@ -185,91 +404,7 @@ const Training = () => {
             </div>
 
             {puzzle.scenario ? (
-              <>
-                <div className="grid gap-4 lg:grid-cols-[0.92fr_1.08fr]">
-                  <div className="glass-surface rounded-3xl p-5">
-                    <div className="flex items-center justify-between gap-4">
-                      <div>
-                        <p className="text-xs font-semibold uppercase tracking-[0.24em] text-primary">Etat du joueur</p>
-                        <h2 className="mt-2 font-heading text-3xl font-bold text-foreground">{puzzle.scenario.playerChampion.name}</h2>
-                        <p className="text-sm text-muted-foreground">{puzzle.scenario.playerRole}</p>
-                      </div>
-                      <ChampionPortrait champion={puzzle.scenario.playerChampion} size="lg" />
-                    </div>
-                    <div className="mt-5 grid grid-cols-2 gap-3 text-sm">
-                      <div className="rounded-2xl bg-secondary/60 p-4"><Timer className="mb-2 h-4 w-4 text-primary" />{puzzle.scenario.gameMinute}:00</div>
-                      <div className="rounded-2xl bg-secondary/60 p-4"><Coins className="mb-2 h-4 w-4 text-primary" />{puzzle.scenario.playerGold} or</div>
-                      <div className="rounded-2xl bg-secondary/60 p-4"><Swords className="mb-2 h-4 w-4 text-primary" />{puzzle.scenario.kills}/{puzzle.scenario.deaths}/{puzzle.scenario.assists}</div>
-                      <div className="rounded-2xl bg-secondary/60 p-4"><Flame className="mb-2 h-4 w-4 text-primary" />{puzzle.scenario.cs} cs</div>
-                    </div>
-                    <div className="mt-5">
-                      <p className="mb-3 text-xs font-semibold uppercase tracking-[0.24em] text-primary">Build actuel</p>
-                      <div className="flex flex-wrap gap-2">
-                        {puzzle.scenario.currentBuild.length > 0
-                          ? puzzle.scenario.currentBuild.map((item) => renderItem(item))
-                          : <span className="text-sm text-muted-foreground">Build non renseigne.</span>}
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="glass-surface rounded-3xl p-5">
-                    <p className="text-xs font-semibold uppercase tracking-[0.24em] text-primary">Lecture tactique</p>
-                    <div className="mt-4 grid gap-3 xl:grid-cols-2">
-                      <div className="rounded-2xl border border-border/60 bg-background/60 p-4">
-                        <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Objectif</p>
-                        <div className="mt-3 space-y-3">
-                          {renderTacticalEntries((puzzle.scenario.objectiveState ?? {}) as Record<string, unknown>)}
-                        </div>
-                      </div>
-                      <div className="rounded-2xl border border-border/60 bg-background/60 p-4">
-                        <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Profil de degats</p>
-                        <div className="mt-3 space-y-3">
-                          {renderTacticalEntries((puzzle.scenario.damageProfile ?? {}) as Record<string, unknown>)}
-                        </div>
-                      </div>
-                      <div className="rounded-2xl border border-border/60 bg-background/60 p-4 xl:col-span-2">
-                        <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Etat de carte</p>
-                        <div className="mt-3 grid gap-3 md:grid-cols-2">
-                          {renderTacticalEntries((puzzle.scenario.mapState ?? {}) as Record<string, unknown>)}
-                        </div>
-                      </div>
-                    </div>
-                    {puzzle.scenario.notes ? (
-                      <div className="mt-4 flex gap-3 rounded-2xl border border-border/60 bg-background/50 px-4 py-4 text-sm text-muted-foreground">
-                        <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
-                        <p>{puzzle.scenario.notes}</p>
-                      </div>
-                    ) : null}
-                  </div>
-                </div>
-
-                <div className="grid gap-4 lg:grid-cols-2">
-                  <div className="glass-surface rounded-3xl p-5">
-                    <p className="mb-3 text-xs font-semibold uppercase tracking-[0.24em] text-primary">Equipe alliee</p>
-                    <div className="space-y-3">
-                      {allies.length > 0 ? (
-                        allies.map((entry) => <TeamRow key={entry.id} entry={entry} />)
-                      ) : (
-                        <div className="rounded-2xl border border-border/60 bg-background/40 px-4 py-5 text-sm text-muted-foreground">
-                          Donnees d'equipe indisponibles pour ce puzzle.
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                  <div className="glass-surface rounded-3xl p-5">
-                    <p className="mb-3 text-xs font-semibold uppercase tracking-[0.24em] text-primary">Equipe ennemie et items visibles</p>
-                    <div className="space-y-3">
-                      {enemies.length > 0 ? (
-                        enemies.map((entry) => <TeamRow key={entry.id} entry={entry} />)
-                      ) : (
-                        <div className="rounded-2xl border border-border/60 bg-background/40 px-4 py-5 text-sm text-muted-foreground">
-                          Donnees d'equipe indisponibles pour ce puzzle.
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </>
+              <PuzzleScenarioSection scenario={puzzle.scenario} allies={allies} enemies={enemies} />
             ) : null}
           </section>
 
@@ -290,15 +425,7 @@ const Training = () => {
                     key={choice.id}
                     type="button"
                     onClick={() => !result && setSelectedChoiceId(choice.id)}
-                    className={`rounded-3xl border p-4 text-left transition-all ${
-                      correct
-                        ? "border-emerald-400/60 bg-emerald-500/10 shadow-lg shadow-emerald-500/10"
-                        : wrongSelected
-                          ? "border-destructive/60 bg-destructive/10"
-                          : selected
-                            ? "border-primary bg-primary/10 shadow-lg shadow-primary/10"
-                            : "border-border/60 bg-background/70 hover:border-primary/40"
-                    } ${result ? "cursor-default" : "cursor-pointer"}`}
+                    className={`rounded-3xl border p-4 text-left transition-all ${getChoiceButtonClass({ correct, wrongSelected, selected })} ${result ? "cursor-default" : "cursor-pointer"}`}
                   >
                     <div className="grid grid-cols-[56px_1fr_auto] items-center gap-4">
                       <div className="relative">
@@ -310,10 +437,8 @@ const Training = () => {
                             interactive={false}
                           />
                         ) : <div className="h-12 w-12 rounded-xl bg-secondary" />}
-                        <div className={`absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full border text-[10px] font-bold ${
-                          correct ? "border-emerald-400 bg-emerald-500 text-white" : selected ? "border-primary bg-primary text-primary-foreground" : "border-border/60 bg-background text-muted-foreground"
-                        }`}>
-                          {correct ? "V" : selected ? "." : ""}
+                        <div className={`absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full border text-[10px] font-bold ${getChoiceMarkerClass(correct, selected)}`}>
+                          {getChoiceMarkerText(correct, selected)}
                         </div>
                       </div>
                       <div>
@@ -327,42 +452,16 @@ const Training = () => {
               })}
             </div>
 
-            {!result ? (
-              <div className="glass-surface rounded-3xl p-5">
-                <div className="flex items-center justify-between gap-4">
-                  <p className="text-sm text-muted-foreground">
-                    {user ? "Ta reponse sera enregistree dans ton profil." : "Tu peux repondre maintenant, mais il faut etre connecte pour sauvegarder la progression."}
-                  </p>
-                  <Button variant="gold" disabled={!selectedChoiceId || submitAttempt.isPending} onClick={() => selectedChoiceId && submitAttempt.mutate(selectedChoiceId)}>
-                    Valider
-                  </Button>
-                </div>
-              </div>
-            ) : (
-              <div className={`rounded-3xl border p-5 ${result.isCorrect ? "border-emerald-400/40 bg-emerald-500/10" : "border-destructive/40 bg-destructive/10"}`}>
-                <div className="flex items-start gap-4">
-                  {result.isCorrect ? <CheckCircle2 className="h-7 w-7 shrink-0 text-emerald-300" /> : <XCircle className="h-7 w-7 shrink-0 text-destructive" />}
-                  <div className="space-y-3">
-                    <h3 className="font-heading text-2xl font-bold text-foreground">{result.isCorrect ? "Bonne lecture" : "Achat moins coherent"}</h3>
-                    <p className="text-sm text-muted-foreground">{result.explanation}</p>
-                    <p className="text-sm text-muted-foreground">{result.globalExplanation}</p>
-                    {result.requiresAuth ? (
-                      <div className="rounded-2xl border border-border/60 bg-background/50 px-4 py-3 text-sm text-foreground">
-                        Cette reponse a ete evaluee mais pas sauvegardee. <Link className="font-semibold text-primary" to="/auth">Cree un compte</Link> pour enregistrer tes tentatives, ta progression OTP et tes streaks.
-                      </div>
-                    ) : null}
-                    <div className="flex flex-wrap gap-3 pt-2">
-                      <Button variant="outline" onClick={() => setProofOpen(true)}>
-                        <BarChart3 className="h-4 w-4" />
-                        Voir la preuve item
-                      </Button>
-                      {nextPuzzle ? <Button variant="gold" onClick={() => navigate(`/training/${nextPuzzle.slug}`)}><Trophy className="h-4 w-4" />{nextPuzzle.label}</Button> : null}
-                      <Link to="/dashboard"><Button variant="outline">Retour au tableau de bord</Button></Link>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
+            <PuzzleResultPanel
+              result={result}
+              user={user}
+              selectedChoiceId={selectedChoiceId}
+              isPending={submitAttempt.isPending}
+              onSubmit={() => selectedChoiceId && submitAttempt.mutate(selectedChoiceId)}
+              nextPuzzle={nextPuzzle}
+              onNavigateNext={() => nextPuzzle && navigate(`/training/${nextPuzzle.slug}`)}
+              onProofOpen={() => setProofOpen(true)}
+            />
           </aside>
         </div>
       </div>

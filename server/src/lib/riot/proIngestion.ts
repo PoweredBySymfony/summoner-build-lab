@@ -107,7 +107,7 @@ export function buildRoundRobinMatchQueue(
   }
 
   const interleavedDiscoveries: ProSeedMatchDiscovery[] = [];
-  const leagueKeys = [...groupedByLeague.keys()].sort();
+  const leagueKeys = [...groupedByLeague.keys()].sort((left, right) => left.localeCompare(right));
   while (interleavedDiscoveries.length < discoveries.length) {
     let progressed = false;
     for (const leagueKey of leagueKeys) {
@@ -115,7 +115,8 @@ export function buildRoundRobinMatchQueue(
       if (!bucket?.length) {
         continue;
       }
-      interleavedDiscoveries.push(bucket.shift()!);
+      const shifted = bucket.shift();
+      if (shifted) interleavedDiscoveries.push(shifted);
       progressed = true;
     }
     if (!progressed) {

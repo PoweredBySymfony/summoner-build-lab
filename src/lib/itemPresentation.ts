@@ -148,8 +148,8 @@ const sentenceLike = /[.!?]$/;
 function normalizeText(value: string) {
   return value
     .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/\s+/g, " ")
+    .replaceAll(/[\u0300-\u036f]/g, "")
+    .replaceAll(/\s+/g, " ")
     .trim()
     .toLowerCase();
 }
@@ -164,6 +164,29 @@ function parseNumericValue(value: string) {
   };
 }
 
+function decodeHtmlEntities(value: string) {
+  return value
+    .replaceAll("&nbsp;", " ")
+    .replaceAll("&amp;", "&")
+    .replaceAll("&lt;", "<")
+    .replaceAll("&gt;", ">")
+    .replaceAll("&quot;", "\"")
+    .replaceAll("&#39;", "'");
+}
+
+function stripDataDragonMarkup(value: string) {
+  return decodeHtmlEntities(value)
+    .replaceAll(/<br\s*\/?>/gi, "\n")
+    .replaceAll(/<\/(?:stats|mainText)>/gi, "\n")
+    .replaceAll(/<\/(?:active|passive)>/gi, ": ")
+    .replaceAll(/<[^>]+>/g, "")
+    .replaceAll(/\{\{[^}]+\}\}/g, "")
+    .replaceAll(/[ \t]+/g, " ")
+    .replaceAll(/\n\s+/g, "\n")
+    .replaceAll(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 function resolveDescriptor(rawLabel: string) {
   const normalizedLabel = normalizeText(rawLabel);
   const descriptor = phraseMap.find((entry) => entry.match.test(normalizedLabel));
@@ -171,8 +194,8 @@ function resolveDescriptor(rawLabel: string) {
 }
 
 function parseStatLine(line: string): ResolvedItemStatLine | null {
-  const compact = line.replace(/\s+/g, " ").trim();
-  const match = compact.match(/^([+-]?\d+(?:[.,]\d+)?%?)\s+(.+)$/);
+  const compact = line.replaceAll(/\s+/g, " ").trim();
+  const match = /^([+-]?\d+(?:[.,]\d+)?%?)\s+(.+)$/.exec(compact);
   if (!match) {
     return null;
   }
@@ -200,7 +223,7 @@ function parseStatLine(line: string): ResolvedItemStatLine | null {
 }
 
 function getDescriptionLines(item: GameItem) {
-  return (item.fullDescription ?? "")
+  return stripDataDragonMarkup(item.fullDescription ?? "")
     .split("\n")
     .map((line) => line.trim())
     .filter(Boolean);
@@ -258,7 +281,7 @@ function statLinesFromRawStats(item: GameItem) {
         isPercent,
       } satisfies ResolvedItemStatLine;
     })
-    .filter((entry): entry is ResolvedItemStatLine => Boolean(entry));
+    .filter((entry): entry is ResolvedItemStatLine => entry != null);
 }
 
 export function getRawItemStatLines(item: GameItem) {

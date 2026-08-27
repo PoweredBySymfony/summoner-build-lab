@@ -3,6 +3,55 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "../server/src/lib/prisma.js";
 import { canonicalizePatch } from "../server/src/lib/riot/patchCanonical.js";
 
+type ImportedMatchPatchCandidate = Awaited<
+  ReturnType<typeof prisma.importedMatch.findMany>
+>[number];
+
+function asJsonObject(value: unknown) {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Prisma.JsonObject
+    : null;
+}
+
+function readRawMatchInfo(importedMatch: ImportedMatchPatchCandidate) {
+  const matchData = asJsonObject(importedMatch.matchData);
+  const raw = asJsonObject(matchData?.raw);
+  return {
+    matchData,
+    info: asJsonObject(raw?.info),
+  };
+}
+
+function getCanonicalPatchInput(importedMatch: ImportedMatchPatchCandidate) {
+  const { matchData, info } = readRawMatchInfo(importedMatch);
+  const rawGameVersion = typeof info?.gameVersion === "string" ? info.gameVersion : null;
+  const gameCreationAt =
+    importedMatch.gameCreationAt ??
+    (typeof info?.gameCreation === "number" ? new Date(info.gameCreation) : null);
+
+  return {
+    matchData,
+    rawGameVersion,
+    gameCreationAt,
+    canonicalPatch: canonicalizePatch(rawGameVersion ?? importedMatch.patch, gameCreationAt).patchCanonical,
+  };
+}
+
+function withCanonicalPatchMetadata(matchData: Prisma.JsonObject | null, canonicalPatch: string) {
+  if (!matchData) {
+    return null;
+  }
+
+  const metadata = asJsonObject(matchData.metadata);
+  return {
+    ...matchData,
+    metadata: {
+      ...metadata,
+      patch: canonicalPatch,
+    },
+  } satisfies Prisma.InputJsonObject;
+}
+
 async function main() {
   const matches = await prisma.importedMatch.findMany({
     where: {
@@ -27,24 +76,7 @@ async function main() {
   let missingVersion = 0;
 
   for (const importedMatch of matches) {
-    const matchData =
-      importedMatch.matchData && typeof importedMatch.matchData === "object" && !Array.isArray(importedMatch.matchData)
-        ? (importedMatch.matchData as Prisma.JsonObject)
-        : null;
-    const raw =
-      matchData?.raw && typeof matchData.raw === "object" && !Array.isArray(matchData.raw)
-        ? (matchData.raw as Prisma.JsonObject)
-        : null;
-    const info =
-      raw?.info && typeof raw.info === "object" && !Array.isArray(raw.info)
-        ? (raw.info as Prisma.JsonObject)
-        : null;
-    const rawGameVersion = typeof info?.gameVersion === "string" ? info.gameVersion : null;
-    const gameCreationAt =
-      importedMatch.gameCreationAt ??
-      (typeof info?.gameCreation === "number" ? new Date(info.gameCreation) : null);
-
-    const canonicalPatch = canonicalizePatch(rawGameVersion ?? importedMatch.patch, gameCreationAt).patchCanonical;
+    const { matchData, rawGameVersion, canonicalPatch } = getCanonicalPatchInput(importedMatch);
     if (!rawGameVersion) {
       missingVersion += 1;
     }
@@ -53,17 +85,7 @@ async function main() {
       continue;
     }
 
-    let nextMatchData = importedMatch.matchData;
-    if (matchData) {
-      const metadata =
-        matchData.metadata && typeof matchData.metadata === "object" && !Array.isArray(matchData.metadata)
-          ? ({ ...(matchData.metadata as Prisma.JsonObject), patch: canonicalPatch } as Prisma.JsonObject)
-          : ({ patch: canonicalPatch } as Prisma.JsonObject);
-      nextMatchData = {
-        ...matchData,
-        metadata,
-      } satisfies Prisma.InputJsonObject;
-    }
+    const nextMatchData = withCanonicalPatchMetadata(matchData, canonicalPatch) ?? importedMatch.matchData;
 
     await prisma.importedMatch.update({
       where: { id: importedMatch.id },
@@ -84,11 +106,11 @@ async function main() {
   );
 }
 
-main()
-  .catch((error) => {
-    console.error("[patch-backfill] failed", error);
-    process.exitCode = 1;
-  })
-  .finally(async () => {
-    await prisma.$disconnect();
-  });
+try {
+  await main();
+} catch (error) {
+  console.error("[patch-backfill] failed", error);
+  process.exitCode = 1;
+} finally {
+  try { await prisma.$disconnect(); } catch { /* ignore */ }
+}

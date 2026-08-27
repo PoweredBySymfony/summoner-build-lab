@@ -61,6 +61,20 @@ def build_feature_dict(row: Mapping[str, Any]) -> dict[str, float | str]:
     return features
 
 
+def _add_list_indicators(
+    features: dict[str, float | str],
+    values: Any,
+    prefix: str,
+) -> None:
+    if not isinstance(values, list):
+        return
+
+    for value in values:
+        normalized = str(value).strip()
+        if normalized:
+            features[f"{prefix}::{normalized}"] = 1.0
+
+
 def build_ranking_feature_dict(row: Mapping[str, Any]) -> dict[str, float | str]:
     features: dict[str, float | str] = {}
 
@@ -71,18 +85,7 @@ def build_ranking_feature_dict(row: Mapping[str, Any]) -> dict[str, float | str]
         value = str(row.get(field) or "unknown").strip()
         features[field] = value or "unknown"
 
-    current_items = row.get("current_items", [])
-    if isinstance(current_items, list):
-        for item_slug in current_items:
-            normalized = str(item_slug).strip()
-            if normalized:
-                features[f"current_item::{normalized}"] = 1.0
-
-    item_tags = row.get("item_tags", [])
-    if isinstance(item_tags, list):
-        for item_tag in item_tags:
-            normalized_tag = str(item_tag).strip()
-            if normalized_tag:
-                features[f"item_tag::{normalized_tag}"] = 1.0
+    _add_list_indicators(features, row.get("current_items", []), "current_item")
+    _add_list_indicators(features, row.get("item_tags", []), "item_tag")
 
     return features

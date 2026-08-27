@@ -1,4 +1,5 @@
 import * as React from "react";
+import { useMemo } from "react";
 import * as LabelPrimitive from "@radix-ui/react-label";
 import { Slot } from "@radix-ui/react-slot";
 import { Controller, ControllerProps, FieldPath, FieldValues, FormProvider, useFormContext } from "react-hook-form";
@@ -23,8 +24,9 @@ const FormField = <
 >({
   ...props
 }: ControllerProps<TFieldValues, TName>) => {
+  const ctxValue = useMemo(() => ({ name: props.name }), [props.name]);
   return (
-    <FormFieldContext.Provider value={{ name: props.name }}>
+    <FormFieldContext.Provider value={ctxValue}>
       <Controller {...props} />
     </FormFieldContext.Provider>
   );
@@ -62,9 +64,10 @@ const FormItemContext = React.createContext<FormItemContextValue>({} as FormItem
 const FormItem = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(
   ({ className, ...props }, ref) => {
     const id = React.useId();
+    const ctxValue = useMemo(() => ({ id }), [id]);
 
     return (
-      <FormItemContext.Provider value={{ id }}>
+      <FormItemContext.Provider value={ctxValue}>
         <div ref={ref} className={cn("space-y-2", className)} {...props} />
       </FormItemContext.Provider>
     );
@@ -90,7 +93,7 @@ const FormControl = React.forwardRef<React.ElementRef<typeof Slot>, React.Compon
       <Slot
         ref={ref}
         id={formItemId}
-        aria-describedby={!error ? `${formDescriptionId}` : `${formDescriptionId} ${formMessageId}`}
+        aria-describedby={error ? `${formDescriptionId} ${formMessageId}` : `${formDescriptionId}`}
         aria-invalid={!!error}
         {...props}
       />
@@ -126,4 +129,4 @@ const FormMessage = React.forwardRef<HTMLParagraphElement, React.HTMLAttributes<
 );
 FormMessage.displayName = "FormMessage";
 
-export { useFormField, Form, FormItem, FormLabel, FormControl, FormDescription, FormMessage, FormField };
+export { Form, FormItem, FormLabel, FormControl, FormDescription, FormMessage, FormField };

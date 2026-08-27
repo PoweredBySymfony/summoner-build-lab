@@ -94,7 +94,7 @@ const getNormalizedItemBonuses = (item: GameItem) => {
 };
 
 const getChampionBaseStats = (champion: ChampionView, level: number) => {
-  const stats = champion.stats as Record<string, unknown>;
+  const stats = champion.stats;
   const baseStats = emptyStats();
 
   baseStats.health = scaledStat(safeNumber(stats.hp), safeNumber(stats.hpperlevel), level);
@@ -115,7 +115,7 @@ const getChampionBaseStats = (champion: ChampionView, level: number) => {
 };
 
 const getScalingScore = (champion: ChampionView, analysis: { stats: StatValueMap; items: GameItem[] }) => {
-  const stats = champion.stats as Record<string, unknown>;
+  const stats = champion.stats;
   const innate =
     safeNumber(stats.attackdamageperlevel) * 1.2 +
     safeNumber(stats.hpperlevel) * 0.08 +
@@ -211,7 +211,14 @@ export const analyzeSetup = ({
 
 const buildComparisonCard = (label: string, statA: number, statB: number, formatter: (value: number) => string) => {
   const max = Math.max(statA, statB, 1);
-  const leader: LabSide | "tie" = Math.abs(statA - statB) < 0.009 ? "tie" : statA > statB ? "A" : "B";
+  let leader: LabSide | "tie";
+  if (Math.abs(statA - statB) < 0.009) {
+    leader = "tie";
+  } else if (statA > statB) {
+    leader = "A";
+  } else {
+    leader = "B";
+  }
   const delta = Math.abs(statA - statB);
   return {
     label,

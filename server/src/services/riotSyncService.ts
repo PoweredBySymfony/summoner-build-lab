@@ -1,14 +1,29 @@
-import { Prisma, Role } from "@prisma/client";
-import { env } from "../config/env.js";
+import { Role } from "@prisma/client";
 import { prisma } from "../lib/prisma.js";
-import { importedMatchArchiveRepository } from "../repositories/importedMatchArchiveRepository.js";
 import { dataDragonClient } from "../lib/gameData/dataDragonClient.js";
-import { canonicalizePatch } from "../lib/riot/patchCanonical.js";
+import {
+  compareCanonicalItemCandidates,
+  deriveBootItemIds,
+  isPurchasableCatalogItem,
+} from "../lib/riot/catalogItemRules.js";
+import {
+  buildPublicPlayerProfile,
+  collectPublicProfileItemIds,
+} from "../lib/riot/publicPlayerProfile.js";
 import { riotApiClient } from "../lib/riot/riotApiClient.js";
-import { type RiotImportInput, type RiotImportMatchSummary, type RiotImportRunSummary } from "../lib/riot/riotBatch.js";
-import { RIOT_REGIONS, getPlatformSearchOrder, type RiotPlatform, type RiotRegion } from "../lib/riot/routing.js";
+import { type RiotImportInput } from "../lib/riot/riotBatch.js";
+import {
+  resolveImportIdentity as resolveRiotImportIdentity,
+  resolveLeagueIdentity,
+  upsertIndexedAccount,
+  type ResolvedImportIdentity,
+} from "../lib/riot/riotIdentity.js";
 import { slugify } from "../lib/slug.js";
-import { HttpError } from "../utils/http.js";
+import {
+  importMatchForIdentityInternal,
+  importRecentMatchesInternal,
+  type RiotImportSourceContext,
+} from "../lib/riot/matchImportRunner.js";
 
 const roleMap: Record<string, Role[]> = {
   Fighter: [Role.TOP, Role.JUNGLE],
@@ -24,34 +39,29 @@ function inferRoles(tags: string[]) {
   return flattened.length ? flattened : [Role.FLEX];
 }
 
-function stripHtml(input: string) {
-  return input.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
-}
-
 function decodeHtmlEntities(input: string) {
   return input
-    .replace(/&nbsp;|&#160;/g, " ")
-    .replace(/&amp;/g, "&")
-    .replace(/&quot;/g, "\"")
-    .replace(/&#39;|&apos;/g, "'")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/\u00a0/g, " ");
+    .replaceAll(/&nbsp;|&#160;/g, " ")
+    .replaceAll("&amp;", "&")
+    .replaceAll("&quot;", "\"")
+    .replaceAll(/&#39;|&apos;/g, "'")
+    .replaceAll("&lt;", "<")
+    .replaceAll("&gt;", ">")
+    .replaceAll("\u00a0", " ");
 }
 
 function formatItemDescription(input: string) {
   return decodeHtmlEntities(
     input
-      .replace(/<br\s*\/?>/gi, "\n")
-      .replace(/<\/(mainText|stats)>/gi, "\n")
-      .replace(/<(mainText|stats)>/gi, "")
-      .replace(/<\/?(attention|passive|active|ornnBonus|rarityLegendary|rarityMythic|scaleLevel|scaleAD|scaleAP|scaleMana|scaleHealth|magicDamage|physicalDamage|trueDamage|healing|OnHit|status|keywordMajor|keywordStealth|speed|shield|rules|itemPassive|itemActive)>/gi, "")
-      .replace(/<li>/gi, "• ")
-      .replace(/<\/li>/gi, "\n")
-      .replace(/<[^>]+>/g, "")
-      .replace(/[ \t]+\n/g, "\n")
-      .replace(/\n{3,}/g, "\n\n")
-      .replace(/[ \t]{2,}/g, " ")
+      .replaceAll(/<br\s*\/?>/gi, "\n")
+      .replaceAll(/<\/(mainText|stats)>/gi, "\n")
+      .replaceAll(/<(mainText|stats)>/gi, "")
+      .replaceAll(/<li>/gi, "• ")
+      .replaceAll(/<\/li>/gi, "\n")
+      .replaceAll(/<[^>]+>/g, "")
+      .replaceAll(/[ \t]+\n/g, "\n")
+      .replaceAll(/\n{3,}/g, "\n\n")
+      .replaceAll(/[ \t]{2,}/g, " ")
       .trim(),
   );
 }
@@ -68,337 +78,6 @@ function detectCategory(tags: string[] = []) {
   return tags[0]?.toLowerCase() ?? "utility";
 }
 
-function clampNumber(value: unknown) {
-  return typeof value === "number" && Number.isFinite(value) ? value : 0;
-}
-
-function round(value: number, digits = 1) {
-  return Number(value.toFixed(digits));
-}
-
-function unique<T>(values: T[]) {
-  return [...new Set(values)];
-}
-
-function normalizeRiotId(gameName: string, tagLine: string) {
-  return `${gameName.trim().toLowerCase()}#${tagLine.trim().toUpperCase()}`;
-}
-
-function sleep(ms: number) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function shouldRetryRiotImport(error: unknown) {
-  return (
-    error instanceof HttpError &&
-    (error.status === 429 || error.status === 502 || error.status === 503 || error.status === 504)
-  );
-}
-
-function normalizeParticipantRole(value: unknown): Role | null {
-  const normalized = String(value ?? "")
-    .trim()
-    .toUpperCase();
-
-  switch (normalized) {
-    case "TOP":
-      return Role.TOP;
-    case "JUNGLE":
-      return Role.JUNGLE;
-    case "MIDDLE":
-    case "MID":
-      return Role.MID;
-    case "BOTTOM":
-    case "BOT":
-    case "ADC":
-    case "CARRY":
-      return Role.ADC;
-    case "UTILITY":
-    case "SUPPORT":
-      return Role.SUPPORT;
-    default:
-      return null;
-  }
-}
-
-function resolveParticipantRole(participant: Record<string, unknown> | undefined) {
-  return (
-    normalizeParticipantRole(participant?.teamPosition) ??
-    normalizeParticipantRole(participant?.individualPosition) ??
-    normalizeParticipantRole(participant?.role) ??
-    normalizeParticipantRole(participant?.lane)
-  );
-}
-
-function isPurchasableCatalogItem(
-  riotItemId: number,
-  item: {
-    maps?: Record<string, boolean> | null;
-    gold?: { total?: number | null; purchasable?: boolean | null } | null;
-    inStore?: boolean | null;
-  },
-) {
-  return (
-    Boolean(item.maps?.["11"]) &&
-    riotItemId < 100000 &&
-    (item.gold?.total ?? 0) > 0 &&
-    item.gold?.purchasable !== false &&
-    item.inStore !== false
-  );
-}
-
-function isStandardSummonersRiftItem(
-  riotItemId: number,
-  item: {
-    maps?: Record<string, boolean> | null;
-    gold?: { total?: number | null; purchasable?: boolean | null } | null;
-    inStore?: boolean | null;
-  },
-) {
-  return isPurchasableCatalogItem(riotItemId, item) && Boolean(item.maps?.["11"]);
-}
-
-function countEnabledMaps(maps?: Record<string, boolean> | null) {
-  return Object.values(maps ?? {}).filter(Boolean).length;
-}
-
-function compareCanonicalItemCandidates(
-  left: [string, { maps?: Record<string, boolean> | null; gold?: { total?: number | null; purchasable?: boolean | null } | null; inStore?: boolean | null }],
-  right: [string, { maps?: Record<string, boolean> | null; gold?: { total?: number | null; purchasable?: boolean | null } | null; inStore?: boolean | null }],
-) {
-  const leftIsStandard = isStandardSummonersRiftItem(Number(left[0]), left[1]);
-  const rightIsStandard = isStandardSummonersRiftItem(Number(right[0]), right[1]);
-
-  if (leftIsStandard !== rightIsStandard) {
-    return leftIsStandard ? -1 : 1;
-  }
-
-  const mapDelta = countEnabledMaps(left[1].maps) - countEnabledMaps(right[1].maps);
-  if (mapDelta !== 0) {
-    return mapDelta;
-  }
-
-  return Number(left[0]) - Number(right[0]);
-}
-
-function deriveBootItemIds(
-  items: Array<[string, { tags?: string[] | null; from?: Array<string | number> | null }]>,
-) {
-  const bootItemIds = new Set<number>();
-
-  for (const [itemId, item] of items) {
-    if (item.tags?.includes("Boots")) {
-      bootItemIds.add(Number(itemId));
-    }
-  }
-
-  let changed = true;
-  while (changed) {
-    changed = false;
-    for (const [itemId, item] of items) {
-      const numericItemId = Number(itemId);
-      if (bootItemIds.has(numericItemId)) {
-        continue;
-      }
-      const buildsFrom = Array.isArray(item.from) ? item.from.map((entry) => Number(entry)) : [];
-      if (buildsFrom.some((entry) => bootItemIds.has(entry))) {
-        bootItemIds.add(numericItemId);
-        changed = true;
-      }
-    }
-  }
-
-  return bootItemIds;
-}
-
-async function findAccountAcrossRegions(gameName: string, tagLine: string) {
-  let lastNotFound: HttpError | null = null;
-
-  for (const region of RIOT_REGIONS) {
-    try {
-      const account = await riotApiClient.getAccountByRiotIdOnRegion(gameName, tagLine, region);
-      return { account, accountRegion: region };
-    } catch (error) {
-      if (error instanceof HttpError && error.status === 404) {
-        lastNotFound = error;
-        continue;
-      }
-
-      throw error;
-    }
-  }
-
-  throw lastNotFound ?? new HttpError(404, "Riot account not found.");
-}
-
-async function resolvePlatformForPuuid(puuid: string, tagLine?: string | null, preferredPlatform?: string | null) {
-  const orderedPlatforms = preferredPlatform
-    ? [preferredPlatform as RiotPlatform, ...getPlatformSearchOrder(tagLine)]
-    : getPlatformSearchOrder(tagLine);
-
-  let lastNotFound: HttpError | null = null;
-  for (const platform of orderedPlatforms) {
-    try {
-      const summoner = await riotApiClient.getSummonerByPuuidOnPlatform(puuid, platform);
-      return { platform, region: riotApiClient.getRegionForPlatform(platform), summoner };
-    } catch (error) {
-      if (error instanceof HttpError && error.status === 404) {
-        lastNotFound = error;
-        continue;
-      }
-
-      throw error;
-    }
-  }
-
-  throw lastNotFound ?? new HttpError(404, "League of Legends summoner not found for this Riot account.");
-}
-
-async function upsertIndexedAccount(input: {
-  puuid: string;
-  gameName: string;
-  tagLine: string;
-  platform?: string | null;
-  region?: string | null;
-  profileIconId?: number | null;
-  summonerLevel?: number | null;
-}) {
-  const existing = await prisma.riotAccountIndex.findUnique({
-    where: { puuid: input.puuid },
-  });
-
-  try {
-    await prisma.riotAccountIndex.upsert({
-      where: { puuid: input.puuid },
-      update: {
-        gameName: input.gameName,
-        tagLine: input.tagLine,
-        normalizedRiotId: normalizeRiotId(input.gameName, input.tagLine),
-        platform: input.platform ?? existing?.platform ?? null,
-        region: input.region ?? existing?.region ?? null,
-        profileIconId: input.profileIconId ?? existing?.profileIconId ?? null,
-        summonerLevel: input.summonerLevel ?? existing?.summonerLevel ?? null,
-        lastSeenAt: new Date(),
-      },
-      create: {
-        puuid: input.puuid,
-        gameName: input.gameName,
-        tagLine: input.tagLine,
-        normalizedRiotId: normalizeRiotId(input.gameName, input.tagLine),
-        platform: input.platform ?? null,
-        region: input.region ?? null,
-        profileIconId: input.profileIconId ?? null,
-        summonerLevel: input.summonerLevel ?? null,
-        lastSeenAt: new Date(),
-      },
-    });
-  } catch (error) {
-    if (
-      error instanceof Prisma.PrismaClientKnownRequestError &&
-      error.code === "P2002"
-    ) {
-      const conflicting = await prisma.riotAccountIndex.findFirst({
-        where: {
-          gameName: input.gameName,
-          tagLine: input.tagLine,
-        },
-      });
-
-      if (conflicting) {
-        await prisma.riotAccountIndex.update({
-          where: { puuid: conflicting.puuid },
-          data: {
-            normalizedRiotId: normalizeRiotId(input.gameName, input.tagLine),
-            platform: input.platform ?? conflicting.platform ?? null,
-            region: input.region ?? conflicting.region ?? null,
-            profileIconId: input.profileIconId ?? conflicting.profileIconId ?? null,
-            summonerLevel: input.summonerLevel ?? conflicting.summonerLevel ?? null,
-            lastSeenAt: new Date(),
-          },
-        });
-        return;
-      }
-    }
-
-    throw error;
-  }
-}
-
-async function resolveLeagueIdentity(gameName: string, tagLine: string) {
-  const cached = await prisma.riotAccountIndex.findUnique({
-    where: {
-      gameName_tagLine: {
-        gameName,
-        tagLine: tagLine.toUpperCase(),
-      },
-    },
-  });
-
-  const { account, accountRegion } = await findAccountAcrossRegions(gameName, tagLine);
-  const resolved = await resolvePlatformForPuuid(account.puuid, account.tagLine, cached?.platform);
-
-  await upsertIndexedAccount({
-    puuid: account.puuid,
-    gameName: account.gameName,
-    tagLine: account.tagLine,
-    platform: resolved.platform,
-    region: resolved.region,
-    profileIconId: resolved.summoner.profileIconId ?? null,
-    summonerLevel: resolved.summoner.summonerLevel ?? null,
-  });
-
-  return {
-    account,
-    accountRegion,
-    platform: resolved.platform,
-    region: resolved.region,
-    summoner: resolved.summoner,
-  };
-}
-
-function resolveQueueLabel(queueId: number | null | undefined) {
-  switch (queueId) {
-    case 420:
-      return "Classée Solo/Duo";
-    case 440:
-      return "Classée Flex";
-    case 450:
-      return "ARAM";
-    case 400:
-      return "Draft";
-    case 430:
-      return "Normal";
-    default:
-      return queueId ? `File ${queueId}` : "File inconnue";
-  }
-}
-
-async function resolveChampionSlugFromParticipant(participant: Record<string, unknown> | undefined) {
-  const championKey = String(participant?.championName ?? "").trim();
-  if (championKey) {
-    const championByKey = await prisma.champion.findUnique({
-      where: { championKey: championKey },
-      select: { slug: true },
-    });
-    if (championByKey) {
-      return championByKey.slug;
-    }
-  }
-
-  const riotChampionId = Number(participant?.championId);
-  if (Number.isFinite(riotChampionId) && riotChampionId > 0) {
-    const championByRiotId = await prisma.champion.findUnique({
-      where: { riotChampionId },
-      select: { slug: true },
-    });
-    if (championByRiotId) {
-      return championByRiotId.slug;
-    }
-  }
-
-  return slugify(championKey);
-}
-
 async function buildUniqueItemSlug(riotItemId: number, name: string) {
   const base = slugify(name);
   const existing = await prisma.item.findFirst({
@@ -410,485 +89,6 @@ async function buildUniqueItemSlug(riotItemId: number, name: string) {
   });
 
   return existing ? `${base}-${riotItemId}` : base;
-}
-
-async function fetchMatchBundleWithRetry(matchId: string, region: RiotRegion, maxAttempts = 3) {
-  let lastError: unknown = null;
-
-  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-    try {
-      const [match, timeline] = await Promise.all([
-        riotApiClient.getMatchByIdOnRegion(matchId, region),
-        riotApiClient.getMatchTimelineByIdOnRegion(matchId, region),
-      ]);
-
-      return { match, timeline };
-    } catch (error) {
-      lastError = error;
-      if (!shouldRetryRiotImport(error) || attempt === maxAttempts) {
-        throw error;
-      }
-
-      const backoffMs = attempt * 500;
-      console.warn(
-        `[riot-sync] retrying match bundle fetch for ${matchId} in ${backoffMs}ms after transient error`,
-        error,
-      );
-      await sleep(backoffMs);
-    }
-  }
-
-  throw lastError ?? new HttpError(500, "Unable to fetch Riot match bundle.");
-}
-
-type ResolvedImportIdentity = {
-  puuid: string;
-  gameName: string | null;
-  tagLine: string | null;
-  region: RiotRegion;
-  platform: RiotPlatform;
-};
-
-export type RiotImportSourceContext = {
-  sourceKind?: string | null;
-  sourceMetadata?: Prisma.InputJsonObject | null;
-  syncPlayerProfile?: boolean;
-  skipExistingWithDifferentTarget?: boolean;
-};
-
-export type RiotImportedMatchDetail = {
-  riotMatchId: string;
-  patch: string | null;
-  sourceRegion: RiotRegion;
-  timelineAvailable: boolean;
-  timelineMissingReason: string | null;
-  targetChampionSlug: string | null;
-  targetRole: Role | null;
-  gameCreationAt: Date | null;
-  created: boolean;
-  skippedReason: string | null;
-};
-
-async function resolveImportIdentityInternal(input: RiotImportInput): Promise<ResolvedImportIdentity> {
-  if (input.type === "riot-id") {
-    const resolved = await resolveLeagueIdentity(input.gameName, input.tagLine);
-    return {
-      puuid: resolved.account.puuid,
-      gameName: resolved.account.gameName,
-      tagLine: resolved.account.tagLine,
-      region: resolved.region,
-      platform: resolved.platform,
-    };
-  }
-
-  let indexed = await prisma.riotAccountIndex.findUnique({
-    where: { puuid: input.puuid },
-  });
-
-  if ((!indexed?.region || !indexed?.platform) && indexed?.gameName && indexed?.tagLine) {
-    await resolveLeagueIdentity(indexed.gameName, indexed.tagLine);
-    indexed = await prisma.riotAccountIndex.findUnique({ where: { puuid: input.puuid } });
-  }
-
-  if (indexed?.region && indexed?.platform) {
-    return {
-      puuid: indexed.puuid,
-      gameName: indexed.gameName,
-      tagLine: indexed.tagLine,
-      region: indexed.region as RiotRegion,
-      platform: indexed.platform as RiotPlatform,
-    };
-  }
-
-  const resolved = await resolvePlatformForPuuid(input.puuid, indexed?.tagLine, indexed?.platform);
-  if (indexed?.gameName && indexed?.tagLine) {
-    await upsertIndexedAccount({
-      puuid: input.puuid,
-      gameName: indexed.gameName,
-      tagLine: indexed.tagLine,
-      platform: resolved.platform,
-      region: resolved.region,
-      profileIconId: resolved.summoner.profileIconId ?? null,
-      summonerLevel: resolved.summoner.summonerLevel ?? null,
-    });
-  }
-
-  return {
-    puuid: input.puuid,
-    gameName: indexed?.gameName ?? null,
-    tagLine: indexed?.tagLine ?? null,
-    region: resolved.region,
-    platform: resolved.platform,
-  };
-}
-
-function normalizeSourceKind(sourceKind?: string | null) {
-  const normalized = sourceKind?.trim();
-  return normalized ? normalized : null;
-}
-
-function buildImportedMatchMetadata(input: {
-  riotMatchId: string;
-  patch: string | null;
-  sourceRegion: string;
-  sourceKind: string | null;
-  sourceMetadata: Prisma.InputJsonObject | null;
-  targetPuuid: string;
-  targetGameName: string | null;
-  targetTagLine: string | null;
-  participant: Record<string, unknown>;
-  championSlug: string;
-  targetRole: Role | null;
-  gameCreationAt: Date | null;
-  gameDurationSeconds: number | null;
-}) {
-  return {
-    riotMatchId: input.riotMatchId,
-    patch: input.patch,
-    sourceRegion: input.sourceRegion,
-    sourceKind: input.sourceKind,
-    sourceMetadata: input.sourceMetadata,
-    targetPuuid: input.targetPuuid,
-    targetGameName: input.targetGameName,
-    targetTagLine: input.targetTagLine,
-    targetChampionId: Number(input.participant.championId) || null,
-    targetChampionSlug: input.championSlug,
-    targetRole: input.targetRole,
-    gameCreationAt: input.gameCreationAt?.toISOString() ?? null,
-    gameDurationSeconds: input.gameDurationSeconds,
-  } satisfies Prisma.InputJsonObject;
-}
-
-async function importMatchForIdentityInternal(
-  identity: ResolvedImportIdentity,
-  input: {
-    userId: string;
-    matchId: string;
-    sourceKind?: string | null;
-    sourceMetadata?: Prisma.InputJsonObject | null;
-    skipExistingWithDifferentTarget?: boolean;
-  },
-): Promise<RiotImportedMatchDetail> {
-  let match: Record<string, unknown>;
-  let timeline: Record<string, unknown> | null = null;
-  let timelineMissingReason: string | null = null;
-
-  try {
-    const fetched = await fetchMatchBundleWithRetry(input.matchId, identity.region);
-    match = fetched.match;
-    timeline = fetched.timeline;
-  } catch (error) {
-    timelineMissingReason = error instanceof HttpError ? `timeline-fetch-${error.status}` : "timeline-fetch-error";
-    console.warn(
-      `[riot-sync] timeline fetch failed for ${input.matchId}, falling back to match-only import`,
-      error,
-    );
-    match = await riotApiClient.getMatchByIdOnRegion(input.matchId, identity.region);
-  }
-
-  const metadata = match.metadata as { matchId?: string; participants?: string[] };
-  const info = match.info as {
-    gameVersion?: string;
-    gameCreation?: number;
-    gameDuration?: number;
-    participants?: Array<Record<string, unknown>>;
-  };
-  const participant = info.participants?.find((entry) => entry.puuid === identity.puuid);
-  const riotMatchId = metadata.matchId ?? input.matchId;
-
-  if (!participant) {
-    console.warn(`[riot-sync] target participant missing in match ${riotMatchId}, skipping`);
-    const canonicalPatch = canonicalizePatch(info.gameVersion, info.gameCreation ? new Date(info.gameCreation) : null);
-    return {
-      riotMatchId,
-      patch: canonicalPatch.patchCanonical,
-      sourceRegion: identity.region,
-      timelineAvailable: Boolean(timeline),
-      timelineMissingReason: timeline ? null : "target-participant-missing",
-      targetChampionSlug: null,
-      targetRole: null,
-      gameCreationAt: info.gameCreation ? new Date(info.gameCreation) : null,
-      created: false,
-      skippedReason: "target-participant-missing",
-    };
-  }
-
-  await Promise.all(
-    (info.participants ?? [])
-      .filter(
-        (entry) =>
-          typeof entry.puuid === "string" &&
-          typeof entry.riotIdGameName === "string" &&
-          typeof entry.riotIdTagline === "string",
-      )
-      .map((entry) =>
-        upsertIndexedAccount({
-          puuid: String(entry.puuid),
-          gameName: String(entry.riotIdGameName),
-          tagLine: String(entry.riotIdTagline),
-        }),
-      ),
-  );
-
-  const championSlug = await resolveChampionSlugFromParticipant(participant);
-  const targetRole = resolveParticipantRole(participant);
-  const gameCreationAt = info.gameCreation ? new Date(info.gameCreation) : null;
-  const patch = canonicalizePatch(info.gameVersion, gameCreationAt).patchCanonical;
-  const sourceKind = normalizeSourceKind(input.sourceKind);
-  const sourceMetadata = input.sourceMetadata ?? null;
-  const resolvedTimelineMissingReason = timeline ? null : (timelineMissingReason ?? "timeline-unavailable-during-import");
-  const existingMatch = await prisma.importedMatch.findUnique({
-    where: { riotMatchId },
-    select: { id: true, targetPuuid: true, sourceKind: true },
-  });
-  if (
-    input.skipExistingWithDifferentTarget &&
-    existingMatch &&
-    existingMatch.targetPuuid &&
-    existingMatch.targetPuuid !== identity.puuid
-  ) {
-    console.warn(
-      `[riot-sync] skipping ${riotMatchId} because it already exists for target ${existingMatch.targetPuuid}`,
-    );
-    return {
-      riotMatchId,
-      patch: patch ?? null,
-      sourceRegion: identity.region,
-      timelineAvailable: Boolean(timeline),
-      timelineMissingReason: resolvedTimelineMissingReason,
-      targetChampionSlug: championSlug,
-      targetRole,
-      gameCreationAt,
-      created: false,
-      skippedReason: "existing-match-different-target",
-    };
-  }
-  const matchMetadata = buildImportedMatchMetadata({
-    riotMatchId,
-    patch,
-    sourceRegion: identity.region,
-    sourceKind,
-    sourceMetadata,
-    targetPuuid: identity.puuid,
-    targetGameName: identity.gameName,
-    targetTagLine: identity.tagLine,
-    participant,
-    championSlug,
-    targetRole,
-    gameCreationAt,
-    gameDurationSeconds: clampNumber(info.gameDuration) || null,
-  });
-  const mongoRefs = await importedMatchArchiveRepository.persistImportedMatchArtifacts({
-    riotMatchId,
-    patch: patch ?? null,
-    sourceRegion: identity.region,
-    sourceKind,
-    sourceMetadata,
-    matchMetadata,
-    targetPuuid: identity.puuid,
-    targetGameName: identity.gameName,
-    targetTagLine: identity.tagLine,
-    userId: input.userId,
-    matchRaw: match as Prisma.InputJsonObject,
-    timelineRaw: timeline ? (timeline as Prisma.InputJsonObject) : null,
-    gameCreationAt,
-  });
-  const hasMongoPrimaryStorage = Boolean(mongoRefs.mongoMatchImportRef);
-  const matchPayload: Prisma.InputJsonObject = hasMongoPrimaryStorage
-    ? {
-      storage: "mongo-primary",
-      metadata: matchMetadata,
-    }
-    : {
-      raw: match as Prisma.InputJsonObject,
-      metadata: matchMetadata,
-    };
-  const timelinePayload = timeline
-    ? (
-      hasMongoPrimaryStorage
-        ? {
-          storage: "mongo-primary",
-          metadata: {
-            riotMatchId,
-            frameCount:
-              typeof timeline.info === "object" && timeline.info && Array.isArray((timeline.info as { frames?: unknown[] }).frames)
-                ? (timeline.info as { frames: unknown[] }).frames.length
-                : 0,
-          } satisfies Prisma.InputJsonObject,
-        }
-        : {
-          raw: timeline as Prisma.InputJsonObject,
-        }
-    ) as Prisma.InputJsonObject
-    : null;
-
-  await prisma.importedMatch.upsert({
-    where: { riotMatchId },
-    update: {
-      patch,
-      sourceRegion: identity.region,
-      sourceKind,
-      sourceMetadata,
-      targetPuuid: identity.puuid,
-      targetGameName: identity.gameName,
-      targetTagLine: identity.tagLine,
-      targetChampionId: Number(participant.championId) || null,
-      targetChampionSlug: championSlug,
-      targetRole,
-      gameCreationAt,
-      gameDurationSeconds: clampNumber(info.gameDuration) || null,
-      timelineFetchedAt: timeline ? new Date() : null,
-      timelineMissingReason: resolvedTimelineMissingReason,
-      mongoMatchImportRef: mongoRefs.mongoMatchImportRef,
-      mongoTimelineRef: mongoRefs.mongoTimelineRef,
-      mongoBackfilledAt: mongoRefs.mongoMatchImportRef ? new Date() : null,
-      matchData: matchPayload,
-      timelineData: timelinePayload,
-    },
-    create: {
-      userId: input.userId,
-      riotMatchId,
-      patch,
-      sourceRegion: identity.region,
-      sourceKind,
-      sourceMetadata,
-      targetPuuid: identity.puuid,
-      targetGameName: identity.gameName,
-      targetTagLine: identity.tagLine,
-      targetChampionId: Number(participant.championId) || null,
-      targetChampionSlug: championSlug,
-      targetRole,
-      gameCreationAt,
-      gameDurationSeconds: clampNumber(info.gameDuration) || null,
-      timelineFetchedAt: timeline ? new Date() : null,
-      timelineMissingReason: resolvedTimelineMissingReason,
-      mongoMatchImportRef: mongoRefs.mongoMatchImportRef,
-      mongoTimelineRef: mongoRefs.mongoTimelineRef,
-      mongoBackfilledAt: mongoRefs.mongoMatchImportRef ? new Date() : null,
-      matchData: matchPayload,
-      timelineData: timelinePayload,
-    },
-  });
-
-  console.info(
-    `[riot-sync] imported ${riotMatchId} patch=${patch ?? "unknown"} timeline=${timeline ? "yes" : "no"} champion=${championSlug} source=${sourceKind ?? "user-sync"}`,
-  );
-
-  return {
-    riotMatchId,
-    patch: patch ?? null,
-    sourceRegion: identity.region,
-    timelineAvailable: Boolean(timeline),
-    timelineMissingReason: resolvedTimelineMissingReason,
-    targetChampionSlug: championSlug,
-    targetRole,
-    gameCreationAt,
-    created: !existingMatch,
-    skippedReason: null,
-  };
-}
-
-async function importRecentMatchesInternal(
-  userId: string,
-  puuid: string,
-  count = 5,
-  options: RiotImportSourceContext = {},
-): Promise<RiotImportRunSummary> {
-  let indexed = await prisma.riotAccountIndex.findUnique({ where: { puuid } });
-
-  if ((!indexed?.region || !indexed?.platform) && indexed?.gameName && indexed?.tagLine) {
-    await resolveLeagueIdentity(indexed.gameName, indexed.tagLine);
-    indexed = await prisma.riotAccountIndex.findUnique({ where: { puuid } });
-  }
-
-  const region = indexed?.region as RiotRegion | undefined;
-  if (!region) {
-    throw new HttpError(400, "Unable to determine Riot region for this player. Open the profile first.");
-  }
-
-  const ids = await riotApiClient.getMatchIdsByPuuidOnRegion(puuid, region, count);
-  const imported = [];
-  const matches: RiotImportMatchSummary[] = [];
-  let skippedMatchCount = 0;
-  console.info(`[riot-sync] importing ${ids.length} matches for ${puuid} from ${region}`);
-
-  const identity: ResolvedImportIdentity = {
-    puuid,
-    gameName: indexed?.gameName ?? null,
-    tagLine: indexed?.tagLine ?? null,
-    region,
-    platform: (indexed?.platform as RiotPlatform | undefined) ?? env.RIOT_PLATFORM as RiotPlatform,
-  };
-
-  for (const matchId of ids) {
-    const result = await importMatchForIdentityInternal(identity, {
-      userId,
-      matchId,
-      sourceKind: options.sourceKind,
-      sourceMetadata: options.sourceMetadata,
-      skipExistingWithDifferentTarget: options.skipExistingWithDifferentTarget,
-    });
-
-    if (result.skippedReason === "target-participant-missing") {
-      skippedMatchCount += 1;
-      matches.push({
-        riotMatchId: result.riotMatchId,
-        timelineAvailable: result.timelineAvailable,
-        timelineMissingReason: result.timelineMissingReason,
-      });
-      continue;
-    }
-
-    imported.push(result.riotMatchId);
-    matches.push({
-      riotMatchId: result.riotMatchId,
-      timelineAvailable: result.timelineAvailable,
-      timelineMissingReason: result.timelineMissingReason,
-    });
-  }
-
-  if (options.syncPlayerProfile !== false) {
-    await prisma.playerProfile.upsert({
-      where: { userId },
-      update: {
-        riotPuuid: puuid,
-        riotGameName: indexed?.gameName,
-        riotTagLine: indexed?.tagLine,
-        lastSyncAt: new Date(),
-        region: region,
-      },
-      create: {
-        userId,
-        riotPuuid: puuid,
-        riotGameName: indexed?.gameName,
-        riotTagLine: indexed?.tagLine,
-        lastSyncAt: new Date(),
-        region: region,
-      },
-    });
-  }
-
-  await importedMatchArchiveRepository.recordIngestionRun({
-    kind: options.sourceKind ?? "USER_SYNC",
-    targetPuuid: puuid,
-    userId,
-    requestedMatchCount: ids.length,
-    importedMatchCount: imported.length,
-    skippedMatchCount,
-    timelineOkCount: matches.filter((match) => match.timelineAvailable).length,
-    matches: matches.map((match) => ({
-      riotMatchId: match.riotMatchId,
-      timelineAvailable: match.timelineAvailable,
-      timelineMissingReason: match.timelineMissingReason,
-    })),
-  });
-
-  return {
-    requestedMatchCount: ids.length,
-    importedMatchCount: imported.length,
-    skippedMatchCount,
-    matches,
-  };
 }
 
 export const riotSyncService = {
@@ -1166,7 +366,7 @@ export const riotSyncService = {
   },
 
   async resolveImportIdentity(input: RiotImportInput) {
-    return resolveImportIdentityInternal(input);
+    return resolveRiotImportIdentity(input);
   },
 
   async importMatchForIdentity(
@@ -1190,17 +390,7 @@ export const riotSyncService = {
     const matches = await Promise.all(matchIds.map((matchId) => riotApiClient.getMatchByIdOnRegion(matchId, region)));
     const latestVersion = await dataDragonClient.getLatestVersion();
 
-    const allItemIds = unique(
-      matches.flatMap((match) => {
-        const info = match.info as { participants?: Array<Record<string, unknown>> } | undefined;
-        const participant = info?.participants?.find((entry) => entry.puuid === account.puuid);
-        if (!participant) {
-          return [];
-        }
-
-        return Array.from({ length: 7 }, (_, index) => clampNumber(participant[`item${index}`])).filter((value) => value > 0);
-      }),
-    );
+    const allItemIds = collectPublicProfileItemIds(matches, account.puuid);
 
     const itemIndex = new Map(
       (await prisma.item.findMany({
@@ -1217,138 +407,28 @@ export const riotSyncService = {
       })).map((item) => [item.riotItemId, item]),
     );
 
-    const recentMatches = matches
-      .map((match) => {
-        const metadata = match.metadata as { matchId?: string } | undefined;
-        const info = match.info as {
-          gameCreation?: number;
-          gameDuration?: number;
-          queueId?: number;
-          participants?: Array<Record<string, unknown>>;
-        } | undefined;
-        const participant = info?.participants?.find((entry) => entry.puuid === account.puuid);
-        if (!participant) {
-          return null;
-        }
-
-        const kills = clampNumber(participant.kills);
-        const deaths = clampNumber(participant.deaths);
-        const assists = clampNumber(participant.assists);
-        const totalDamageDealtToChampions = clampNumber(participant.totalDamageDealtToChampions);
-        const totalMinionsKilled = clampNumber(participant.totalMinionsKilled);
-        const neutralMinionsKilled = clampNumber(participant.neutralMinionsKilled);
-        const totalCs = totalMinionsKilled + neutralMinionsKilled;
-        const durationSeconds = clampNumber(info?.gameDuration);
-        const teamId = clampNumber(participant.teamId);
-        const teamParticipants = (info?.participants ?? []).filter((entry) => entry.teamId === teamId);
-        const teamKills = teamParticipants.reduce((sum, entry) => sum + clampNumber(entry.kills), 0);
-        const killParticipation = teamKills > 0 ? ((kills + assists) / teamKills) * 100 : 0;
-        const itemIds = Array.from({ length: 7 }, (_, index) => clampNumber(participant[`item${index}`])).filter((value) => value > 0);
-
-        return {
-          matchId: metadata?.matchId ?? "",
-          championName: String(participant.championName ?? "Unknown"),
-          result: participant.win ? "Win" : "Loss",
-          kills,
-          deaths,
-          assists,
-          kda: round((kills + assists) / Math.max(1, deaths), 2),
-          cs: totalCs,
-          damageToChampions: totalDamageDealtToChampions,
-          killParticipation: round(killParticipation, 1),
-          queueId: info?.queueId ?? null,
-          queueLabel: resolveQueueLabel(info?.queueId ?? null),
-          gameCreation: info?.gameCreation ? new Date(info.gameCreation).toISOString() : null,
-          gameDurationSeconds: durationSeconds || null,
-          goldEarned: clampNumber(participant.goldEarned),
-          visionScore: clampNumber(participant.visionScore),
-          items: itemIds.map((riotItemId) => {
-            const item = itemIndex.get(riotItemId);
-            return {
-              riotItemId,
-              name: item?.name ?? `Item ${riotItemId}`,
-              icon: item?.image ?? dataDragonClient.getItemIconUrl(latestVersion, riotItemId),
-            };
-          }),
-        };
-      })
-      .filter((match): match is NonNullable<typeof match> => Boolean(match));
-
-    const wins = recentMatches.filter((match) => match.result === "Win").length;
-    const losses = recentMatches.length - wins;
-    const totals = recentMatches.reduce(
-      (accumulator, match) => ({
-        kills: accumulator.kills + match.kills,
-        deaths: accumulator.deaths + match.deaths,
-        assists: accumulator.assists + match.assists,
-        cs: accumulator.cs + match.cs,
-        damage: accumulator.damage + match.damageToChampions,
-        kp: accumulator.kp + match.killParticipation,
-        gold: accumulator.gold + match.goldEarned,
-        vision: accumulator.vision + match.visionScore,
-        duration: accumulator.duration + (match.gameDurationSeconds ?? 0),
-      }),
-      { kills: 0, deaths: 0, assists: 0, cs: 0, damage: 0, kp: 0, gold: 0, vision: 0, duration: 0 },
-    );
-
-    const championMap = new Map<string, { games: number; wins: number; kills: number; deaths: number; assists: number }>();
-    for (const match of recentMatches) {
-      const current = championMap.get(match.championName) ?? { games: 0, wins: 0, kills: 0, deaths: 0, assists: 0 };
-      current.games += 1;
-      current.wins += match.result === "Win" ? 1 : 0;
-      current.kills += match.kills;
-      current.deaths += match.deaths;
-      current.assists += match.assists;
-      championMap.set(match.championName, current);
-    }
-
+    const profileProjection = buildPublicPlayerProfile({
+      account,
+      summoner,
+      region,
+      platform,
+      matches,
+      itemIndex,
+      getItemIconUrl: (riotItemId) => dataDragonClient.getItemIconUrl(latestVersion, riotItemId),
+    });
     await Promise.all(
       matches.flatMap((match) => {
         const info = match.info as { participants?: Array<Record<string, unknown>> } | undefined;
         return (info?.participants ?? [])
           .filter((entry) => typeof entry.puuid === "string" && typeof entry.riotIdGameName === "string" && typeof entry.riotIdTagline === "string")
           .map((entry) => upsertIndexedAccount({
-            puuid: String(entry.puuid),
-            gameName: String(entry.riotIdGameName),
-            tagLine: String(entry.riotIdTagline),
+            puuid: entry.puuid as string,
+            gameName: entry.riotIdGameName as string,
+            tagLine: entry.riotIdTagline as string,
           }));
       }),
     );
 
-    return {
-      profile: {
-        riotId: `${account.gameName}#${account.tagLine}`,
-        gameName: account.gameName,
-        tagLine: account.tagLine,
-        puuid: account.puuid,
-        summonerLevel: summoner.summonerLevel ?? null,
-        profileIconId: summoner.profileIconId ?? null,
-        region,
-        platform,
-      },
-      summary: {
-        matchesAnalyzed: recentMatches.length,
-        wins,
-        losses,
-        winRate: recentMatches.length ? round((wins / recentMatches.length) * 100, 1) : 0,
-        averageKda: round((totals.kills + totals.assists) / Math.max(1, totals.deaths), 2),
-        averageCs: recentMatches.length ? round(totals.cs / recentMatches.length, 1) : 0,
-        averageCsPerMinute: totals.duration > 0 ? round((totals.cs / totals.duration) * 60, 2) : 0,
-        averageKillParticipation: recentMatches.length ? round(totals.kp / recentMatches.length, 1) : 0,
-        averageDamageToChampions: recentMatches.length ? Math.round(totals.damage / recentMatches.length) : 0,
-        averageGoldEarned: recentMatches.length ? Math.round(totals.gold / recentMatches.length) : 0,
-        averageVisionScore: recentMatches.length ? round(totals.vision / recentMatches.length, 1) : 0,
-        mostPlayedChampions: [...championMap.entries()]
-          .map(([championName, value]) => ({
-            championName,
-            games: value.games,
-            wins: value.wins,
-            kda: round((value.kills + value.assists) / Math.max(1, value.deaths), 2),
-          }))
-          .sort((left, right) => right.games - left.games)
-          .slice(0, 3),
-      },
-      recentMatches,
-    };
+    return profileProjection;
   },
 };

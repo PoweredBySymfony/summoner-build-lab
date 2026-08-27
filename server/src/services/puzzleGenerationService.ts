@@ -591,7 +591,7 @@ function unique<T>(values: T[]) {
 }
 
 function resolveChampionArchetype(tags: unknown): ChampionArchetype {
-  const normalizedTags = Array.isArray(tags) ? tags.map((tag) => String(tag)) : [];
+  const normalizedTags = Array.isArray(tags) ? tags.map(String) : [];
   if (normalizedTags.includes("Marksman")) return "marksman";
   if (normalizedTags.includes("Mage") || normalizedTags.includes("Assassin")) return "mage";
   if (normalizedTags.includes("Support")) return "support";
@@ -666,6 +666,12 @@ function enrichEnemyTeam(enemyTeam: ScenarioMember[], variant: ScenarioVariant) 
     ...member,
     items: unique([...(variant.enemyItems[member.role] ?? []), ...member.items]).slice(0, 4),
   }));
+}
+
+function getCsForSlot(playerSlot: ScenarioSlot): number {
+  if (playerSlot === "SUPPORT") return 38;
+  if (playerSlot === "JUNGLE") return 142;
+  return 184;
 }
 
 async function createGeneratedPuzzle(
@@ -746,8 +752,12 @@ async function createGeneratedPuzzle(
   }
 
   const generatedSlug = `${champion.slug}-${variant.key}-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
-  const correctItem = itemIndex.get(variant.correctChoice)!;
+  const correctItem = itemIndex.get(variant.correctChoice);
+  if (!correctItem) {
+    throw new HttpError(500, "Impossible de résoudre l'item correct pour la génération du puzzle.");
+  }
   const playerRole = Role[playerSlot];
+  const csForSlot = getCsForSlot(playerSlot);
 
   const puzzle = await prisma.puzzle.create({
     data: {
@@ -768,7 +778,10 @@ async function createGeneratedPuzzle(
       isDailyEligible: !importedMatchId,
       choices: {
         create: variant.choices.map((choiceSlug, index) => {
-          const item = itemIndex.get(choiceSlug)!;
+          const item = itemIndex.get(choiceSlug);
+          if (!item) {
+            throw new HttpError(500, `Item de choix introuvable: ${choiceSlug}`);
+          }
           const isCorrect = choiceSlug === variant.correctChoice;
           return {
             label: item.name,
@@ -793,7 +806,7 @@ async function createGeneratedPuzzle(
           kills: playerSlot === "SUPPORT" ? 1 : 5,
           deaths: 2,
           assists: playerSlot === "SUPPORT" ? 10 : 6,
-          cs: playerSlot === "SUPPORT" ? 38 : playerSlot === "JUNGLE" ? 142 : 184,
+          cs: csForSlot,
           currentBuild: serializedCurrentBuild as Prisma.InputJsonValue,
           allyTeam: serializedAllyTeam as Prisma.InputJsonValue,
           enemyTeam: serializedEnemyTeam as Prisma.InputJsonValue,
@@ -898,7 +911,8 @@ export const puzzleGenerationService = {
 
     const matchData = match.matchData as Prisma.JsonObject;
     const metadata = matchData.metadata as Prisma.JsonObject | undefined;
-    const championSlug = String(match.targetChampionSlug ?? metadata?.targetChampionSlug ?? matchData.playerChampionSlug ?? "");
+    const rawSlug = match.targetChampionSlug ?? metadata?.targetChampionSlug ?? matchData.playerChampionSlug;
+    const championSlug = typeof rawSlug === "string" ? rawSlug : "";
     const champion = await prisma.champion.findUnique({ where: { slug: championSlug } });
     if (!champion) {
       throw new HttpError(400, "La partie importée ne référence pas un champion connu.");

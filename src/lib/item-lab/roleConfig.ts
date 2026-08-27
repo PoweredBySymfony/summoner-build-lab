@@ -33,7 +33,7 @@ export const getRoleConfig = (role: LabRoleKey): RoleConfig => ROLE_CONFIG[role]
 
 export const getChampionRoleOptions = (champion?: ChampionView | null): LabRoleKey[] => {
   const roles = (champion?.roles ?? []).map((role) => normalizeLabRole(role));
-  return Array.from(new Set(roles)).filter(Boolean) as LabRoleKey[];
+  return Array.from(new Set(roles)).filter(Boolean);
 };
 
 export const getDefaultChampionRole = (champion?: ChampionView | null): LabRoleKey => {

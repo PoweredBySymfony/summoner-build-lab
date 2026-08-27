@@ -62,6 +62,30 @@ type CampaignSummary = {
   stoppedReason: string | null;
 };
 
+type ArgHandler = (options: CampaignOptions, next: string | undefined) => boolean;
+
+const campaignArgHandlers: Record<string, ArgHandler> = {
+  "--seed-path": (o, v) => { if (v) { o.seedPath = v; } return true; },
+  "--policy-path": (o, v) => { if (v) { o.policyPath = v; } return true; },
+  "--checkpoint-path": (o, v) => { if (v) { o.checkpointPath = v; } return true; },
+  "--quarantine-path": (o, v) => { if (v) { o.quarantinePath = v; } return true; },
+  "--report-dir": (o, v) => { if (v) { o.reportDir = v; } return true; },
+  "--owner-user-id": (o, v) => { o.ownerUserId = v; return true; },
+  "--owner-email": (o, v) => { o.ownerEmail = v; return true; },
+  "--target-matches": (o, v) => { o.targetMatches = Number(v ?? "2000"); return true; },
+  "--stage-size": (o, v) => { o.stageSize = Number(v ?? "50"); return true; },
+  "--count-per-seed": (o, v) => { o.countPerSeed = Number(v ?? "40"); return true; },
+  "--max-ids-per-seed": (o, v) => { o.maxIdsPerSeed = Number(v ?? "400"); return true; },
+  "--max-stages": (o, v) => { o.maxStages = Number(v ?? "1"); return true; },
+  "--audit-sample-size": (o, v) => { o.auditSampleSize = Number(v ?? "20"); return true; },
+  "--max-seed-discovery-failures": (o, v) => { o.maxSeedDiscoveryFailures = Number(v ?? "2"); return true; },
+  "--min-completed-rate": (o, v) => { o.minCompletedRate = Number(v ?? "0.9"); return true; },
+  "--max-no-viable-rate": (o, v) => { o.maxNoViableRate = Number(v ?? "0.1"); return true; },
+  "--dry-run": (o) => { o.dryRun = true; return false; },
+  "--reset-checkpoint": (o) => { o.resetCheckpoint = true; return false; },
+  "--refresh-discovery": (o) => { o.refreshDiscovery = true; return false; },
+};
+
 function parseArgs(argv: string[]): CampaignOptions {
   const options: CampaignOptions = {
     seedPath: path.join("data", "seeds", "competitive-seeds-2026.json"),
@@ -74,7 +98,7 @@ function parseArgs(argv: string[]): CampaignOptions {
     maxIdsPerSeed: 400,
     maxStages: 1,
     auditSampleSize: 20,
-    reportDir: path.join("data", "runtime", "campaigns", `competitive-${new Date().toISOString().replace(/[:.]/g, "-")}`),
+    reportDir: path.join("data", "runtime", "campaigns", `competitive-${new Date().toISOString().replaceAll(":", "-").replaceAll(".", "-")}`),
     dryRun: false,
     resetCheckpoint: false,
     maxSeedDiscoveryFailures: 2,
@@ -83,85 +107,12 @@ function parseArgs(argv: string[]): CampaignOptions {
     maxNoViableRate: 0.1,
   };
 
-  for (let index = 0; index < argv.length; index += 1) {
-    const arg = argv[index];
-    const next = argv[index + 1];
-    switch (arg) {
-      case "--seed-path":
-        if (next) options.seedPath = next;
-        index += 1;
-        break;
-      case "--policy-path":
-        if (next) options.policyPath = next;
-        index += 1;
-        break;
-      case "--checkpoint-path":
-        if (next) options.checkpointPath = next;
-        index += 1;
-        break;
-      case "--quarantine-path":
-        if (next) options.quarantinePath = next;
-        index += 1;
-        break;
-      case "--target-matches":
-        options.targetMatches = Number(next ?? "2000");
-        index += 1;
-        break;
-      case "--stage-size":
-        options.stageSize = Number(next ?? "50");
-        index += 1;
-        break;
-      case "--count-per-seed":
-        options.countPerSeed = Number(next ?? "40");
-        index += 1;
-        break;
-      case "--max-ids-per-seed":
-        options.maxIdsPerSeed = Number(next ?? "400");
-        index += 1;
-        break;
-      case "--max-stages":
-        options.maxStages = Number(next ?? "1");
-        index += 1;
-        break;
-      case "--audit-sample-size":
-        options.auditSampleSize = Number(next ?? "20");
-        index += 1;
-        break;
-      case "--report-dir":
-        if (next) options.reportDir = next;
-        index += 1;
-        break;
-      case "--owner-user-id":
-        options.ownerUserId = next;
-        index += 1;
-        break;
-      case "--owner-email":
-        options.ownerEmail = next;
-        index += 1;
-        break;
-      case "--dry-run":
-        options.dryRun = true;
-        break;
-      case "--reset-checkpoint":
-        options.resetCheckpoint = true;
-        break;
-      case "--max-seed-discovery-failures":
-        options.maxSeedDiscoveryFailures = Number(next ?? "2");
-        index += 1;
-        break;
-      case "--refresh-discovery":
-        options.refreshDiscovery = true;
-        break;
-      case "--min-completed-rate":
-        options.minCompletedRate = Number(next ?? "0.9");
-        index += 1;
-        break;
-      case "--max-no-viable-rate":
-        options.maxNoViableRate = Number(next ?? "0.1");
-        index += 1;
-        break;
-      default:
-        break;
+  let index = 0;
+  while (index < argv.length) {
+    const handler = campaignArgHandlers[argv[index]];
+    index += 1;
+    if (handler?.(options, argv[index])) {
+      index += 1;
     }
   }
 
@@ -180,7 +131,7 @@ function buildArgs(base: string[], ...extras: Array<Array<string | undefined>>) 
     ...base,
     ...extras
       .flat()
-      .filter((value): value is string => Boolean(value)),
+      .filter(Boolean),
   ];
 }
 
@@ -275,6 +226,98 @@ function reportBasePath(reportDir: string, stage: number) {
   return path.join(reportDir, `stage-${stageTag}`);
 }
 
+function resolveCampaignStopReason(
+  qualityGatePassed: boolean,
+  runAuthFailureCount: number,
+  runCreatedCount: number,
+  stopReason: string | null,
+): string | null {
+  if (!qualityGatePassed) return "quality-gate-failed";
+  if (runAuthFailureCount > 0) return "auth-failure";
+  if (runCreatedCount === 0) return "plateau";
+  return stopReason;
+}
+
+async function runCampaignStage(options: CampaignOptions, stage: number): Promise<{
+  stageSummary: StageSummary;
+  stoppedReason: string | null;
+}> {
+  const stagePrefix = reportBasePath(options.reportDir, stage);
+  const importReportPath = `${stagePrefix}.import.json`;
+  const importMarkdownPath = `${stagePrefix}.import.md`;
+  const validationReportPath = `${stagePrefix}.validation.json`;
+  const validationMarkdownPath = `${stagePrefix}.validation.md`;
+  const throughputReportPath = `${stagePrefix}.throughput.json`;
+  const premiumDatasetAuditPath = `${stagePrefix}.premium-dataset.json`;
+
+  console.info(`[campaign] stage=${stage} import start tranche=${options.stageSize}`);
+  await runTsxScript("scripts/importCompetitiveMatches.ts", buildArgs([
+    "--seed-path", options.seedPath,
+    "--policy-path", options.policyPath,
+    "--checkpoint-path", options.checkpointPath,
+    "--quarantine-path", options.quarantinePath,
+    "--report-path", importReportPath,
+    "--markdown-report-path", importMarkdownPath,
+    "--target-matches", String(options.targetMatches),
+    "--count-per-seed", String(options.countPerSeed),
+    "--max-ids-per-seed", String(options.maxIdsPerSeed),
+    "--tranche-size", String(options.stageSize),
+    "--max-created-per-run", String(options.stageSize),
+    "--max-attempts-per-run", String(Math.max(options.stageSize * 2, options.stageSize + 10)),
+    "--max-auth-failures-per-run", "3",
+    "--max-seed-discovery-failures", String(options.maxSeedDiscoveryFailures),
+  ],
+  options.dryRun ? ["--dry-run"] : [],
+  options.ownerUserId ? ["--owner-user-id", options.ownerUserId] : [],
+  options.ownerEmail ? ["--owner-email", options.ownerEmail] : [],
+  options.resetCheckpoint ? ["--reset-checkpoint"] : [],
+  options.refreshDiscovery ? ["--refresh-discovery"] : [],
+  ), process.cwd());
+
+  const importReport = await safeReadJson<Record<string, unknown>>(importReportPath);
+  const runAuthFailureCount = Number(importReport.runAuthFailureCount ?? 0);
+  const runCreatedCount = Number(importReport.runCreatedCount ?? importReport.createdMatches ?? 0);
+  const stopReason = typeof importReport.stopReason === "string" ? importReport.stopReason : null;
+  console.info(`[campaign] stage=${stage} import done created=${runCreatedCount} authFailures=${runAuthFailureCount} stopReason=${stopReason ?? "none"}`);
+
+  console.info(`[campaign] stage=${stage} throughput audit start`);
+  const throughputReport = await runTsxScriptCaptureJson("scripts/reportCompetitiveThroughput.ts", ["--checkpoint-path", options.checkpointPath]);
+  await writeFile(throughputReportPath, `${JSON.stringify(throughputReport, null, 2)}\n`, "utf-8");
+
+  console.info(`[campaign] stage=${stage} premium dataset audit start`);
+  await runTsxScript("scripts/auditPremiumV1Dataset.ts", []);
+  await writeFile(premiumDatasetAuditPath, await readFile(path.resolve("reports", "premium-v1-dataset-audit.json"), "utf-8"), "utf-8");
+
+  console.info(`[campaign] stage=${stage} validation audit start sample=${options.auditSampleSize}`);
+  await runTsxScript("scripts/evaluateMatchBasedValidation.ts", [
+    "--sample-size", String(options.auditSampleSize),
+    "--report-path", validationReportPath,
+    "--markdown-report-path", validationMarkdownPath,
+  ]);
+  const validationReport = await safeReadJson<Record<string, unknown>>(validationReportPath);
+  const summarySection = validationReport.summary as { completedRate?: number; noViableSnapshotFoundRate?: number } | undefined;
+  const completedRate = Number(summarySection?.completedRate ?? 0);
+  const noViableRate = Number(summarySection?.noViableSnapshotFoundRate ?? 1);
+  const qualityGatePassed = completedRate >= options.minCompletedRate && noViableRate <= options.maxNoViableRate;
+
+  const stageSummary: StageSummary = {
+    stage, importReportPath, validationReportPath, throughputReportPath, premiumDatasetAuditPath,
+    throughputReport, importReport, validationReport, stopReason, qualityGatePassed,
+  };
+
+  const campaignCanContinue = runAuthFailureCount === 0
+    && runCreatedCount > 0
+    && qualityGatePassed
+    && !stopReason?.includes("max-auth-failures")
+    && !stopReason?.includes("max-created-per-run");
+
+  const stoppedReason = campaignCanContinue
+    ? null
+    : resolveCampaignStopReason(qualityGatePassed, runAuthFailureCount, runCreatedCount, stopReason);
+
+  return { stageSummary, stoppedReason };
+}
+
 function safeReadJson<T>(filePath: string): Promise<T> {
   return readFile(filePath, "utf-8").then((content) => JSON.parse(content) as T);
 }
@@ -326,111 +369,11 @@ async function main() {
   }
 
   for (let stage = 1; stage <= options.maxStages; stage += 1) {
-    const stagePrefix = reportBasePath(options.reportDir, stage);
-    const importReportPath = `${stagePrefix}.import.json`;
-    const importMarkdownPath = `${stagePrefix}.import.md`;
-    const validationReportPath = `${stagePrefix}.validation.json`;
-    const validationMarkdownPath = `${stagePrefix}.validation.md`;
-    const throughputReportPath = `${stagePrefix}.throughput.json`;
-    const premiumDatasetAuditPath = `${stagePrefix}.premium-dataset.json`;
+    const { stageSummary, stoppedReason } = await runCampaignStage(options, stage);
+    summary.stages.push(stageSummary);
 
-    console.info(`[campaign] stage=${stage} import start tranche=${options.stageSize}`);
-    await runTsxScript("scripts/importCompetitiveMatches.ts", buildArgs([
-      "--seed-path",
-      options.seedPath,
-      "--policy-path",
-      options.policyPath,
-      "--checkpoint-path",
-      options.checkpointPath,
-      "--quarantine-path",
-      options.quarantinePath,
-      "--report-path",
-      importReportPath,
-      "--markdown-report-path",
-      importMarkdownPath,
-      "--target-matches",
-      String(options.targetMatches),
-      "--count-per-seed",
-      String(options.countPerSeed),
-      "--max-ids-per-seed",
-      String(options.maxIdsPerSeed),
-      "--tranche-size",
-      String(options.stageSize),
-      "--max-created-per-run",
-      String(options.stageSize),
-      "--max-attempts-per-run",
-      String(Math.max(options.stageSize * 2, options.stageSize + 10)),
-      "--max-auth-failures-per-run",
-      "3",
-      "--max-seed-discovery-failures",
-      String(options.maxSeedDiscoveryFailures),
-    ],
-    options.dryRun ? ["--dry-run"] : [],
-    options.ownerUserId ? ["--owner-user-id", options.ownerUserId] : [],
-    options.ownerEmail ? ["--owner-email", options.ownerEmail] : [],
-    options.resetCheckpoint ? ["--reset-checkpoint"] : [],
-    options.refreshDiscovery ? ["--refresh-discovery"] : [],
-    ), process.cwd());
-
-    const importReport = await safeReadJson<Record<string, unknown>>(importReportPath);
-    const runAuthFailureCount = Number(importReport.runAuthFailureCount ?? 0);
-    const runCreatedCount = Number(importReport.runCreatedCount ?? importReport.createdMatches ?? 0);
-    const stopReason = typeof importReport.stopReason === "string" ? importReport.stopReason : null;
-
-    console.info(`[campaign] stage=${stage} import done created=${runCreatedCount} authFailures=${runAuthFailureCount} stopReason=${stopReason ?? "none"}`);
-
-    console.info(`[campaign] stage=${stage} throughput audit start`);
-    const throughputReport = await runTsxScriptCaptureJson("scripts/reportCompetitiveThroughput.ts", [
-      "--checkpoint-path",
-      options.checkpointPath,
-    ]);
-    await writeFile(throughputReportPath, `${JSON.stringify(throughputReport, null, 2)}\n`, "utf-8");
-
-    console.info(`[campaign] stage=${stage} premium dataset audit start`);
-    await runTsxScript("scripts/auditPremiumV1Dataset.ts", []);
-    const premiumDatasetSource = path.resolve("reports", "premium-v1-dataset-audit.json");
-    await writeFile(premiumDatasetAuditPath, await readFile(premiumDatasetSource, "utf-8"), "utf-8");
-
-    console.info(`[campaign] stage=${stage} validation audit start sample=${options.auditSampleSize}`);
-    await runTsxScript("scripts/evaluateMatchBasedValidation.ts", [
-      "--sample-size",
-      String(options.auditSampleSize),
-      "--report-path",
-      validationReportPath,
-      "--markdown-report-path",
-      validationMarkdownPath,
-    ]);
-    const validationReport = await safeReadJson<Record<string, unknown>>(validationReportPath);
-    const summarySection = validationReport.summary as {
-      completedRate?: number;
-      noViableSnapshotFoundRate?: number;
-    } | undefined;
-    const completedRate = Number(summarySection?.completedRate ?? 0);
-    const noViableRate = Number(summarySection?.noViableSnapshotFoundRate ?? 1);
-    const qualityGatePassed = completedRate >= options.minCompletedRate && noViableRate <= options.maxNoViableRate;
-
-    summary.stages.push({
-      stage,
-      importReportPath,
-      validationReportPath,
-      throughputReportPath,
-      premiumDatasetAuditPath,
-      throughputReport,
-      importReport,
-      validationReport,
-      stopReason,
-      qualityGatePassed,
-    });
-
-    const campaignCanContinue = runAuthFailureCount === 0 && runCreatedCount > 0 && qualityGatePassed && !stopReason?.includes("max-auth-failures") && !stopReason?.includes("max-created-per-run");
-    if (!campaignCanContinue) {
-      summary.stoppedReason = !qualityGatePassed
-        ? "quality-gate-failed"
-        : runAuthFailureCount > 0
-          ? "auth-failure"
-          : runCreatedCount === 0
-            ? "plateau"
-            : stopReason;
+    if (stoppedReason) {
+      summary.stoppedReason = stoppedReason;
       break;
     }
 
@@ -449,7 +392,9 @@ async function main() {
   await prisma.$disconnect();
 }
 
-main().catch(async (error) => {
+try {
+  await main();
+} catch (error) {
   console.error("[campaign] failed", error);
   try {
     await prisma.$disconnect();
@@ -457,4 +402,4 @@ main().catch(async (error) => {
     // ignore
   }
   process.exitCode = 1;
-});
+}
